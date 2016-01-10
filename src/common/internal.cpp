@@ -274,80 +274,6 @@ namespace tfs
       return INT_SIZE * 7;
     }
 
-    /*int BlockInfoExt::serialize(char* data, const int64_t data_len, int64_t& pos) const
-    {
-      int32_t ret = NULL != data && data_len - pos >= length() ? TFS_SUCCESS : TFS_ERROR;
-      if (TFS_SUCCESS == ret)
-      {
-        ret = block_info_.serialize(data, data_len, pos);
-      }
-      if (TFS_SUCCESS == ret)
-      {
-        ret = Serialization::set_int64(data, data_len, pos, family_id_);
-      }
-      return ret;
-    }
-
-    int BlockInfoExt::deserialize(const char* data, const int64_t data_len, int64_t& pos)
-    {
-      int32_t ret = NULL != data && data_len - pos >= length() ? TFS_SUCCESS : TFS_ERROR;
-      if (TFS_SUCCESS == ret)
-      {
-        ret = block_info_.deserialize(data, data_len, pos);
-      }
-      if (TFS_SUCCESS == ret)
-      {
-        ret = Serialization::get_int64(data, data_len, pos, &family_id_);
-      }
-      return ret;
-    }
-
-    int64_t BlockInfoExt::length() const
-    {
-      BlockInfo info;
-      return info.length() + INT64_SIZE;
-    }*/
-
-    /*int RawMeta::deserialize(const char* data, const int64_t data_len, int64_t& pos)
-    {
-
-      int32_t ret = NULL != data && data_len - pos >= length() ? TFS_SUCCESS : TFS_ERROR;
-      if (TFS_SUCCESS == ret)
-      {
-        ret = Serialization::get_int64(data, data_len, pos, reinterpret_cast<int64_t*>(&fileid_));
-      }
-      if (TFS_SUCCESS == ret)
-      {
-        ret = Serialization::get_int32(data, data_len, pos, &location_.inner_offset_);
-      }
-      if (TFS_SUCCESS == ret)
-      {
-        ret = Serialization::get_int32(data, data_len, pos, &location_.size_);
-      }
-      return ret;
-    }
-    int RawMeta::serialize(char* data, const int64_t data_len, int64_t& pos) const
-    {
-      int32_t ret = NULL != data && data_len - pos >= length() ? TFS_SUCCESS : TFS_ERROR;
-      if (TFS_SUCCESS == ret)
-      {
-        ret = Serialization::set_int64(data, data_len, pos, fileid_);
-      }
-      if (TFS_SUCCESS == ret)
-      {
-        ret = Serialization::set_int32(data, data_len, pos, location_.inner_offset_);
-      }
-      if (TFS_SUCCESS == ret)
-      {
-        ret = Serialization::set_int32(data, data_len, pos, location_.size_);
-      }
-      return ret;
-    }
-    int64_t RawMeta::length() const
-    {
-      return INT64_SIZE + INT_SIZE * 2;
-    }*/
-
     int ReplBlock::serialize(char* data, const int64_t data_len, int64_t& pos) const
     {
       int32_t ret = NULL != data && data_len - pos >= length() ? TFS_SUCCESS : TFS_ERROR;
@@ -626,11 +552,11 @@ namespace tfs
       }
       if (TFS_SUCCESS == ret)
       {
-        ret = Serialization::get_int32(data, data_len, pos, &current_time_);
+        ret = Serialization::get_int32(data, data_len, pos, reinterpret_cast<int32_t*>(&rack_id_));
       }
       if (TFS_SUCCESS == ret)
       {
-        ret = Serialization::get_int32(data, data_len, pos, &status_);
+        ret = Serialization::get_int32(data, data_len, pos, &type_);
       }
       if (TFS_SUCCESS == ret)
       {
@@ -702,11 +628,11 @@ namespace tfs
       }
       if (TFS_SUCCESS == ret)
       {
-        ret = Serialization::set_int32(data, data_len, pos, current_time_);
+        ret = Serialization::set_int32(data, data_len, pos, rack_id_);
       }
       if (TFS_SUCCESS == ret)
       {
-        ret = Serialization::set_int32(data, data_len, pos, status_);
+        ret = Serialization::set_int32(data, data_len, pos, type_);
       }
       if (TFS_SUCCESS == ret)
       {
@@ -1033,6 +959,10 @@ namespace tfs
       {
         ret = common::Serialization::set_int64(data, data_len, pos, value2_);
       }
+      if (common::TFS_SUCCESS == ret)
+      {
+        ret = common::Serialization::set_int64(data, data_len, pos, value5_);
+      }
       return ret;
     }
 
@@ -1061,12 +991,16 @@ namespace tfs
       {
         ret = common::Serialization::get_int64(data, data_len, pos, reinterpret_cast<int64_t*>(&value2_));
       }
+      if (common::TFS_SUCCESS == ret && data_len > pos)
+      {
+        ret = common::Serialization::get_int64(data, data_len, pos, &value5_);
+      }
       return ret;
     }
 
     int64_t ClientCmdInformation::length() const
     {
-      return common::INT_SIZE + common::INT64_SIZE * 4;
+      return common::INT_SIZE + common::INT64_SIZE * 5;
     }
 
     int ToolsClientCmdInformation::serialize(char* data, const int64_t data_len, int64_t& pos) const
@@ -1129,7 +1063,7 @@ namespace tfs
     bool MMapOption::check() const
     {
       return (max_mmap_size_ > 0 && first_mmap_size_ >= 0 && per_mmap_size_ > 0
-             && first_mmap_size_ <= max_mmap_size_ && per_mmap_size_ <= max_mmap_size_);
+          && first_mmap_size_ <= max_mmap_size_ && per_mmap_size_ <= max_mmap_size_);
     }
 
     int MMapOption::serialize(char* data, const int64_t data_len, int64_t& pos) const
@@ -1392,7 +1326,7 @@ namespace tfs
       std::cout << "version " << version_ << std::endl;
     }
 
-    const char* dynamic_parameter_str[56] = {
+    const char* dynamic_parameter_str[64] = {
         "log_level",
         "plan_run_flag",
         "task_expired_time",
@@ -1444,21 +1378,19 @@ namespace tfs
         "write_file_check_copies_complete",
         "choose_target_server_retry_max_nums",
         "max_marshalling_num",
-        "enable_old_interface",
-        "enable_version_check",
+        "check_integrity_interval_days",
+        "global_switch",
         "marshalling_visit_time",
+        "client_keepalive_interval",
         "verify_index_reserved_space_ratio",
-        "check_integrity_interval_days"
-    };
-
-    const char* planstr[PLAN_TYPE_EC_MARSHALLING+1] =
-    {
-      "replicate",
-      "reinstate",
-      "move",
-      "compact",
-      "dissolve",
-      "marshalling"
+        "max_block_size",
+        "block_safe_mode_time",
+        "between_ns_and_ds_lease_expire_time",
+        "between_ns_and_ds_lease_safe_time",
+        "between_ns_and_ds_lease_retry_times",
+        "between_ns_and_ds_lease_retry_expire_time",
+        "migrate_complete_wait_time",
+        "force_dissolve_max_block_size",
     };
 
     int FamilyInfo::deserialize(const char* data, const int64_t data_len, int64_t& pos)
@@ -1762,7 +1694,7 @@ namespace tfs
         len += (INT_SIZE + MEMBER_NUM * (INT64_SIZE + INT64_SIZE));
       }
       return len;
-   }
+    }
 
     int BlockMeta::serialize(char* data, const int64_t data_len, int64_t& pos) const
     {
@@ -2111,7 +2043,7 @@ namespace tfs
 
       if (TFS_SUCCESS == ret)
       {
-        ret = Serialization::set_int32(data, data_len, pos, data_crc_);
+         ret = Serialization::set_int32(data, data_len, pos, data_crc_);
       }
 
       return ret;
@@ -2178,12 +2110,13 @@ namespace tfs
 
       if (TFS_SUCCESS == ret)
       {
-         ret = Serialization::get_int32(data, data_len, pos, &last_check_time_);
+        ret = Serialization::get_int32(data, data_len, pos,
+            reinterpret_cast<int32_t* >(&last_check_time_));
       }
 
       if (TFS_SUCCESS == ret)
       {
-         ret = Serialization::get_int32(data, data_len, pos,
+        ret = Serialization::get_int32(data, data_len, pos,
             reinterpret_cast<int32_t* >(&data_crc_));
       }
 
@@ -2609,6 +2542,347 @@ namespace tfs
       return INT64_SIZE * 2;
     }
 
+    int BlockLease::deserialize(const char* data, const int64_t data_len, int64_t& pos)
+    {
+      int32_t ret = NULL != data && data_len - pos >= length() ? TFS_SUCCESS : TFS_ERROR;
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int64(data, data_len, pos, reinterpret_cast<int64_t*>(&block_id_));
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int32(data, data_len, pos, &size_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        for (int index = 0; index < size_ && TFS_SUCCESS == ret; index++)
+        {
+          ret = Serialization::get_int64(data, data_len, pos, reinterpret_cast<int64_t*>(&servers_[index]));
+        }
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int32(data, data_len, pos, &result_);
+      }
+
+      return ret;
+    }
+
+    int BlockLease::serialize(char* data, const int64_t data_len, int64_t& pos) const
+    {
+      int32_t ret = NULL != data && data_len - pos >= length() ? TFS_SUCCESS : TFS_ERROR;
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int64(data, data_len, pos, block_id_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int32(data, data_len, pos, size_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        for (int index = 0; index < size_ && TFS_SUCCESS == ret; index++)
+        {
+          ret = Serialization::set_int64(data, data_len, pos, servers_[index]);
+        }
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int32(data, data_len, pos, result_);
+      }
+
+      return ret;
+    }
+
+    int64_t BlockLease::length() const
+    {
+      return INT64_SIZE + 2 * INT_SIZE + size_ * INT64_SIZE;
+    }
+
+    int LeaseMeta::deserialize(const char* data, const int64_t data_len, int64_t& pos)
+    {
+      int32_t ret = NULL != data && data_len - pos >= length() ? TFS_SUCCESS : TFS_ERROR;
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int64(data, data_len, pos, reinterpret_cast<int64_t*>(&lease_id_));
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int32(data, data_len, pos, &lease_expire_time_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int32(data, data_len, pos, &lease_renew_time_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int32(data, data_len, pos, &renew_retry_times_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int32(data, data_len, pos, &renew_retry_timeout_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int32(data, data_len, pos, &max_mr_network_bandwith_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int32(data, data_len, pos, &max_rw_network_bandwith_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int32(data, data_len, pos, &ns_role_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int32(data, data_len, pos, &max_block_size_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int32(data, data_len, pos, &max_write_file_count_);
+      }
+
+			if (TFS_SUCCESS == ret)
+			{
+				ret = Serialization::get_int32(data, data_len, pos,&verify_index_reserved_space_ratio_);
+			}
+			if (TFS_SUCCESS == ret)
+			{
+				ret = Serialization::get_int32(data, data_len, pos, &check_integrity_interval_days_);
+			}
+
+			if (TFS_SUCCESS == ret)
+			{
+				ret = Serialization::get_int32(data, data_len, pos,&global_switch_);
+			}
+
+      if (TFS_SUCCESS == ret)
+      {
+        for (int index = 0; index < 4 && TFS_SUCCESS == ret; index++)
+        {
+          ret = Serialization::get_int32(data, data_len, pos, &reserve_[index]);
+        }
+      }
+
+      return ret;
+    }
+
+    int LeaseMeta::serialize(char* data, const int64_t data_len, int64_t& pos) const
+    {
+      int32_t ret = NULL != data && data_len - pos >= length() ? TFS_SUCCESS : TFS_ERROR;
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int64(data, data_len, pos, lease_id_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int32(data, data_len, pos, lease_expire_time_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int32(data, data_len, pos, lease_renew_time_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int32(data, data_len, pos, renew_retry_times_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int32(data, data_len, pos, renew_retry_timeout_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int32(data, data_len, pos, max_mr_network_bandwith_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int32(data, data_len, pos, max_rw_network_bandwith_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int32(data, data_len, pos, ns_role_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int32(data, data_len, pos, max_block_size_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int32(data, data_len, pos, max_write_file_count_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int32(data, data_len, pos,verify_index_reserved_space_ratio_);
+      }
+			if (TFS_SUCCESS == ret)
+			{
+        ret = Serialization::set_int32(data, data_len, pos, check_integrity_interval_days_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int32(data, data_len, pos,global_switch_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        for (int index = 0; index < 4 && TFS_SUCCESS == ret; index++)
+        {
+          ret = Serialization::set_int32(data, data_len, pos, reserve_[index]);
+        }
+      }
+
+      return ret;
+    }
+
+    int64_t LeaseMeta::length() const
+    {
+      return INT64_SIZE + 16 * INT_SIZE;
+    }
+
+    int SyncFileEntry::deserialize(const char* data, const int64_t data_len, int64_t& pos)
+    {
+      int32_t ret = NULL != data && data_len - pos >= length() ? TFS_SUCCESS : TFS_ERROR;
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int64(data, data_len, pos, &app_id_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int64(data, data_len, pos, reinterpret_cast<int64_t*>(&block_id_));
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int64(data, data_len, pos, reinterpret_cast<int64_t*>(&file_id_));
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int64(data, data_len, pos, reinterpret_cast<int64_t*>(&source_ds_addr_));
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int64(data, data_len, pos, reinterpret_cast<int64_t*>(&source_ns_addr_));
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int64(data, data_len, pos, reinterpret_cast<int64_t*>(&dest_ns_addr_));
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int16(data, data_len, pos, &type_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        for (int32_t index = 0; index < 2; ++index)
+        {
+          ret = Serialization::get_int64(data, data_len, pos, &reserve_[index]);
+        }
+      }
+      return ret;
+    }
+
+    int SyncFileEntry::serialize(char* data, const int64_t data_len, int64_t& pos) const
+    {
+      int32_t ret = NULL != data && data_len - pos >= length() ? TFS_SUCCESS : TFS_ERROR;
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int64(data, data_len, pos, app_id_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int64(data, data_len, pos, block_id_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int64(data, data_len, pos, file_id_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int64(data, data_len, pos, source_ds_addr_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int64(data, data_len, pos, source_ns_addr_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int64(data, data_len, pos, dest_ns_addr_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int16(data, data_len, pos, type_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        for (int32_t index = 0; index < 2; ++index)
+        {
+          ret = Serialization::set_int64(data, data_len, pos, reserve_[index]);
+        }
+      }
+      return ret;
+    }
+
+    int64_t SyncFileEntry::length() const
+    {
+      return INT64_SIZE * 8 + INT16_SIZE;
+    }
+
+    bool SyncFileEntry::check_need_sync(const time_t now) const
+    {
+      bool ret = 0 == sync_fail_count_;
+      if (!ret)
+      {
+        //这里可以设计一些同步失败后的策略
+        ret = now - last_sync_time_ >= 30;//30s
+      }
+      return ret;
+    }
+
+    void SyncFileEntry::dump(const int32_t level, const char* file, const int32_t line,
+                const char* function, pthread_t thid, const char* format, ...)
+    {
+      if (level <= TBSYS_LOGGER._level)
+      {
+        char msgstr[256] = {'\0'};/** include '\0'*/
+        va_list ap;
+        va_start(ap, format);
+        vsnprintf(msgstr, 256, NULL == format ? "" : format, ap);
+        va_end(ap);
+        std::stringstream str;
+        TBSYS_LOGGER.logMessage(level, file, line, function, thid,
+          "%s, app_id: %"PRI64_PREFIX"d, block_id: %"PRI64_PREFIX"u, file_id: %"PRI64_PREFIX"u, dest_ns_addr: %s, source_ds addr: %s, source ns addr: %s type: %d\
+          last_sync_time: %d, sync_fail_count: %u",
+            msgstr, app_id_, block_id_, file_id_, tbsys::CNetUtil::addrToString(dest_ns_addr_).c_str(),
+            tbsys::CNetUtil::addrToString(source_ds_addr_).c_str(),
+            tbsys::CNetUtil::addrToString(source_ns_addr_).c_str(), type_, last_sync_time_, sync_fail_count_);
+      }
+    }
 
     int CheckParam::serialize(char* data, const int64_t data_len, int64_t& pos) const
     {
@@ -2732,29 +3006,6 @@ namespace tfs
       return INT64_SIZE + INT_SIZE + INT16_SIZE * 3;
     }
 
-   void FileInfoV2ToFileStat(const FileInfoV2& info, TfsFileStat& buf)
-   {
-      buf.file_id_ = info.id_;
-      buf.offset_ = info.offset_;
-      buf.size_ = info.size_ - FILEINFO_EXT_SIZE;//通过blockid从ds批量拉取fileinfo会比数据实际大小多这4个字节
-      buf.usize_ = buf.size_;
-      buf.modify_time_ = info.modify_time_;
-      buf.create_time_ = info.create_time_;
-      buf.flag_ = info.status_;
-      buf.crc_ = info.crc_;
-   }
-
-   void FileStatToFileInfoV2(const TfsFileStat& info, FileInfoV2& buf)
-   {
-      buf.id_ = info.file_id_;
-      buf.offset_ = info.offset_;
-      buf.size_ = info.size_ + FILEINFO_EXT_SIZE;
-      buf.modify_time_ = info.modify_time_;
-      buf.create_time_ = info.create_time_;
-      buf.status_ = info.flag_;
-      buf.crc_    = info.crc_;
-   }
-
     int ClusterConfig::serialize(char* data, const int64_t data_len, int64_t& pos) const
     {
       int32_t ret = NULL != data && data_len - pos >= length() ? TFS_SUCCESS : TFS_ERROR;
@@ -2776,7 +3027,15 @@ namespace tfs
       }
       if (TFS_SUCCESS == ret)
       {
-        for (int i = 0; i < 4; i++)
+        Serialization::set_int32(data, data_len, pos, business_port_num_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        Serialization::set_int32(data, data_len, pos, migrate_complete_wait_time_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        for (int i = 0; i < 2; i++)
         {
           Serialization::set_int32(data, data_len, pos, reserve_[i]);
         }
@@ -2805,7 +3064,15 @@ namespace tfs
       }
       if (TFS_SUCCESS == ret)
       {
-        for (int i = 0; i < 4; i++)
+        Serialization::get_int32(data, data_len, pos, &business_port_num_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        Serialization::get_int32(data, data_len, pos, &migrate_complete_wait_time_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        for (int i = 0; i < 2; i++)
         {
           Serialization::get_int32(data, data_len, pos, &reserve_[i]);
         }
@@ -2813,9 +3080,140 @@ namespace tfs
       return ret;
     }
 
+    int ServerStat::serialize(tbnet::DataBuffer& output, int32_t& length)
+    {
+      output.writeInt64(id_);
+      output.writeInt64(use_capacity_);
+      output.writeInt64(total_capacity_);
+      output.writeInt32(current_load_);
+      output.writeInt32(block_count_);
+      //output.writeInt64(last_update_time_);
+      output.writeInt32(rack_id_);
+      output.writeInt32(reserve_);
+      output.writeInt64(startup_time_);
+
+      output.writeInt64(total_tp_.write_byte_);
+      output.writeInt64(total_tp_.read_byte_);
+      output.writeInt64(total_tp_.write_file_count_);
+      output.writeInt64(total_tp_.read_file_count_);
+      output.writeInt64(total_tp_.unlink_file_count_);
+      output.writeInt64(total_tp_.fail_write_byte_);
+      output.writeInt64(total_tp_.fail_read_byte_);
+      output.writeInt64(total_tp_.fail_write_file_count_);
+      output.writeInt64(total_tp_.fail_read_file_count_);
+      output.writeInt64(total_tp_.fail_unlink_file_count_);
+
+      output.writeInt64(current_time_);
+      output.writeInt32(status_);
+      output.writeInt64(rb_expired_time_);
+      output.writeInt64(next_report_block_time_);
+      output.writeInt8(disk_type_);
+      output.writeInt8(rb_status_);
+
+      length += (output.getDataLen());
+
+      return TFS_SUCCESS;
+    }
+
+    int ServerStat::deserialize(tbnet::DataBuffer& input, const int32_t length, int32_t& offset)
+    {
+      int32_t ret = TFS_SUCCESS;
+      if (input.getDataLen() <= 0 || offset >= length)
+      {
+        ret = EXIT_PARAMETER_ERROR;
+      }
+      else
+      {
+        int32_t len = input.getDataLen();
+        id_ = input.readInt64();
+        use_capacity_ = input.readInt64();
+        total_capacity_ = input.readInt64();
+        current_load_ = input.readInt32();
+        block_count_  = input.readInt32();
+        //last_update_time_ = input.readInt64();
+        rack_id_ = input.readInt32();
+        reserve_ = input.readInt32();
+        startup_time_ = input.readInt64();
+        total_tp_.write_byte_ = input.readInt64();
+        total_tp_.read_byte_ = input.readInt64();
+        total_tp_.write_file_count_ = input.readInt64();
+        total_tp_.read_file_count_ = input.readInt64();
+        total_tp_.unlink_file_count_ = input.readInt64();
+        total_tp_.fail_write_byte_ = input.readInt64();
+        total_tp_.fail_read_byte_ = input.readInt64();
+        total_tp_.fail_write_file_count_ = input.readInt64();
+        total_tp_.fail_read_file_count_ = input.readInt64();
+        total_tp_.fail_unlink_file_count_ = input.readInt64();
+        current_time_ = input.readInt64();
+        status_ = (DataServerLiveStatus)input.readInt32();
+        rb_expired_time_ = input.readInt64();
+        next_report_block_time_ = input.readInt64();
+        disk_type_ = input.readInt8();
+        rb_status_ = input.readInt8();
+
+        offset += (len - input.getDataLen());
+      }
+      return ret;
+    }
+
     int64_t ClusterConfig::length() const
     {
       return INT_SIZE * 8;
+    }
+
+   void FileInfoV2ToFileStat(const FileInfoV2& info, TfsFileStat& buf)
+   {
+      buf.file_id_ = info.id_;
+      buf.offset_ = info.offset_;
+      buf.size_ = info.size_ - FILEINFO_EXT_SIZE;//通过blockid从ds批量拉取fileinfo会比数据实际大小多这4个字节
+      buf.usize_ = buf.size_;
+      buf.modify_time_ = info.modify_time_;
+      buf.create_time_ = info.create_time_;
+      buf.flag_ = info.status_;
+      buf.crc_ = info.crc_;
+   }
+
+   void FileStatToFileInfoV2(const TfsFileStat& info, FileInfoV2& buf)
+   {
+      buf.id_ = info.file_id_;
+      buf.offset_ = info.offset_;
+      buf.size_ = info.size_ + FILEINFO_EXT_SIZE;
+      buf.modify_time_ = info.modify_time_;
+      buf.create_time_ = info.create_time_;
+      buf.status_ = info.flag_;
+      buf.crc_    = info.crc_;
+   }
+
+    const char* plan_type_to_str(const PlanType type)
+    {
+      const char* typestr = "unknown";
+      switch (type)
+      {
+        case PLAN_TYPE_REPLICATE:
+          typestr = "replicate";
+          break;
+        case PLAN_TYPE_EC_REINSTATE:
+          typestr = "reinstate";
+          break;
+        case PLAN_TYPE_RESOLVE_VERSION_CONFLICT:
+          typestr = "resolve_conflict";
+          break;
+        case PLAN_TYPE_MOVE:
+          typestr = "move";
+          break;
+        case PLAN_TYPE_COMPACT:
+          typestr = "compact";
+          break;
+        case PLAN_TYPE_EC_DISSOLVE:
+          typestr = "dissolve";
+          break;
+        case PLAN_TYPE_EC_MARSHALLING:
+          typestr = "marshalling";
+          break;
+        default:
+          break;
+      }
+      return typestr;
     }
 
 

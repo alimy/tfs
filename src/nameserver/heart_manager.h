@@ -31,57 +31,10 @@ namespace tfs
   namespace nameserver
   {
     class NameServer;
-    class HeartManagement: public tbnet::IServerAdapter
-    {
-    public:
-      explicit HeartManagement(NameServer& manager);
-      virtual ~HeartManagement();
-      int initialize(const int32_t keepalive_thread_count, const int32_t report_block_thread_count, const int32_t port);
-      void wait_for_shut_down();
-      void destroy();
-
-      /** handle single packet */
-      virtual tbnet::IPacketHandler::HPRetCode handlePacket(tbnet::Connection *connection, tbnet::Packet *packet);
-
-      int push(common::BasePacket* msg);
-    private:
-      class KeepAliveIPacketQueueHeaderHelper : public tbnet::IPacketQueueHandler
-      {
-      public:
-        explicit KeepAliveIPacketQueueHeaderHelper(HeartManagement& manager): manager_(manager){};
-        virtual ~KeepAliveIPacketQueueHeaderHelper() {}
-        virtual bool handlePacketQueue(tbnet::Packet* packet, void *args);
-      private:
-        DISALLOW_COPY_AND_ASSIGN(KeepAliveIPacketQueueHeaderHelper);
-        HeartManagement& manager_;
-      };
-      class ReportBlockIPacketQueueHeaderHelper: public tbnet::IPacketQueueHandler
-      {
-      public:
-        explicit ReportBlockIPacketQueueHeaderHelper(HeartManagement& manager): manager_(manager){};
-        virtual ~ReportBlockIPacketQueueHeaderHelper(){}
-        virtual bool handlePacketQueue(tbnet::Packet* packet, void *args);
-      private:
-        DISALLOW_COPY_AND_ASSIGN(ReportBlockIPacketQueueHeaderHelper);
-        HeartManagement& manager_;
-      };
-    private:
-      DISALLOW_COPY_AND_ASSIGN(HeartManagement);
-      int keepalive(tbnet::Packet* packet);
-      int report_block(tbnet::Packet* packet);
-      NameServer& manager_;
-      common::BasePacketFactory* packet_factory_;
-      common::BasePacketStreamer* streamer_;
-      tbnet::Transport* transport_;
-      tbnet::PacketQueueThread keepalive_threads_;
-      tbnet::PacketQueueThread report_block_threads_;
-      KeepAliveIPacketQueueHeaderHelper keepalive_queue_header_;
-      ReportBlockIPacketQueueHeaderHelper report_block_queue_header_;
-    };
-
+    class HeartManagement;
     class NameServerHeartManager: public tbnet::IPacketQueueHandler
     {
-        friend class NameServer;
+        friend class HeartManagement;
      public:
         explicit NameServerHeartManager(LayoutManager& manager);
         virtual ~NameServerHeartManager();
@@ -120,6 +73,60 @@ namespace tfs
         CheckThreadHelperPtr check_thread_;
         tbnet::PacketQueueThread work_thread_;
     };
+
+    class HeartManagement: public tbnet::IServerAdapter
+    {
+    public:
+      explicit HeartManagement(NameServer& manager);
+      virtual ~HeartManagement();
+      int initialize(const int32_t keepalive_thread_count, const int32_t report_block_thread_count, const int32_t base_port);
+      void wait_for_shut_down();
+      void destroy();
+
+      /** handle single packet */
+      virtual tbnet::IPacketHandler::HPRetCode handlePacket(tbnet::Connection *connection, tbnet::Packet *packet);
+
+    private:
+      class KeepAliveIPacketQueueHeaderHelper : public tbnet::IPacketQueueHandler
+      {
+      public:
+        explicit KeepAliveIPacketQueueHeaderHelper(HeartManagement& manager): manager_(manager){};
+        virtual ~KeepAliveIPacketQueueHeaderHelper() {}
+        virtual bool handlePacketQueue(tbnet::Packet* packet, void *args);
+      private:
+        const char* transform_type_to_str_(const int32_t type);
+        DISALLOW_COPY_AND_ASSIGN(KeepAliveIPacketQueueHeaderHelper);
+        HeartManagement& manager_;
+      };
+      class ReportBlockIPacketQueueHeaderHelper: public tbnet::IPacketQueueHandler
+      {
+      public:
+        explicit ReportBlockIPacketQueueHeaderHelper(HeartManagement& manager): manager_(manager){};
+        virtual ~ReportBlockIPacketQueueHeaderHelper(){}
+        virtual bool handlePacketQueue(tbnet::Packet* packet, void *args);
+      private:
+        DISALLOW_COPY_AND_ASSIGN(ReportBlockIPacketQueueHeaderHelper);
+        HeartManagement& manager_;
+      };
+    private:
+      DISALLOW_COPY_AND_ASSIGN(HeartManagement);
+      int apply_(tbnet::Packet* packet);
+      int renew_(tbnet::Packet* packet);
+      int giveup_(tbnet::Packet* packet);
+      int report_block_(tbnet::Packet* packet);
+    private:
+      NameServer& manager_;
+      common::BasePacketFactory* packet_factory_;
+      common::BasePacketStreamer* streamer_[common::MAX_LISTEN_PORT_NUM];
+      tbnet::Transport* transport_[common::MAX_LISTEN_PORT_NUM];
+      tbnet::PacketQueueThread keepalive_threads_[common::MAX_LISTEN_PORT_NUM];
+      tbnet::PacketQueueThread report_block_threads_[common::MAX_LISTEN_PORT_NUM];
+      KeepAliveIPacketQueueHeaderHelper keepalive_queue_header_;
+      ReportBlockIPacketQueueHeaderHelper report_block_queue_header_;
+      NameServerHeartManager master_slave_heart_manager_;
+    };
+
+
   }/** end namespace nameserver **/
 }/** end namespace tfs **/
 #endif

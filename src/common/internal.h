@@ -132,6 +132,7 @@ namespace tfs
     static const int64_t MAX_CMD_SIZE = 1024;
     static const int32_t MAX_BATCH_SIZE = 8;
 
+    static const uint32_t INVALID_OP_ID = 0;
     static const uint32_t INVALID_LEASE_ID = 0;
     static const uint32_t INVALID_BLOCK_ID = 0;
     static const int64_t  INVALID_FAMILY_ID = 0;
@@ -169,7 +170,6 @@ namespace tfs
     static const uint32_t DEFAULT_UPDATE_KMT_FAIL_COUNT = 10;
     static const uint32_t DEFAULT_UPDATE_DST_INTERVAL_COUNT = 1000;
     static const uint32_t DEFAULT_UPDATE_DST_FAIL_COUNT = 10;
-
     // unit ms
     static const int64_t DEFAULT_STAT_INTERNAL = 60000; // 1min
     static const int64_t DEFAULT_GC_INTERNAL = 43200000; // 12h
@@ -185,7 +185,7 @@ namespace tfs
 
     static const int32_t MAX_REPLICATION_NUM = 8;
 
-    static const int32_t MAX_DATA_MEMBER_NUM = 8;
+    static const int32_t MAX_DATA_MEMBER_NUM = 12;
     static const int32_t MAX_CHECK_MEMBER_NUM = 4;
     static const int32_t MAX_MARSHALLING_NUM = MAX_DATA_MEMBER_NUM + MAX_CHECK_MEMBER_NUM;
     static const int32_t MAX_MARSHALLING_BLOCK_SIZE_LIMIT = 76 * 1024 * 1024;
@@ -216,9 +216,13 @@ namespace tfs
     static const int32_t MAX_MAIN_AND_EXT_BLOCK_SIZE = 320 * 1024 * 1024;
 
     static const int32_t MAX_SINGLE_FILE_SIZE = 16 * 1024 * 1024;//16MB
+    static const int32_t MAX_SINGLE_DISK_BLOCK_COUNT = UINT16_MAX;
+    static const int32_t MAX_WRITABLE_BLOCK_COUNT = 256;
     static const int32_t MAX_TRANSFER_FILE_SIZE = 4 * 1024 * 1024;
 
     static const int32_t VERSION_DIFF = 1;
+
+    static const int32_t MAX_SYNC_FILE_ENTRY_COUNT = 32;
 
     //http
     static const char* const HTTP_PROTOCOL = "HTTP/1.1";
@@ -226,14 +230,25 @@ namespace tfs
     static const int32_t HTTP_BLANK_LENGTH = 1;
 
     static const int32_t VERIFY_INDEX_RESERVED_SPACKE_DEFAULT_RATIO = 2;
+    static const int32_t BLOCK_VERSION_INIT_VALUE = 0;
     static const int32_t CHECK_INTEGRITY_INTERVAL_DAYS_DEFAULT = 0;
+
+    static const int32_t MAX_LISTEN_PORT_NUM = 64;
+
+    enum NsRole
+    {
+      NS_ROLE_NONE = 0x00,
+      NS_ROLE_MASTER,
+      NS_ROLE_SLAVE
+    };
 
     enum VersionStep
     {
       VERSION_INC_STEP_NONE = 0,
       VERSION_INC_STEP_DEFAULT = 1,
       VERSION_INC_STEP_REPLICATE = 2,
-      VERSION_INC_STEP_COMPACT = 2
+      VERSION_INC_STEP_COMPACT = 2,
+      VERSION_INC_STEP_REINSTATE = 2
     };
 
     enum OplogFlag
@@ -286,10 +301,10 @@ namespace tfs
     };
 
     /*enum HasBlockFlag
-    {
+      {
       HAS_BLOCK_FLAG_NO = 0x0,
       HAS_BLOCK_FLAG_YES
-    };*/
+      };*/
 
     enum GetServerStatusType
     {
@@ -298,7 +313,8 @@ namespace tfs
       GSS_BLOCK_RAW_META_INFO,
       GSS_CLIENT_ACCESS_INFO,
       GSS_BLOCK_FILE_INFO_V2,
-      GSS_BLOCK_STATISTIC_VISIT_INFO
+      GSS_BLOCK_STATISTIC_VISIT_INFO,
+      GSS_DATASEVER_INFO
     };
 
     enum CheckDsBlockType
@@ -321,6 +337,12 @@ namespace tfs
       REPLICATE_BLOCK_MOVE_FLAG_YES
     };
 
+    enum MoveBlockNoCheckRackFlag
+    {
+      MOVE_BLOCK_NO_CHECK_RACK_FLAG_NO = 0x00,
+      MOVE_BLOCK_NO_CHECK_RACK_FLAG_YES
+    };
+
     enum WriteCompleteStatus
     {
       WRITE_COMPLETE_STATUS_YES = 0x00,
@@ -335,11 +357,11 @@ namespace tfs
     };
 
     /*enum SsmType
-    {
+      {
       SSM_BLOCK = 1,
       SSM_SERVER = 2,
       SSM_WBLIST = 4
-    };*/
+      };*/
 
     enum ServerStatus
     {
@@ -382,14 +404,12 @@ namespace tfs
     {
       PLAN_TYPE_REPLICATE = 0,
       PLAN_TYPE_EC_REINSTATE,
+      PLAN_TYPE_RESOLVE_VERSION_CONFLICT,
       PLAN_TYPE_MOVE,
       PLAN_TYPE_COMPACT,
       PLAN_TYPE_EC_DISSOLVE,
       PLAN_TYPE_EC_MARSHALLING
     };
-
-    // order shoule be consistent with PlanType
-    extern const char* planstr[PLAN_TYPE_EC_MARSHALLING + 1];
 
     enum PlanStatus
     {
@@ -414,11 +434,12 @@ namespace tfs
       PLAN_RUN_FLAG_REPLICATE = 1,
       PLAN_RUN_FLAG_MOVE = 1 << 1,
       PLAN_RUN_FLAG_COMPACT = 1 << 2,
-      PLAN_RUN_FLAG_ADJUST_COPIES_LOCATION = 1 << 3,
-      PLAN_RUN_FALG_MARSHALLING = 1 << 4,
-      PLAN_RUN_FALG_REINSTATE = 1 << 5,
-      PLAN_RUN_FALG_DISSOLVE  = 1 << 6
+      PLAN_RUN_FALG_MARSHALLING = 1 << 3,
+      PLAN_RUN_FALG_REINSTATE = 1 << 4,
+      PLAN_RUN_FALG_DISSOLVE  = 1 << 5
     };
+
+    const char* plan_type_to_str(const PlanType type);
 
     enum DeleteExcessBackupStrategy
     {
@@ -437,7 +458,8 @@ namespace tfs
     {
       SSM_CHILD_BLOCK_TYPE_INFO   = 0x01,
       SSM_CHILD_BLOCK_TYPE_SERVER = 0x02,
-      SSM_CHILD_BLOCK_TYPE_FULL = 0x04
+      SSM_CHILD_BLOCK_TYPE_FULL   = 0x04,
+      SSM_CHILD_BLOCK_TYPE_STATUS = 0x08
     };
 
     enum SSMChildServerType
@@ -480,11 +502,19 @@ namespace tfs
       TFS_FILE_NAME_V2
     };
 
-    /*enum BlkType
+    enum DataServerDiskType
     {
-      BLOCK_TYPE_DATA_BLOCK = 0,
-      BLOCK_TYPE_CHECK_BLOCK
-    };*/
+      DATASERVER_DISK_TYPE_FULL   = 0,//data disk
+      DATASERVER_DISK_TYPE_SYSTEM = 1//system disk
+    };
+
+    enum DsTableType
+    {
+      DS_TABLE_ALL = 0,
+      DS_TABLE_FULL = 1,
+      DS_TABLE_SYSTEM = 2,
+      DS_TABLE_NONE = 3
+    };
 
     struct SSMScanParameter
     {
@@ -584,7 +614,7 @@ namespace tfs
       int32_t source_num_;
 
       ReplBlock(): block_id_(INVALID_BLOCK_ID), destination_id_(INVALID_SERVER_ID),
-        start_time_(0), is_move_(0), source_num_(0)
+      start_time_(0), is_move_(0), source_num_(0)
       {
       }
     };
@@ -642,8 +672,8 @@ namespace tfs
       int32_t block_count_;
       int32_t last_update_time_;
       int32_t startup_time_;
-      int32_t current_time_;
-      int32_t status_;
+      uint32_t rack_id_;
+      int32_t type_;
       int32_t total_network_bandwith_;
     };
 
@@ -743,6 +773,7 @@ namespace tfs
       int64_t value2_;
       int64_t value3_;
       int64_t value4_;
+      int64_t value5_;
       int32_t  cmd_;
       int serialize(char* data, const int64_t data_len, int64_t& pos) const;
       int deserialize(const char* data, const int64_t data_len, int64_t& pos);
@@ -879,10 +910,11 @@ namespace tfs
     typedef enum _ClearSystemTableFlag
     {
       CLEAR_SYSTEM_TABLE_FLAG_TASK = 1,
-      CLEAR_SYSTEM_TABLE_FLAG_WRITE_BLOCK = 1 << 1,
-      CLEAR_SYSTEM_TABLE_FLAG_REPORT_SERVER = 1 << 2,
+      CLEAR_SYSTEM_TABLE_REPLICATE_QUEUE = 1 << 1,
       CLEAR_SYSTEM_TABLE_FLAG_DELETE_QUEUE  = 1 << 3,
-      CLEAR_SYSTEM_TABLE_FLAG_MARSHALLING_QUEUE = 1 << 4
+      CLEAR_SYSTEM_TABLE_FLAG_MARSHALLING_QUEUE = 1 << 4,
+      CLEAR_SYSTEM_TABLE_FLAG_REI_OR_DIS_QUEUE = 1 << 5,
+      CLEAR_SYSTEM_TABLE_CLEAN_FAMILYINFO_QUEUE = 1 << 6,
     }ClearSystemTableFlag;
     typedef enum _FamilyMemberStatus
     {
@@ -979,7 +1011,7 @@ namespace tfs
     };
 
     /*struct RawIndex
-    {
+      {
       uint32_t block_id_;
       char* data_;
       uint32_t size_;
@@ -990,33 +1022,33 @@ namespace tfs
 
       RawIndex(const uint32_t block_id, char* data, const uint32_t size)
       {
-        block_id_ = block_id;
-        data_ = data;
-        size_ = size;
+      block_id_ = block_id;
+      data_ = data;
+      size_ = size;
       }
-    };
+      };
 
-    enum RawIndexOp
-    {
+      enum RawIndexOp
+      {
       OP_NOT_INIT,
       WRITE_DATA_INDEX,
       WRITE_PARITY_INDEX,
       READ_DATA_INDEX,
       READ_PARITY_INDEX
-    };
+      };
 
-    enum RawDataType
-    {
+      enum RawDataType
+      {
       NORMAL_DATA = 1,
       PARITY_DATA
-    };
+      };
 
-    typedef enum _ReportBlockType
-    {
+      typedef enum _ReportBlockType
+      {
       REPORT_BLOCK_TYPE_ALL = 0,
       REPORT_BLOCK_TYPE_PART,
       REPORT_BLOCK_TYPE_RELIEVE
-    }ReportBlockType;*/
+      }ReportBlockType;*/
 
     enum RepairType
     {
@@ -1043,8 +1075,8 @@ namespace tfs
       uint64_t ds_[MAX_REPLICATION_NUM];
       int32_t size_;
       int32_t version_;
-      int32_t result_;    // unused
-      int32_t reserve_;   // unused
+      int32_t result_;
+      int32_t reserve_;
       FamilyInfoExt family_info_;
 
       int deserialize(const char* data, const int64_t data_len, int64_t& pos);
@@ -1074,19 +1106,19 @@ namespace tfs
       }
     };
 
-    extern const char* dynamic_parameter_str[56];
+    extern const char* dynamic_parameter_str[64];
 
-    #pragma pack (1)
+#pragma pack (1)
     struct FileInfoV2//30
     {
-    	uint64_t id_;//file id
-    	int32_t  offset_; //offset in block file
-    	int32_t  size_:28;// file size
-    	int8_t   status_:4;//delete flag
-    	uint32_t crc_; // checksum
-    	int32_t  modify_time_;//modify time
-    	int32_t create_time_; // create time
-    	uint16_t next_;      //next index
+      uint64_t id_;//file id
+      int32_t  offset_; //offset in block file
+      int32_t  size_:28;// file size
+      int8_t   status_:4;//delete flag
+      uint32_t crc_; // checksum
+      int32_t  modify_time_;//modify time
+      int32_t create_time_; // create time
+      uint16_t next_;      //next index
 
       FileInfoV2()
       {
@@ -1097,16 +1129,16 @@ namespace tfs
       int serialize(char* data, const int64_t data_len, int64_t& pos) const;
       int64_t length() const;
     };
-    #pragma pack()
+#pragma pack()
 
     struct FileInfoInDiskReserve
     {
-    	uint64_t reserve_[4];
+      uint64_t reserve_[4];
     };
 
     struct FileInfoInDiskExt//4
     {
-    	int32_t  version_;//
+      int32_t  version_;//
 
       FileInfoInDiskExt(): version_(0)
       {
@@ -1116,7 +1148,7 @@ namespace tfs
     struct BlockInfoV2//56
     {
       uint64_t block_id_;
-    	int64_t family_id_;
+      int64_t family_id_;
       int32_t version_;
       int32_t size_;
       int32_t file_count_;
@@ -1139,21 +1171,6 @@ namespace tfs
         return block_id_ < rhs.block_id_;
       }
 
-      void assign_non_familyid(const BlockInfoV2& info)
-      {
-        block_id_ = info.block_id_;
-        version_ = info.version_;
-        size_ = info.size_;
-        file_count_ = info.file_count_;
-        del_size_ = info.del_size_;
-        del_file_count_ = info.del_file_count_;
-        update_size_ = info.update_size_;
-        update_file_count_ = info.update_file_count_;
-        last_access_time_ = info.last_access_time_;
-        reserve_[0] = info.reserve_[0];
-        reserve_[1] = info.reserve_[1];
-      }
-
       int deserialize(const char* data, const int64_t data_len, int64_t& pos);
       int serialize(char* data, const int64_t data_len, int64_t& pos) const;
       int64_t length() const;
@@ -1161,13 +1178,13 @@ namespace tfs
 
     struct ThroughputV2
     {
-    	int64_t write_bytes_;
-    	int64_t read_bytes_;
-    	int64_t update_bytes_;
+      int64_t write_bytes_;
+      int64_t read_bytes_;
+      int64_t update_bytes_;
       int64_t unlink_bytes_;
-    	int64_t write_visit_count_;
-    	int64_t read_visit_count_;
-    	int64_t update_visit_count_;
+      int64_t write_visit_count_;
+      int64_t read_visit_count_;
+      int64_t update_visit_count_;
       int64_t unlink_visit_count_;
       int32_t last_statistics_time_;
       int32_t last_update_time_;
@@ -1185,14 +1202,14 @@ namespace tfs
       int32_t avail_offset_;
       int32_t marshalling_offset_;
       uint32_t seq_no_;
-    	union
-    	{
-    		uint16_t file_info_bucket_size_;
-    		uint16_t index_num_;
-    	};
-    	uint16_t used_file_info_bucket_size_;
+      union
+      {
+        uint16_t file_info_bucket_size_;
+        uint16_t index_num_;
+      };
+      uint16_t used_file_info_bucket_size_;
       int8_t  max_index_num_;
-    	int8_t  reserve_[19];  // Notice: use reserve should consider memory align
+      int8_t  reserve_[19];
       int32_t last_check_time_;
       uint32_t data_crc_;
 
@@ -1219,13 +1236,13 @@ namespace tfs
       int32_t used_offset_;
       int32_t mars_offset_;
       int32_t version_step_;
-      int64_t data_crc_;    // need represent invalid value
+      int64_t data_crc_;
       int32_t reserve_[4];
 
       ECMeta(): family_id_(-1),
-        used_offset_(0), mars_offset_(0), version_step_(0), data_crc_(-1)
+      used_offset_(0), mars_offset_(0), version_step_(0), data_crc_(-1)
       {
-
+        memset(reserve_, 0, sizeof(reserve_));
       }
 
       static bool u_compare(const ECMeta& left, const ECMeta& right)
@@ -1273,6 +1290,103 @@ namespace tfs
       }
     };
 
+    struct BlockLease
+    {
+      uint64_t block_id_;
+      uint64_t servers_[MAX_REPLICATION_NUM];
+      int32_t size_;
+      int32_t  result_;
+
+      BlockLease():
+        block_id_(INVALID_BLOCK_ID),
+        size_(0),
+        result_(0)
+      {
+      }
+
+      void dump(std::stringstream& str)
+      {
+        str << " block id: " << block_id_ << " server size: " << size_ << " result: " << result_ << " servers: ";
+        for (int32_t index = 0; index < size_; ++index)
+        {
+          if (INVALID_SERVER_ID != servers_[index])
+          {
+            str << " " << tbsys::CNetUtil::addrToString(servers_[index]);
+          }
+        }
+      }
+
+      int deserialize(const char* data, const int64_t data_len, int64_t& pos);
+      int serialize(char* data, const int64_t data_len, int64_t& pos) const;
+      int64_t length() const;
+    };
+
+    struct LeaseMeta
+    {
+      uint64_t lease_id_;
+      int32_t lease_expire_time_;
+      int32_t lease_renew_time_;
+      int32_t renew_retry_times_;
+      int32_t renew_retry_timeout_;
+      int32_t max_mr_network_bandwith_;
+      int32_t max_rw_network_bandwith_;
+      int32_t ns_role_;
+      int32_t max_block_size_;
+      int32_t max_write_file_count_;
+			int32_t verify_index_reserved_space_ratio_;
+			int32_t check_integrity_interval_days_;
+			int32_t global_switch_;
+      int32_t reserve_[4];
+
+      int deserialize(const char* data, const int64_t data_len, int64_t& pos);
+      int serialize(char* data, const int64_t data_len, int64_t& pos) const;
+      int64_t length() const;
+
+      LeaseMeta(): lease_id_(INVALID_LEASE_ID),
+        lease_expire_time_(0),
+        lease_renew_time_(0),
+        renew_retry_times_(0),
+        renew_retry_timeout_(0),
+        max_mr_network_bandwith_(0),
+        max_rw_network_bandwith_(0),
+        ns_role_(0),
+        max_block_size_(0),
+        max_write_file_count_(0),
+        verify_index_reserved_space_ratio_(0),
+        check_integrity_interval_days_(0),
+        global_switch_(0)
+      {
+        memset(reserve_, 0, sizeof(reserve_));
+      }
+    };
+
+    enum GlobalSwitch
+    {
+      ENABLE_VERSION_CHECK = 0x01,
+      ENABLE_READ_STATSTICS = 0x02,
+      ENABLE_INCOMPLETE_UPDATE = 0x04
+    };
+
+    struct SyncFileEntry
+    {
+      int64_t app_id_;
+      uint64_t block_id_;
+      uint64_t file_id_;
+      uint64_t source_ds_addr_;
+      uint64_t source_ns_addr_;
+      uint64_t dest_ns_addr_;
+      int64_t  reserve_[2];
+      int32_t  last_sync_time_;
+      int16_t  sync_fail_count_;
+      int16_t  type_;
+      int deserialize(const char* data, const int64_t data_len, int64_t& pos);
+      int serialize(char* data, const int64_t data_len, int64_t& pos) const;
+      int64_t length() const;
+      bool check_need_sync(const time_t now) const;
+      void dump(const int32_t level, const char* file, const int32_t line,
+                const char* function, pthread_t thid, const char* format, ...);
+    };
+
     enum WriteFileCheckCopiesCompleteFlag
     {
       WRITE_FILE_CHECK_COPIES_COMPLETE_FLAG_NO = 0,
@@ -1282,7 +1396,8 @@ namespace tfs
     enum CheckFlag
     {
       CHECK_FLAG_NONE = 0,
-      CHECK_FLAG_SYNC
+      CHECK_FLAG_SYNC = 1,
+      CHECK_FLAG_SYNC_LESS = 2
     };
 
     struct CheckParam
@@ -1319,31 +1434,10 @@ namespace tfs
       SET_SERVER_NEXT_REPORT_BLOCK_TIME_FLAG_IMMEDIATELY
     };
 
-    enum EnableOldInterfaceFlag
+    enum DeleteFamilyFlag
     {
-      ENABLE_OLD_INTERFACE_FLAG_NO = 0,
-      ENABLE_OLD_INTERFACE_FLAG_YES = 1
-    };
-
-    enum EnableVersionconflictFlag
-    {
-      ENABLE_VERSION_CHECK_FLAG_NO = 0,
-      ENABLE_VERSION_CHECK_FLAG_YES = 1
-    };
-
-    enum NsRole
-    {
-      NS_ROLE_NONE = 0x00,
-      NS_ROLE_MASTER,
-      NS_ROLE_SLAVE
-    };
-
-    enum DsTableType
-    {
-      DS_TABLE_ALL = 0,
-      DS_TABLE_FULL = 1,
-      DS_TABLE_SYSTEM = 2,
-      DS_TABLE_NONE = 3
+      DELETE_FAMILY_IN_STORE = 1,
+      DELETE_FAMILY_IN_MEMORY = 1 << 1
     };
 
     struct ClusterConfig
@@ -1352,9 +1446,12 @@ namespace tfs
       int32_t group_seq_;
       int32_t group_count_;
       int32_t replica_num_;
-      int32_t reserve_[4];
+      int32_t business_port_num_;
+      int32_t migrate_complete_wait_time_;
+      int32_t reserve_[2];
 
-      ClusterConfig():cluster_id_(0), group_seq_(0), group_count_(1), replica_num_(0)
+      ClusterConfig():cluster_id_(0), group_seq_(0), group_count_(1), replica_num_(0), business_port_num_(0),
+          migrate_complete_wait_time_(300)
       {
       }
 
@@ -1363,20 +1460,54 @@ namespace tfs
       int64_t length() const;
     };
 
+    struct ServerStat
+    {
+      uint64_t id_;
+      int64_t use_capacity_;
+      int64_t total_capacity_;
+      int32_t current_load_;
+      int32_t block_count_;
+      //time_t last_update_time_;
+      uint32_t rack_id_;
+      uint32_t reserve_;
+      time_t startup_time_;
+      common::Throughput total_tp_;
+      common::Throughput last_tp_;
+      time_t current_time_;
+      common::DataServerLiveStatus status_;
+      int64_t rb_expired_time_;
+      int64_t next_report_block_time_;
+      uint8_t disk_type_;
+      uint8_t rb_status_;
+
+      ServerStat():id_(0), use_capacity_(0), total_capacity_(0), current_load_(0), block_count_(0),
+          rack_id_(0), reserve_(0), startup_time_(0), current_time_(0),rb_expired_time_(0),
+          next_report_block_time_(0), disk_type_(0), rb_status_(0)
+      {
+        memset(&total_tp_, 0, sizeof(total_tp_));
+        memset(&last_tp_, 0, sizeof(last_tp_));
+      }
+      ~ServerStat() {}
+      int serialize(tbnet::DataBuffer& output, int32_t& length);
+      int deserialize(tbnet::DataBuffer& input, const int32_t length, int32_t& offset);
+    };
+
+    struct AccessRatio
+    {
+      int32_t last_access_time_ratio;
+      int32_t read_ratio;
+      int32_t write_ratio;
+      int32_t update_ratio;
+      int32_t unlink_ratio;
+    };
+
+
     // defined type typedef
     typedef std::vector<BlockInfo> BLOCK_INFO_LIST;
     typedef std::vector<FileInfo> FILE_INFO_LIST;
     typedef std::vector<FileInfoV2> FILE_INFO_LIST_V2;
     typedef std::map<uint64_t, FileInfo*> FILE_INFO_MAP;
     typedef FILE_INFO_MAP::iterator FILE_INFO_MAP_ITER;
-
-    //typedef std::vector<RawMeta> RawMetaVec;
-    //typedef std::vector<RawMeta>::iterator RawMetaVecIter;
-    //typedef std::vector<RawMeta>::const_iterator RawMetaVecConstIter;
-
-    //typedef std::vector<RawIndex> RawIndexVec;
-    //typedef std::vector<RawIndex>::iterator RawIndexVecIter;
-    //typedef std::vector<RawIndex>::const_iterator RawIndexVecConstIter;
 
     typedef std::vector<CheckBlockInfo> CheckBlockInfoVec;
     typedef std::vector<CheckBlockInfo>::iterator CheckBlockInfoVecIter;
@@ -1412,12 +1543,15 @@ namespace tfs
       OBJECT_META_INFO_BIG_FILE_SIZE_TAG = 204,
       OBJECT_META_INFO_OWNER_ID_TAG = 205,
 
+      //CustomizeInfo struct
+      CUSTOMIZE_INFO_OTAG_TAG = 301,
+
       //ObjectInfo struct
       OBJECT_INFO_HAS_META_INFO_TAG = 401,
-      OBJECT_INFO_HAS_USER_METADATA_TAG = 402,
+      OBJECT_INFO_HAS_CUSTOMIZE_INFO_TAG = 402,
       OBJECT_INFO_META_INFO_TAG = 403,
       OBJECT_INFO_V_TFS_FILE_INFO_TAG = 404,
-      OBJECT_INFO_USER_METADATA_TAG = 405,
+      OBJECT_INFO_CUSTOMIZE_INFO_TAG = 405,
 
       //BucketMetaInfo struct
       BUCKET_META_INFO_CREATE_TIME_TAG = 501,
@@ -1426,14 +1560,14 @@ namespace tfs
       //KvMetaTable
       KV_META_TABLE_V_META_TABLE_TAG = 601,
 
+      //UserInfo
+      USER_INFO_OWNER_ID_TAG = 801,
+
       // RemoteCache
       REMOTE_CACHE_KEY_NS_ADDR_TAG = 701,
       REMOTE_CACHE_KEY_BLOCK_ID_TAG = 702,
       REMOTE_CACHE_VALUE_DS_LIST_TAG = 703,
       REMOTE_CACHE_VALUE_FAMILY_INFO_TAG = 704,
-
-      //UserInfo
-      USER_INFO_OWNER_ID_TAG = 801,
 
       //ExpTable
       EXP_TABLE_V_EXP_TABLE_TAG = 901,

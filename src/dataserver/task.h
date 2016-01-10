@@ -43,7 +43,6 @@ namespace tfs
         inline DataHelper& get_data_helper();
         inline BlockManager& get_block_manager();
 
-        const char* get_type_str() const;
         common::PlanType get_type() const { return type_; }
         void set_type(const common::PlanType type) { type_ = type; }
 
@@ -178,7 +177,11 @@ namespace tfs
         /**
          * @brief get all blocks in task
          */
-        virtual bool get_involved_blocks(common::ArrayHelper<uint64_t>& blocks) const = 0;
+        virtual bool get_involved_blocks(common::ArrayHelper<uint64_t>& blocks) const
+        {
+          blocks.clear();
+          return true;
+        }
 
       private:
         DISALLOW_COPY_AND_ASSIGN(Task);
@@ -229,7 +232,6 @@ namespace tfs
             const common::FileInfoV2& finfo, const int32_t new_offset);
         int dispatch_sub_task();
         void add_response(const uint64_t server, const int status, const common::BlockInfoV2& info);
-
       protected:
         uint64_t block_id_;
         common::BlockInfoV2 info_;
@@ -290,7 +292,7 @@ namespace tfs
 
       protected:
         common::FamilyMemberInfo* family_members_;
-        uint32_t crc_[common::MAX_MARSHALLING_NUM];
+        int64_t crc_[common::MAX_MARSHALLING_NUM];
         int64_t family_id_;
         int32_t family_aid_info_;
     };
@@ -347,6 +349,42 @@ namespace tfs
         std::vector<std::pair<uint64_t, int8_t> > result_;
     };
 
+    struct OperEntry
+    {
+      uint64_t block_id_;
+      uint64_t src_ds_;
+      uint64_t dest_ds_;
+      common::FileInfoV2 info_;
+      OperType type_;
+    };
+
+    class ResolveVersionConflictTask: public Task
+    {
+      typedef std::set<common::FileInfoV2, FileInfoCompare> FILE_SET;
+      typedef FILE_SET::iterator FILE_STE_ITER;
+      typedef std::vector<OperEntry> OPER_TABLE;
+      typedef OPER_TABLE::iterator OPER_TABLE_ITER;
+
+      public:
+      ResolveVersionConflictTask(DataService& service, const int64_t seqno,
+        const uint64_t source_id, const int32_t expire_time, const uint32_t block_id);
+        ~ResolveVersionConflictTask();
+
+        virtual int handle();
+        virtual std::string dump() const;
+        virtual int report_to_ns(const int status);
+        int set_servers(const uint64_t* servers, const int32_t size);
+
+      private:
+        DISALLOW_COPY_AND_ASSIGN(ResolveVersionConflictTask);
+        int do_resolve();
+
+      private:
+        uint64_t block_id_;
+        uint64_t servers_[common::MAX_REPLICATION_NUM];
+        std::pair<uint64_t, common::BlockInfoV2> members_[common::MAX_REPLICATION_NUM];
+        int32_t size_;
+    };
   }
 }
 #endif //TFS_DATASERVER_TASK_H_

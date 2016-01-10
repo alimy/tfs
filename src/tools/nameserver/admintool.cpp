@@ -12,12 +12,11 @@
 #include "common/client_manager.h"
 #include "common/config_item.h"
 #include "common/status_message.h"
-#include "common/new_client.h"
 #include "message/server_status_message.h"
 #include "message/client_cmd_message.h"
 #include "message/message_factory.h"
-#include "new_client/fsname.h"
-#include "new_client/tfs_client_api.h"
+#include "clientv2/fsname.h"
+#include "clientv2/tfs_client_api_v2.h"
 #include "tools/util/tool_util.h"
 #ifdef _WITH_READ_LINE
 #include "readline/readline.h"
@@ -25,7 +24,7 @@
 
 using namespace tfs::common;
 using namespace tfs::message;
-using namespace tfs::client;
+using namespace tfs::clientv2;
 using namespace tfs::tools;
 using namespace std;
 
@@ -35,7 +34,7 @@ static const char g_build_description[] = "Taobao file system(TFS), Version: " V
 static const char _g_build_description[] = "unknown";
 #endif
 
-static TfsClient* g_tfs_client = NULL;
+static TfsClientV2* g_tfs_client = NULL;
 static STR_FUNC_MAP g_cmd_map;
 static const int32_t CMD_MAX_LEN = 4096;
 
@@ -133,7 +132,7 @@ void init()
   g_cmd_map["removeblk"] = CmdNode("removeblk blockid [flag|dsip:port]",
       "remove block. flag: 1--remove block from both ds and ns, 2--just relieve relation from ns, default is 1.",
       1, 3, cmd_remove_block);
-  g_cmd_map["removefamily"] = CmdNode("removefamily family_id [force]", "remove family. force means to delete family info from ns force even if delete from tair fail", 1, 2, cmd_remove_family);
+  g_cmd_map["removefamily"] = CmdNode("removefamily family_id [flag]", "remove family. flag 1--store, 2--memory, default: 3 (store | memory)", 1, 2, cmd_remove_family);
   g_cmd_map["listblk"] = CmdNode("listblk blockid", "list block server list.", 1, 1, cmd_list_block);
   //g_cmd_map["loadblk"] = CmdNode("loadblk blockid dsip:port", "build relationship between block and dataserver.", 2, 2, cmd_load_block);
   g_cmd_map["clearsystemtable"] = CmdNode("clearsystemtable", "clear system table 1--task, 2--last_write block, 4--report block server, 8--delete block queue.", 1, 1, cmd_clear_system_table);
@@ -156,7 +155,7 @@ void init()
       "set balance percent ratio. value1: integer part, 0 or 1, value2: float part, should be a integer (0 ~ 999999), if value1 is 1  value2 should be 0.",
       2, 2, cmd_set_bpr);
   g_cmd_map["getbpr"] = CmdNode("getbpr", "get balance percent ratio, float value, ex: 1.000000 or 0.000005", 0, 0, cmd_get_bpr);
-  g_cmd_map["batch"] = CmdNode("batch file", "batch run command in file", 1, 1, cmd_batch_file);
+  g_cmd_map["batch"] = CmdNode("batch file [time]", "batch run command in file, sleep time seconds per 100 line, default time is 0", 1, 2, cmd_batch_file);
   g_cmd_map["batch_compact"] = CmdNode("batch_compact file num interval", "batch compact blockid in file, when send num line(blockid) continuously to ns, then sleep interval(s)", 3, 3, cmd_batch_compact_file);
   g_cmd_map["set_all_server_report_block"] = CmdNode("set_all_server_report_block", "set_all_server_report_block", 0, 0, cmd_set_all_server_report_block);
 }
@@ -190,6 +189,12 @@ const char* expand_path(string& path)
 int cmd_batch_file(const VSTRING& param)
 {
   const char* batch_file = expand_path(const_cast<string&>(param[0]));
+  int32_t sleep_seconds = 0;
+  if (param.size() > 1)
+  {
+    sleep_seconds = atoi(param[1].c_str());
+    fprintf(stdout, "will sleep: %ds per 100 lines.\n", sleep_seconds);
+  }
   FILE* fp = fopen(batch_file, "rb");
   int ret = TFS_SUCCESS;
   if (fp == NULL)
@@ -205,14 +210,18 @@ int cmd_batch_file(const VSTRING& param)
     char buffer[MAX_CMD_SIZE];
     while (fgets(buffer, MAX_CMD_SIZE, fp))
     {
-      if ((ret = do_cmd(buffer)) == TFS_ERROR)
+      if ((ret = do_cmd(buffer)) != TFS_SUCCESS)
       {
         error_count++;
       }
       if (++count % 100 == 0)
       {
-        fprintf(stdout, "total: %d, %d errors.\n", count, error_count);
+        fprintf(stdout, "total: %d, %d errors, sleep: %d.\n", count, error_count, sleep_seconds);
         fflush(stdout);
+        if (sleep_seconds > 0)
+        {
+          sleep(sleep_seconds);
+        }
       }
       if (TFS_CLIENT_QUIT == ret)
       {
@@ -349,7 +358,20 @@ int cmd_set_run_param(const VSTRING& param)
     fprintf(stderr, "param param_name\n\n");
     for (int32_t i = 0; i < param_strlen; i++)
     {
-      fprintf(stderr, "%s\n", dynamic_parameter_str[i]);
+      if (strcmp(dynamic_parameter_str[i], "plan_run_flag") == 0)
+      {
+        fprintf(stderr, "%s %s\n", dynamic_parameter_str[i],
+             "[bitmap: 1-replicate, 2-move, 4-compact, 8-marshalling, 16-reinstate, 32-dissolve]");
+      }
+      else if (strcmp(dynamic_parameter_str[i], "global_switch") == 0)
+      {
+        fprintf(stderr, "%s %s\n", dynamic_parameter_str[i],
+             "[bitmap: 1-enbale_version_check, 2-enable_read_statstics, 4-enable_incomplete_update]");
+      }
+      else
+      {
+        fprintf(stderr, "%s\n", dynamic_parameter_str[i]);
+      }
     }
     return TFS_ERROR;
   }
@@ -445,13 +467,18 @@ int cmd_add_block(const VSTRING& param)
 int cmd_remove_block(const VSTRING& param)
 {
   uint32_t flag = 0;
-  uint64_t block_id = strtoull(param[0].c_str(), NULL, 10);
-  uint64_t server_id = 0;
   if (param.empty())
   {
     fprintf(stderr, "invalid parameter, param.empty\n");
     return TFS_ERROR;
   }
+  uint64_t block_id = strtoull(param[0].c_str(), NULL, 10);
+  if (0 == block_id)
+  {
+    fprintf(stderr, "invalid blockid %s\n", param[0].c_str());
+    return TFS_ERROR;
+  }
+  uint64_t server_id = 0;
   if (param.size() == 1)
   {
     flag = 1;//default
@@ -469,6 +496,7 @@ int cmd_remove_block(const VSTRING& param)
     }
     else//ds_ip:port
     {
+      //flag = 8;//HANDLE_DELETE_BLOCK_FLAG_ONLY_ONE_RELATION
       server_id = Func::get_host_ip(param[1].c_str());
       if (0 == server_id)
       {
@@ -482,11 +510,6 @@ int cmd_remove_block(const VSTRING& param)
     fprintf(stderr, "removeblock's parameter invalid\n");
     return TFS_ERROR;
   }
-  if (0 == block_id)
-  {
-    fprintf(stderr, "invalid blockid %s\n", param[0].c_str());
-    return TFS_ERROR;
-  }
 
   ClientCmdMessage req_cc_msg;
   req_cc_msg.set_cmd(CLIENT_CMD_EXPBLK);
@@ -495,23 +518,24 @@ int cmd_remove_block(const VSTRING& param)
   req_cc_msg.set_value4(flag);
 
   int32_t status = TFS_ERROR;
-
   send_msg_to_server(g_tfs_client->get_server_id(), &req_cc_msg, status);
-  if(STATUS_MESSAGE_OK == status)
+
+  if (STATUS_MESSAGE_OK == status)
     status = TFS_SUCCESS;
   else
     status = TFS_ERROR;
 
   if (1 == flag || 2 == flag || 4 == flag)
     ToolUtil::print_info(status, "removeblock: %s", param[0].c_str());
-  else
+  else//flag=8,ds_ip:port
     ToolUtil::print_info(status, "removeblock: %s from ds:%s", param[0].c_str(), param[1].c_str());
   return status;
 }
 
 int cmd_remove_family(const VSTRING& param)
 {
-  if (param.empty())
+  int32_t flag = DELETE_FAMILY_IN_STORE | DELETE_FAMILY_IN_MEMORY;
+  if (param.size() < 1)
   {
     fprintf(stderr, "invalid parameter, param.empty\n");
     return TFS_ERROR;
@@ -522,16 +546,13 @@ int cmd_remove_family(const VSTRING& param)
     fprintf(stderr, "invalid familyid %s\n", param[0].c_str());
     return TFS_ERROR;
   }
-  int64_t force = 0;
-  if(param.size() > 1 && param[1] == "force")
-  {
-    force = 1;
-  }
+  if (param.size() == 2)
+    flag = atoi(param[1].c_str());
 
   ClientCmdMessage req_cc_msg;
   req_cc_msg.set_cmd(CLIENT_CMD_DELETE_FAMILY);
   req_cc_msg.set_value3(family_id);
-  req_cc_msg.set_value1(force);
+  req_cc_msg.set_value4(flag);
 
   int32_t status = TFS_ERROR;
   send_msg_to_server(g_tfs_client->get_server_id(), &req_cc_msg, status);
@@ -1170,8 +1191,8 @@ int main(int argc,char** argv)
     TBSYS_LOGGER.setLogLevel("ERROR");
   }
 
-  g_tfs_client = TfsClient::Instance();
-  int ret = g_tfs_client->initialize(ns_ip, DEFAULT_BLOCK_CACHE_TIME, 1000, false);
+  g_tfs_client = TfsClientV2::Instance();
+  int ret = g_tfs_client->initialize(ns_ip, DEFAULT_BLOCK_CACHE_TIME, 1000);
   if (ret != TFS_SUCCESS)
   {
     fprintf(stderr, "init tfs client fail. ret: %d\n", ret);

@@ -97,14 +97,15 @@ namespace tfs
       bool get_exist_servers(common::ArrayHelper<ServerCollect*>& result, const common::ArrayHelper<ServerCollect*>& servers) const;
       bool has_space_do_task_in_machine(const uint64_t server, const bool target) const;
       bool has_space_do_task_in_machine(const uint64_t server) const;
-      int remove_block_from_dataserver(const uint64_t server, const uint64_t block, const time_t now);
+      int remove_block_from_dataserver(const uint64_t block, const ServerItem& item, const time_t now);
+      int clean_familyinfo_from_dataserver(const uint64_t block, const ServerItem& item, const time_t now);
       int run();
       int handle(common::BasePacket* msg, const int64_t seqno);
       int timeout(const time_t now);
       bool is_target(const int32_t index);
       bool is_target(const common::FamilyMemberInfo& info, const int32_t index,
         const common::PlanType type, const int32_t family_aid_info);
-      inline LayoutManager& get_manager() { return manager_;}
+      inline LayoutManager& get_layout_manager() { return manager_;}
       private:
       int remove_(const uint64_t server, const bool target = false);
       int remove_(Task* task);
@@ -124,7 +125,7 @@ namespace tfs
           const int32_t member_num, const common::FamilyMemberInfo* members);
       int insert_(common::ArrayHelper<std::pair<common::FamilyMemberInfo, bool> >& success, Task* task,
           const common::FamilyMemberInfo& info, const bool target, const bool insert_block, const bool insert_server);
-      int remove_block_from_dataserver_(const uint64_t server, const uint64_t block, const time_t now);
+      int remove_block_from_dataserver_(const uint64_t block, const ServerItem& item, const time_t now);
       private:
       LayoutManager& manager_;
       TASKS tasks_;

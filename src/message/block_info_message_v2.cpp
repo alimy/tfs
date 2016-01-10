@@ -100,7 +100,7 @@ namespace tfs
     }
 
     BatchGetBlockInfoMessageV2::BatchGetBlockInfoMessageV2():
-      mode_(0), flag_(0)
+      mode_(0), size_(0), flag_(0)
     {
       _packetHeader._pcode = BATCH_GET_BLOCK_INFO_MESSAGE_V2;
     }
@@ -152,8 +152,7 @@ namespace tfs
       return INT_SIZE * 3 + size_ * INT64_SIZE;
     }
 
-    BatchGetBlockInfoRespMessageV2::BatchGetBlockInfoRespMessageV2():
-      size_(0)
+    BatchGetBlockInfoRespMessageV2::BatchGetBlockInfoRespMessageV2()
     {
       _packetHeader._pcode = BATCH_GET_BLOCK_INFO_RESP_MESSAGE_V2;
     }
@@ -574,6 +573,43 @@ namespace tfs
     {
       common::ThroughputV2 tp;
       return common::INT_SIZE + block_statistic_visit_maps_.size() * (tp.length() + common::INT64_SIZE);
+    }
+
+    CleanFamilyInfoMessage::CleanFamilyInfoMessage():
+      block_(common::INVALID_BLOCK_ID),
+      family_id_(common::INVALID_FAMILY_ID)
+    {
+      _packetHeader._pcode = common::NS_CLEAR_FAMILYINFO_MESSAGE;
+    }
+
+    CleanFamilyInfoMessage::~CleanFamilyInfoMessage()
+    {
+
+    }
+
+    int CleanFamilyInfoMessage::serialize(common::Stream& output) const
+    {
+      int32_t ret = output.set_int64(block_);
+      if (common::TFS_SUCCESS == ret)
+      {
+        ret = output.set_int64(family_id_);
+      }
+      return ret;
+    }
+
+    int CleanFamilyInfoMessage::deserialize(common::Stream& input)
+    {
+      int32_t ret = input.get_int64(reinterpret_cast<int64_t* >(&block_));
+      if (common::TFS_SUCCESS == ret)
+      {
+        ret = input.get_int64(&family_id_);
+      }
+      return ret;
+    }
+
+    int64_t CleanFamilyInfoMessage::length() const
+    {
+      return common::INT64_SIZE * 2;
     }
   }/** end namespace message **/
 }/** end namespace tfs **/

@@ -14,6 +14,7 @@
  */
 
 #include "common/base_packet.h"
+#include "common/ob_crc.h"
 #include "message/message_factory.h"
 #include "dataservice.h"
 #include "erasure_code.h"
@@ -337,7 +338,8 @@ namespace tfs
      */
     int DataHelper::write_file(const uint64_t server_id, const uint64_t block_id,
         const uint64_t attach_block_id, const uint64_t file_id,
-        const char* data, const int32_t len, const int32_t status, const bool tmp)
+        const char* data, const int32_t len, const int32_t status,
+        const bool tmp, const int32_t flag)
     {
       int ret = ((INVALID_SERVER_ID == server_id) || (INVALID_BLOCK_ID == block_id) ||
           (INVALID_BLOCK_ID == attach_block_id) || (INVALID_FILE_ID == file_id) ||
@@ -352,7 +354,7 @@ namespace tfs
         {
           length = std::min(len - offset, MAX_READ_SIZE);
           ret = write_file_ex(server_id, block_id, attach_block_id, file_id,
-              data + offset, length, offset, lease_id);
+              data + offset, length, offset, lease_id, flag);
           if (TFS_SUCCESS != ret)
           {
             TBSYS_LOG(WARN, "write file fail. server: %s, blockid: %"PRI64_PREFIX"u, "
@@ -383,6 +385,22 @@ namespace tfs
       return ret;
     }
 
+    int DataHelper::unlink_file(const uint64_t server_id, const uint64_t block_id,
+        const uint64_t attach_block_id, const uint64_t file_id,
+        const int32_t status)
+    {
+      int ret = ((INVALID_SERVER_ID == server_id) || (INVALID_BLOCK_ID == block_id) ||
+          (INVALID_BLOCK_ID == attach_block_id) || (INVALID_FILE_ID == file_id)) ?
+        EXIT_PARAMETER_ERROR : TFS_SUCCESS;
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = unlink_file_ex(server_id, block_id, attach_block_id, file_id, status);
+      }
+
+      return ret;
+    }
+
     int DataHelper::get_block_replicas(const uint64_t ns_id, const uint64_t block_id, VUINT64& servers)
     {
       int ret = ((INVALID_SERVER_ID != ns_id) && (INVALID_BLOCK_ID != block_id)) ?
@@ -394,6 +412,59 @@ namespace tfs
         {
           TBSYS_LOG(DEBUG, "get block replicas fail. ns: %s, blockid: %"PRI64_PREFIX"u, ret: %d",
               tbsys::CNetUtil::addrToString(ns_id).c_str(), block_id, ret);
+        }
+      }
+      return ret;
+    }
+
+    int DataHelper::get_block_info(const uint64_t ds_id, const uint64_t block_id, BlockInfoV2& info)
+    {
+      int ret = ((INVALID_SERVER_ID != ds_id) && (INVALID_BLOCK_ID != block_id)) ?
+        TFS_SUCCESS : EXIT_PARAMETER_ERROR;
+      if (TFS_SUCCESS == ret)
+      {
+        ret = get_block_info_ex(ds_id, block_id, info);
+      }
+      return ret;
+    }
+
+    int DataHelper::get_block_info_ex(const uint64_t ds_id, const uint64_t block_id, BlockInfoV2& info)
+    {
+      int ret = TFS_SUCCESS;
+      DsRuntimeGlobalInformation& ds_info = DsRuntimeGlobalInformation::instance();
+      if (ds_id == ds_info.information_.id_)
+      {
+        ret = get_block_manager().get_block_info(info, block_id);
+      }
+      else
+      {
+        NewClient* new_client = NewClientManager::get_instance().create_client();
+        ret = (NULL != new_client) ? TFS_SUCCESS : EXIT_CLIENT_MANAGER_CREATE_CLIENT_ERROR;
+        if (TFS_SUCCESS == ret)
+        {
+          GetBlockInfoMessageV2 req_msg;
+          req_msg.set_block_id(block_id);
+
+          tbnet::Packet* ret_msg = NULL;
+          ret = send_msg_to_server(ds_id, new_client, &req_msg, ret_msg);
+          if (TFS_SUCCESS == ret)
+          {
+            if (UPDATE_BLOCK_INFO_MESSAGE_V2 == ret_msg->getPCode())
+            {
+              UpdateBlockInfoMessageV2* message = dynamic_cast<UpdateBlockInfoMessageV2*>(ret_msg);
+              info = message->get_block_info();
+            }
+            else if(STATUS_MESSAGE == ret_msg->getPCode())
+            {
+              StatusMessage* resp_msg = dynamic_cast<StatusMessage* >(ret_msg);
+              ret = resp_msg->get_status();
+            }
+            else
+            {
+              ret = EXIT_UNKNOWN_MSGTYPE;
+            }
+          }
+          NewClientManager::get_instance().destroy_client(new_client);
         }
       }
       return ret;
@@ -773,7 +844,8 @@ namespace tfs
 
     int DataHelper::write_file_ex(const uint64_t server_id, const uint64_t block_id,
         const uint64_t attach_block_id, const uint64_t file_id,
-        const char* data, const int32_t length, const int32_t offset, uint64_t& lease_id)
+        const char* data, const int32_t length, const int32_t offset, uint64_t& lease_id,
+        const int32_t flag)
     {
       int ret = TFS_SUCCESS;
       NewClient* new_client = NewClientManager::get_instance().create_client();
@@ -798,6 +870,7 @@ namespace tfs
         req_msg.set_master_id(server_id);
         req_msg.set_ds(dslist);
         req_msg.set_version(-1); // won't check version
+        req_msg.set_flag(flag);
 
         ret = send_msg_to_server(server_id, new_client, &req_msg, ret_msg);
         if (TFS_SUCCESS == ret)
@@ -840,6 +913,63 @@ namespace tfs
       req_msg.set_tmp_flag(tmp);
       req_msg.set_crc(crc);
       return send_simple_request(server_id, &req_msg);
+    }
+
+    int DataHelper::unlink_file_ex(const uint64_t server_id, const uint64_t block_id,
+        const uint64_t attach_block_id, const uint64_t file_id,
+        const int32_t status)
+    {
+      uint64_t lease_id = 0;
+      vector<uint64_t> dslist;
+      dslist.push_back(server_id);
+
+      // prepare unlink
+      UnlinkFileMessageV2 req_msg;
+      req_msg.set_ds(dslist);
+      req_msg.set_block_id(block_id);
+      req_msg.set_attach_block_id(attach_block_id);
+      req_msg.set_file_id(file_id);
+      req_msg.set_lease_id(0);
+      req_msg.set_master_id(server_id);
+      req_msg.set_prepare_flag(true);
+
+      tbnet::Packet* ret_msg = NULL;
+      NewClient* new_client = NewClientManager::get_instance().create_client();
+      int ret = NULL != new_client ? TFS_SUCCESS : EXIT_CLIENT_MANAGER_CREATE_CLIENT_ERROR;
+      if (TFS_SUCCESS == ret)
+      {
+        ret = send_msg_to_server(server_id, new_client, &req_msg, ret_msg);
+        if (TFS_SUCCESS == ret)
+        {
+          if (ret_msg->getPCode() == STATUS_MESSAGE)
+          {
+            StatusMessage* smsg = dynamic_cast<StatusMessage*>(ret_msg);
+            ret = smsg->get_status();
+            if (TFS_SUCCESS == ret)
+            {
+              lease_id = strtoul(smsg->get_error(), NULL, 10);
+            }
+          }
+          else
+          {
+            ret = EXIT_UNKNOWN_MSGTYPE;
+          }
+        }
+        NewClientManager::get_instance().destroy_client(new_client);
+      }
+
+      // real unlink
+      if (TFS_SUCCESS == ret)
+      {
+        int32_t action = 0;
+        SET_OVERRIDE_FLAG(action, status);
+        req_msg.set_lease_id(lease_id);
+        req_msg.set_prepare_flag(false);
+        req_msg.set_action(action);
+        ret = send_simple_request(server_id, &req_msg);
+      }
+
+      return ret;
     }
 
     int DataHelper::prepare_read_degrade(const FamilyInfoExt& family_info, int* erased)
@@ -1316,23 +1446,29 @@ namespace tfs
 
     int DataHelper::check_integrity(const uint64_t block_id)
     {
-      int ret = (INVALID_BLOCK_ID != block_id) ? TFS_SUCCESS: EXIT_PARAMETER_ERROR;
+      int ret = INVALID_BLOCK_ID != block_id? TFS_SUCCESS: EXIT_PARAMETER_ERROR;
       if (TFS_SUCCESS == ret)
       {
         BaseLogicBlock* src = get_block_manager().get(block_id);
         ret = (NULL != src) ? TFS_SUCCESS : EXIT_NO_LOGICBLOCK_ERROR;
         if (TFS_SUCCESS == ret)
         {
-          ret = check_integrity(src);
+          if (IS_VERFIFY_BLOCK(block_id))
+          {
+            ret = check_integrity(dynamic_cast<VerifyLogicBlock*>(src));
+          }
+          else
+          {
+            ret = check_integrity(dynamic_cast<LogicBlock*>(src));
+          }
         }
       }
       return ret;
     }
 
-    int DataHelper::check_integrity(BaseLogicBlock* src)
+    int DataHelper::check_integrity(LogicBlock* src)
     {
-      LogicBlock* tmpsrc = dynamic_cast<LogicBlock* >(src);
-      LogicBlock::Iterator* iter = new (std::nothrow) LogicBlock::Iterator(tmpsrc);
+      LogicBlock::Iterator* iter = new (std::nothrow) LogicBlock::Iterator(src);
       assert(NULL != iter);
 
       int ret = TFS_SUCCESS;
@@ -1364,7 +1500,7 @@ namespace tfs
           {
             ret = EXIT_CHECK_CRC_ERROR;
             TBSYS_LOG(WARN, "blockid %"PRI64_PREFIX"u fileid %"PRI64_PREFIX"u crc_error."
-                "data_crc %u finfo_crc %u ret %d", src->id(), finfo->id_, crc, finfo->crc_, ret);
+                "data_crc: %u finfo_crc: %u ret: %d", src->id(), finfo->id_, crc, finfo->crc_, ret);
             break;
           }
         }
@@ -1373,12 +1509,56 @@ namespace tfs
       if (EXIT_BLOCK_NO_DATA == ret)
         ret = TFS_SUCCESS;
 
-      if (TFS_SUCCESS == ret)
-      {
-        TBSYS_LOG(INFO, "check block %"PRI64_PREFIX"u crc_ok", src->id());
-      }
       tbsys::gDelete(iter);
 
+      return ret;
+    }
+
+    int DataHelper::check_integrity(VerifyLogicBlock* src)
+    {
+      int32_t mars_offset = 0;
+      uint32_t header_crc = 0;
+      int ret = src->get_marshalling_offset(mars_offset);
+      if (TFS_SUCCESS == ret)
+      {
+        ret = src->get_data_crc(header_crc);
+      }
+
+      // old family hasn't calculated crc in block header
+      // verify blocks in these family cannot be checked, just ignore it
+      if (TFS_SUCCESS == ret && header_crc != 0)
+      {
+        char *buffer = new (std::nothrow) char[MAX_READ_SIZE];
+        assert(NULL != buffer);
+
+        int32_t offset = 0;
+        int32_t nbytes = 0;
+        uint32_t crc = 0;
+        while (offset < mars_offset)
+        {
+          nbytes = std::min(MAX_READ_SIZE, mars_offset - offset);
+          ret = src->pread(buffer, nbytes, offset);
+          ret = (ret >= 0) ? TFS_SUCCESS : ret;
+          if (TFS_SUCCESS == ret)
+          {
+            crc = ob_crc32(crc, buffer, nbytes);
+            offset += nbytes;
+          }
+          else
+          {
+            break;
+          }
+        }
+
+        if (TFS_SUCCESS == ret)
+        {
+          if (crc != header_crc)
+          {
+            ret = EXIT_CHECK_CRC_ERROR;
+          }
+        }
+        tbsys::gDeleteA(buffer);
+      }
       return ret;
     }
 
@@ -1406,5 +1586,20 @@ namespace tfs
       return ret;
     }
 
+    class CheckIntegrityThreadHelper: public tbutil::Thread
+    {
+      public:
+        explicit CheckIntegrityThreadHelper(DataService& service):
+          service_(service)
+      {
+        start();
+      }
+        virtual ~CheckIntegrityThreadHelper(){}
+        void run();
+      private:
+        DISALLOW_COPY_AND_ASSIGN(CheckIntegrityThreadHelper);
+        DataService& service_;
+    };
+    typedef tbutil::Handle<CheckIntegrityThreadHelper> CheckIntegrityThreadHelperPtr;
   }
 }

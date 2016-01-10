@@ -54,14 +54,6 @@ void version()
   exit(0);
 }
 
-struct FileInfoCompare
-{
-  bool operator () (const FileInfoV2& left, const FileInfoV2& right)
-  {
-    return left.id_ < right.id_;
-  }
-};
-
 bool compare_block_index(const IndexDataV2& left_index, const IndexDataV2& right_index)
 {
   bool same =

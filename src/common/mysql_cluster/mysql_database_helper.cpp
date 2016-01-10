@@ -85,7 +85,7 @@ namespace tfs
       }
       else if (!open_mysql())
       {
-        ret = EXIT_KV_STORE_CAN_NOT_CONNECT;
+        ret = TFS_ERROR;
       }
       is_connected_ = TFS_SUCCESS == ret;
       return ret;
@@ -119,7 +119,7 @@ namespace tfs
 retry:
         if (!is_connected_)
         {
-          ret = connect();
+          connect();
         }
         if (is_connected_)
         {
@@ -190,7 +190,7 @@ retry:
 retry:
         if (!is_connected_)
         {
-          ret = connect();
+          connect();
         }
         if (is_connected_)
         {
@@ -253,7 +253,7 @@ retry:
 retry:
         if (!is_connected_)
         {
-          ret = connect();
+          connect();
         }
         if (is_connected_)
         {
@@ -314,7 +314,7 @@ retry:
 retry:
         if (!is_connected_)
         {
-          ret = connect();
+          connect();
         }
         if (is_connected_)
         {
@@ -367,7 +367,7 @@ retry:
 retry:
         if (!is_connected_)
         {
-          ret = connect();
+          connect();
         }
         if (is_connected_)
         {
@@ -485,7 +485,7 @@ retry:
 retry:
         if (!is_connected_)
         {
-          ret = connect();
+          connect();
         }
         if (is_connected_)
         {

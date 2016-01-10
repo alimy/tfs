@@ -45,15 +45,17 @@ namespace tfs
       int destroy();
       int create_family_id(int64_t& family_id);
       int create_family(common::FamilyInfo& family_info);
-      int del_family(const int64_t family_id, const bool del, const bool log);
+      int del_family(const int64_t family_id, const bool del, const bool log, const uint64_t own_ipport);
       int query_family(common::FamilyInfo& family_info);
       int scan(std::vector<common::FamilyInfo>& family_infos, const int64_t start_family_id,
-          const bool del);
+          const int32_t chunk, const bool del, const uint64_t peer_ipport, const int32_t limit);
     private:
       int put_(const char* pkey, const char* skey, const char* value, const int32_t value_len);
       int get_(const char* pkey, const char* skey, char* value, const int32_t value_len);
       int del_(const char* pkey, const char* skey);
-      int insert_del_family_log_(const int64_t family_id);
+      int incr_(const char* key, const int32_t step, int64_t& value);
+      int insert_del_family_log_(const int64_t family_id, const uint64_t own_ipport);
+      inline int32_t get_bucket(const int64_t family_id) const { return family_id % MAX_FAMILY_CHUNK_NUM;}
     private:
       DISALLOW_COPY_AND_ASSIGN(TairHelper);
       tbutil::Mutex mutex_;

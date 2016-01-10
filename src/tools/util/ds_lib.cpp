@@ -44,11 +44,14 @@
 #include "message/write_file_message_v2.h"
 #include "message/close_file_message_v2.h"
 #include "message/unlink_file_message_v2.h"
+#include "message/get_dataserver_all_blocks_header.h"
+#include "requester/ds_requester.h"
 
 #include "ds_lib.h"
 
 using namespace tfs::common;
 using namespace tfs::message;
+using namespace tfs::requester;
 // using namespace tfs::dataserver;
 using namespace std;
 
@@ -888,6 +891,38 @@ namespace tfs
 
     }
 
+    int DsLib::read_file_info_v2(DsTask& ds_task)
+    {
+      uint64_t server_id = ds_task.server_id_;
+      uint64_t block_id = ds_task.block_id_;
+      uint64_t attach_block_id = ds_task.attach_block_id_;
+      uint64_t file_id = ds_task.new_file_id_;
+      int32_t mode = ds_task.mode_;
+
+      TfsFileStat stat;
+      int ret = DsRequester::stat_file(server_id,
+          block_id, attach_block_id, file_id, stat, mode);
+      if (TFS_SUCCESS == ret)
+      {
+        tfs::clientv2::FSName fsname(attach_block_id, file_id);
+        printf("Read file info success\n");
+        printf("  FILE_NAME:     %s\n", fsname.get_name());
+        printf("  BLOCK_ID:      %"PRI64_PREFIX"u\n", attach_block_id);
+        printf("  FILE_ID:       %"PRI64_PREFIX"u\n", stat.file_id_);
+        printf("  OFFSET:        %d\n", stat.offset_);
+        printf("  SIZE:          %"PRI64_PREFIX"d\n", stat.size_);
+        printf("  MODIFIED_TIME: %s\n", Func::time_to_str(stat.modify_time_).c_str());
+        printf("  CREATE_TIME:   %s\n", Func::time_to_str(stat.create_time_).c_str());
+        printf("  STATUS:        %d\n", stat.flag_);
+        printf("  CRC:           %u\n", stat.crc_);
+      }
+      else
+      {
+        printf("Read file info error, ret: %d\n", ret);
+      }
+      return ret;
+    }
+
     int DsLib::list_file(DsTask& ds_task)
     {
       uint64_t server_id = ds_task.server_id_;
@@ -969,6 +1004,7 @@ namespace tfs
       GetServerStatusMessage req_gss_msg;
       req_gss_msg.set_status_type(GSS_BLOCK_FILE_INFO_V2);
       req_gss_msg.set_return_row(ds_task.block_id_);
+      req_gss_msg.set_from_row(ds_task.attach_block_id_);
 
       tbnet::Packet* rsp = NULL;
       NewClient* client = NewClientManager::get_instance().create_client();
@@ -1365,6 +1401,47 @@ namespace tfs
         fprintf(stderr, "send crc error fail!\n");
       }
       return ret_status;
+    }
+
+    int DsLib::get_blocks_index_header(common::DsTask& ds_task, vector<common::IndexHeaderV2>& blocks_header)
+    {
+      uint64_t server_id = ds_task.server_id_;
+      int32_t ret = TFS_SUCCESS;
+      NewClient* client = NewClientManager::get_instance().create_client();
+      if (NULL != client)
+      {
+        GetAllBlocksHeaderMessage message;
+        tbnet::Packet* rmsg = NULL;
+        ret = send_msg_to_server(server_id, client, &message, rmsg);
+        if (common::TFS_SUCCESS == ret)
+        {
+          if (GET_ALL_BLOCKS_HEADER_RESP_MESSAGE == rmsg->getPCode())
+          {
+            GetAllBlocksHeaderRespMessage* gabh_rsp = dynamic_cast<GetAllBlocksHeaderRespMessage*>(rmsg);
+            blocks_header = gabh_rsp->get_all_blocks_header();
+          }
+          else if (STATUS_MESSAGE == rmsg->getPCode())
+          {
+            StatusMessage* smsg = dynamic_cast<StatusMessage*>(rmsg);
+            ret = smsg->get_status();
+            fprintf(stderr, "get all blocks index header data fail, server: %s, error msg: %s, ret: %d\n",
+                 tbsys::CNetUtil::addrToString(server_id).c_str(), smsg->get_error(), ret);
+          }
+          else
+          {
+            ret = EXIT_UNKNOWN_MSGTYPE;
+            fprintf(stderr, "get all blocks index header data fail, server: %s, unknown msg, pcode: %d\n",
+                 tbsys::CNetUtil::addrToString(server_id).c_str(), rmsg->getPCode());
+          }
+        }
+        NewClientManager::get_instance().destroy_client(client);
+      }
+      else
+      {
+        ret = EXIT_CLIENT_MANAGER_CREATE_CLIENT_ERROR;
+        fprintf(stderr, "NewClientManager create client fail\n");
+      }
+      return ret;
     }
     /*
     void print_bitmap(const int32_t map_len, const int32_t used_len, const char* data)

@@ -93,7 +93,15 @@ namespace tfs
     void CheckManager::clear()
     {
       seqno_ = 0;
-      all_servers_.clear();
+      {
+        SERVER_MAP_ITER iter = all_servers_.begin();
+        for ( ; iter != all_servers_.end(); iter++)
+        {
+          ServerObject* server = *iter;
+          tbsys::gDelete(server);
+        }
+        all_servers_.clear();
+      }
       for (int index = 0; index < MAX_BLOCK_CHUNK_NUMS; index++)
       {
         tbutil::Mutex::Lock lock(all_blocks_[index].mutex_);
@@ -235,8 +243,20 @@ namespace tfs
 
     int CheckManager::get_group_info()
     {
+      /* if group_count in config file greater than 0,
+       * use local config, will not fetch from ns
+       */
       uint64_t ns_id = SYSPARAM_CHECKSERVER.ns_id_;
-      int ret = retry_get_group_info(ns_id, group_count_, group_seq_);
+      int ret = TFS_SUCCESS;
+      if (SYSPARAM_CHECKSERVER.group_count_ > 0)
+      {
+        group_count_ = SYSPARAM_CHECKSERVER.group_count_;
+        group_seq_ = SYSPARAM_CHECKSERVER.group_seq_;
+      }
+      else
+      {
+        ret = retry_get_group_info(ns_id, group_count_, group_seq_);
+      }
       TBSYS_LOG(INFO, "ns: %s, group count: %d, group seq: %d, ret: %d",
           tbsys::CNetUtil::addrToString(ns_id).c_str(), group_count_, group_seq_, ret);
       return ret;
@@ -411,7 +431,7 @@ namespace tfs
               if (turn_ == SYSPARAM_CHECKSERVER.check_retry_turns_ &&
                   (EXIT_NO_BLOCK == iter->status_ || EXIT_BLOCK_NOT_FOUND == iter->status_))
               {
-                fprintf(less_block_fp_, "%"PRI64_PREFIX"u", iter->block_id_);
+                fprintf(less_block_fp_, "%"PRI64_PREFIX"u\n", iter->block_id_);
               }
 
               // block may already moved to other servers

@@ -37,15 +37,22 @@ namespace tfs
   {
     NameServer::NameServer() :
       layout_manager_(*this),
-      master_slave_heart_manager_(layout_manager_),
       heart_manager_(*this)
     {
-
+      for (int32_t index = 0; index < MAX_LISTEN_PORT_NUM; ++index)
+      {
+        streamer_[index] = NULL;
+        transport_[index] = NULL;
+      }
     }
 
     NameServer::~NameServer()
     {
-
+      for (int32_t index = 0; index < MAX_LISTEN_PORT_NUM; ++index)
+      {
+        tbsys::gDelete(streamer_[index]);
+        tbsys::gDelete(transport_[index]);
+      }
     }
 
     int NameServer::initialize(int /*argc*/, char* /*argv*/[])
@@ -62,6 +69,9 @@ namespace tfs
         ret =  EXIT_CONFIG_ERROR;
         TBSYS_LOG(ERROR, "%s", "nameserver not set ip_addr");
       }
+
+      const int32_t base_port = get_port();
+      const int32_t heart_base_port = base_port + SYSPARAM_NAMESERVER.business_port_count_;
 
       if (TFS_SUCCESS == ret)
       {
@@ -83,13 +93,44 @@ namespace tfs
           {
             uint32_t local_ip = Func::get_local_addr(dev_name);
             NsRuntimeGlobalInformation& ngi = GFactory::get_runtime_info();
-            ngi.owner_ip_port_ = tbsys::CNetUtil::ipToAddr(local_ip, get_port());
-            ngi.heart_ip_port_ = tbsys::CNetUtil::ipToAddr(local_ip, get_port() + 1);
+            ngi.owner_ip_port_ = tbsys::CNetUtil::ipToAddr(local_ip, heart_base_port);
+            for (int32_t index = 0; index < SYSPARAM_NAMESERVER.heart_port_count_; ++index)
+            {
+              uint64_t ipport = tbsys::CNetUtil::ipToAddr(local_ip, (heart_base_port + index));
+              ngi.heart_ip_ports_.push_back(ipport);
+            }
             bool find_ip_in_dev = Func::is_local_addr(ip_addr_id);
             if (!find_ip_in_dev)
             {
               TBSYS_LOG(WARN, "ip '%s' is not local ip, local ip: %s",ip_addr, tbsys::CNetUtil::addrToString(local_ip).c_str());
             }
+          }
+        }
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        char spec[32] = {'\0'};
+        int32_t thread_count = get_work_thread_count();
+        for (int32_t index = 1; index < SYSPARAM_NAMESERVER.business_port_count_ && TFS_SUCCESS == ret; ++index)
+        {
+          streamer_[index] = new (std::nothrow)common::BasePacketStreamer();
+          assert(NULL != streamer_[index]);
+          streamer_[index]->set_packet_factory(get_packet_factory());
+          transport_[index] = new (std::nothrow)tbnet::Transport();
+          assert(NULL != transport_[index]);
+          snprintf(spec, 32, "tcp::%d", base_port + index);
+          tbnet::IOComponent* com = transport_[index]->listen(spec, streamer_[index], this);
+          ret = (NULL == com) ? EXIT_NETWORK_ERROR : TFS_SUCCESS;
+          if (TFS_SUCCESS == ret)
+          {
+            transport_[index]->start();
+            work_threads_[index].setThreadParameter(thread_count, this, NULL);
+            work_threads_[index].start();
+          }
+          else
+          {
+            TBSYS_LOG(ERROR, "listen port %d failed, ret: %d", base_port + index, ret);
           }
         }
       }
@@ -132,37 +173,12 @@ namespace tfs
 
       if (TFS_SUCCESS == ret)
       {
-        int32_t port = get_listen_port() + 1;
-        int32_t heart_thread_count = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_HEART_THREAD_COUNT, 1);
-        int32_t report_thread_count = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_REPORT_BLOCK_THREAD_COUNT, 2);
-        ret = heart_manager_.initialize(heart_thread_count, report_thread_count, port);
+        const int32_t heart_thread_count = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_HEART_THREAD_COUNT, 1);
+        const int32_t report_thread_count = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_REPORT_BLOCK_THREAD_COUNT, 2);
+        ret = heart_manager_.initialize(heart_thread_count, report_thread_count, heart_base_port );
         if (TFS_SUCCESS != ret)
         {
           TBSYS_LOG(ERROR, "initialize heart manager failed, must be exit, ret: %d", ret);
-        }
-      }
-
-      if (TFS_SUCCESS == ret)
-      {
-        ret = master_slave_heart_manager_.initialize();
-        if (TFS_SUCCESS != ret)
-        {
-          TBSYS_LOG(ERROR, "initialize master and slave heart manager failed, must be exit, ret: %d", ret);
-        }
-        else
-        {
-          if (GFactory::get_runtime_info().is_master())
-          {
-            ret = master_slave_heart_manager_.establish_peer_role_(GFactory::get_runtime_info());
-            if (EXIT_ROLE_ERROR == ret)
-            {
-              TBSYS_LOG(INFO, "nameserve role error, must be exit, ret: %d", ret);
-            }
-            else
-            {
-              ret = TFS_SUCCESS;
-            }
-          }
         }
       }
 
@@ -181,13 +197,25 @@ namespace tfs
       NsRuntimeGlobalInformation& ngi = GFactory::get_runtime_info();
       if (!ngi.is_destroyed())
       {
+        for (int32_t index = 0; index < MAX_LISTEN_PORT_NUM; ++index)
+        {
+          if (NULL != transport_[index])
+          {
+            transport_[index]->stop();
+            transport_[index]->wait();
+          }
+          if (0 != index)
+          {
+            work_threads_[index].stop();
+            work_threads_[index].wait();
+          }
+        }
+
         GFactory::destroy();
         heart_manager_.destroy();
-        master_slave_heart_manager_.destroy();
         layout_manager_.destroy();
 
         heart_manager_.wait_for_shut_down();
-        master_slave_heart_manager_.wait_for_shut_down();
         layout_manager_.wait_for_shut_down();
         GFactory::wait_for_shut_down();
       }
@@ -198,10 +226,10 @@ namespace tfs
     tbnet::IPacketHandler::HPRetCode NameServer::handlePacket(tbnet::Connection *connection, tbnet::Packet *packet)
     {
       tbnet::IPacketHandler::HPRetCode hret = tbnet::IPacketHandler::FREE_CHANNEL;
-      bool bret = (NULL != connection) && (NULL != packet);
+      bool bret = (NULL != connection) && (NULL != packet) && (GFactory::get_runtime_info().own_is_initialize_complete());
       if (bret)
       {
-        TBSYS_LOG(DEBUG, "receive pcode : %d", packet->getPCode());
+        TBSYS_LOG(DEBUG, "receive pcode : %d, peer ip %s", packet->getPCode(), tbsys::CNetUtil::addrToString(connection->getPeerId()).c_str());
         if (!packet->isRegularPacket())
         {
           bret = false;
@@ -219,8 +247,11 @@ namespace tfs
           {
             bpacket->dump();
           }
+          uint64_t peer_id = connection->getPeerId();
           int32_t pcode = bpacket->getPCode();
           int32_t ret = common::TFS_ERROR;
+          int32_t index = ((peer_id & 0xFFFFFFFF) % SYSPARAM_NAMESERVER.business_port_count_);
+          tbnet::PacketQueueThread* work_thread = index == 0 ? &main_workers_ : &work_threads_[index];
           if (GFactory::get_runtime_info().is_master())
             ret = do_master_msg_helper(bpacket);
           else
@@ -230,19 +261,11 @@ namespace tfs
             hret = tbnet::IPacketHandler::KEEP_CHANNEL;
             switch (pcode)
             {
-            /*case SET_DATASERVER_MESSAGE:
-            case REQ_REPORT_BLOCKS_TO_NS_MESSAGE:
-              heart_manager_.push(bpacket);
-              break;*/
-            case MASTER_AND_SLAVE_HEART_MESSAGE:
-            case HEARTBEAT_AND_NS_HEART_MESSAGE:
-              master_slave_heart_manager_.push(bpacket, 0, false);
-              break;
-            case OPLOG_SYNC_MESSAGE:
+           case OPLOG_SYNC_MESSAGE:
               layout_manager_.get_oplog_sync_mgr().push(bpacket, 0, false);
               break;
             default:
-              if (!main_workers_.push(bpacket, work_queue_size_, false))
+              if (!work_thread->push(bpacket, work_queue_size_, false))
               {
                 hret = tbnet::IPacketHandler::FREE_CHANNEL;
                 bpacket->reply_error_packet(TBSYS_LOG_LEVEL(ERROR),EXIT_WORK_QUEUE_FULL, "%s, task message beyond max queue size, discard, peer ip: %s", get_ip_addr(),
@@ -274,27 +297,19 @@ namespace tfs
         int32_t ret = LOCAL_PACKET == pcode ? TFS_ERROR : common::TFS_SUCCESS;
         if (TFS_SUCCESS == ret)
         {
-          //TBSYS_LOG(DEBUG, "PCODE: %d", pcode);
           common::BasePacket* msg = dynamic_cast<common::BasePacket*>(packet);
+          tbnet::Connection* conn = msg->get_connection();
+          const uint64_t server = NULL != conn ? conn->getPeerId() : INVALID_SERVER_ID;
           switch (pcode)
           {
-            case GET_BLOCK_INFO_MESSAGE:
+            case GET_BLOCK_INFO_MESSAGE_V2:
               ret = open(msg);
               break;
-            case GET_BLOCK_INFO_MESSAGE_V2:
-              ret = openv2(msg);
-              break;
-            case BATCH_GET_BLOCK_INFO_MESSAGE:
+            case BATCH_GET_BLOCK_INFO_MESSAGE_V2:
               ret = batch_open(msg);
               break;
-            case BATCH_GET_BLOCK_INFO_MESSAGE_V2:
-              ret = batch_openv2(msg);
-              break;
-            case BLOCK_WRITE_COMPLETE_MESSAGE:
-              ret = close(msg);
-              break;
             case UPDATE_BLOCK_INFO_MESSAGE_V2:
-              ret = closev2(msg);
+              ret = update_block_info(msg);
               break;
             case REPLICATE_BLOCK_MESSAGE:
             case BLOCK_COMPACT_COMPLETE_MESSAGE:
@@ -312,26 +327,48 @@ namespace tfs
             case DUMP_PLAN_MESSAGE:
               ret = dump_plan(msg);
               break;
+            case CLIENT_NS_KEEPALIVE_MESSAGE:
+              ret = client_keepalive(msg);
+              break;
             case CLIENT_CMD_MESSAGE:
               ret = client_control_cmd(msg);
               break;
             case REQ_RESOLVE_BLOCK_VERSION_CONFLICT_MESSAGE:
-              ret = resolve_block_version_conflict(msg);
+              {
+              BaseTaskMessage* packet = dynamic_cast<BaseTaskMessage*>(msg);
+              if (0 == packet->get_seqno())
+                ret = resolve_block_version_conflict(msg);
+              else
+                ret = layout_manager_.get_client_request_server().handle(msg);
+              }
               break;
             case REQ_GET_FAMILY_INFO_MESSAGE:
               ret = get_family_info(msg);
               break;
             case REPAIR_BLOCK_MESSAGE_V2:
-              ret = repair(msg);
+              //ret = repair(msg);
+              break;
+            case DS_APPLY_BLOCK_MESSAGE:
+              ret = apply_block(msg);
+              break;
+            case DS_RENEW_BLOCK_MESSAGE:
+              ret = renew_block(msg);
+              break;
+            case DS_APPLY_BLOCK_FOR_UPDATE_MESSAGE:
+              ret = apply_block_for_update(msg);
+              break;
+            case DS_GIVEUP_BLOCK_MESSAGE:
+              ret = giveup_block(msg);
               break;
             default:
               ret = EXIT_UNKNOWN_MSGTYPE;
-              TBSYS_LOG(WARN, "unknown msg type: %d", pcode);
+              TBSYS_LOG(WARN, "unknown msg type: %d peer ip: %s", pcode, tbsys::CNetUtil::addrToString(server).c_str());
               break;
           }
           if (common::TFS_SUCCESS != ret)
           {
-            msg->reply_error_packet(TBSYS_LOG_LEVEL(ERROR), ret, "execute message failed, pcode: %d", pcode);
+            msg->reply_error_packet(TBSYS_LOG_LEVEL(ERROR), ret, "execute message failed, pcode: %d, peer ip: %s", pcode,
+              tbsys::CNetUtil::addrToString(server).c_str());
           }
         }
       }
@@ -366,7 +403,7 @@ namespace tfs
                     STATUS_MESSAGE_OK == sm->get_status() ? "successful" : "failure");
                 }
               }
-           }
+            }
           }
         }
       }
@@ -375,74 +412,26 @@ namespace tfs
 
     int NameServer::open(common::BasePacket* msg)
     {
-      int32_t ret = ((NULL != msg) && (msg->getPCode() == GET_BLOCK_INFO_MESSAGE)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
-      if (common::TFS_SUCCESS == ret)
-      {
-        GetBlockInfoMessage* message = dynamic_cast<GetBlockInfoMessage*> (msg);
-        SetBlockInfoMessage* result_msg = new SetBlockInfoMessage();
-        uint64_t block_id = message->get_block_id();
-        uint64_t lease_id = common::INVALID_LEASE_ID;
-        int32_t  mode     = message->get_mode();
-        int32_t  flag     = 0;
-        int32_t  version  = 0;
-        time_t now = Func::get_monotonic_time();
-        uint64_t ipport = msg->get_connection()->getServerId();
-        uint64_t servers[MAX_REPLICATION_NUM];
-        common::ArrayHelper<uint64_t> helper(MAX_REPLICATION_NUM, servers);
-        common::FamilyInfoExt family_info;  // unused in old version
-
-        ret = layout_manager_.get_client_request_server().open(block_id, lease_id, version, helper,
-              family_info, mode, now, flag);
-        if (TFS_SUCCESS == ret)
-        {
-          for (int64_t index = 0; index < helper.get_array_index(); ++index)
-            result_msg->get_block_ds().push_back(*helper.at(index));
-          result_msg->set(block_id, version, lease_id);
-          ret = message->reply(result_msg);
-        }
-        else
-        {
-          result_msg->free();
-          if (EXIT_ACCESS_PERMISSION_ERROR == ret)
-          {
-            ret = message->reply_error_packet(TBSYS_LOG_LEVEL(INFO), EXIT_NAMESERVER_ONLY_READ,
-                  "current nameserver only read, %s", tbsys::CNetUtil::addrToString(ipport).c_str());
-          }
-          else
-          {
-            ret = message->reply_error_packet(TBSYS_LOG_LEVEL(INFO), ret,
-                  "got error, when get block: %"PRI64_PREFIX"u mode: %d, result: %d information, %s",
-                  block_id, mode, ret,tbsys::CNetUtil::addrToString(ipport).c_str());
-          }
-        }
-      }
-      return ret;
-    }
-
-    int NameServer::openv2(common::BasePacket* msg)
-    {
       int32_t ret = ((NULL != msg) && (msg->getPCode() == GET_BLOCK_INFO_MESSAGE_V2)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
       if (common::TFS_SUCCESS == ret)
       {
         GetBlockInfoMessageV2* message = dynamic_cast<GetBlockInfoMessageV2*> (msg);
         GetBlockInfoRespMessageV2* result_msg = new (std::nothrow)GetBlockInfoRespMessageV2();
-        uint64_t block_id = message->get_block_id();
+        const uint64_t block_id = message->get_block_id();
         uint64_t lease_id = common::INVALID_LEASE_ID;
-        int32_t  mode     = message->get_mode();
-        int32_t  flag     = message->get_flag();
-        int32_t  version  = 0;
-        time_t now = Func::get_monotonic_time();
-        uint64_t ipport = msg->get_connection()->getServerId();
+        const int32_t  mode     = message->get_mode();
+        const int32_t  flag     = message->get_flag();
+        const time_t now = Func::get_monotonic_time();
+        const uint64_t ipport = msg->get_connection()->getServerId();
         BlockMeta& meta = result_msg->get_block_meta();
         common::ArrayHelper<uint64_t> servers(MAX_REPLICATION_NUM, meta.ds_);
-
-        ret = layout_manager_.get_client_request_server().open(block_id, lease_id, version, servers,
-                meta.family_info_, mode, now, flag);
+        ret = layout_manager_.get_client_request_server().open(block_id, mode, flag, now, lease_id, servers,
+                meta.family_info_);
         if (TFS_SUCCESS == ret)
         {
+          meta.lease_id_ = lease_id;
           meta.block_id_ = block_id;
           meta.size_ = servers.get_array_index();
-          meta.version_ = version;
           ret = message->reply(result_msg);
         }
         else
@@ -464,129 +453,7 @@ namespace tfs
       return ret;
     }
 
-    /**
-     * a write operation completed, commit to nameserver and update block's verion
-     */
-    int NameServer::close(common::BasePacket* msg)
-    {
-      int32_t ret = ((NULL != msg) && (msg->getPCode() == BLOCK_WRITE_COMPLETE_MESSAGE)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
-      if (common::TFS_SUCCESS == ret)
-      {
-        BlockWriteCompleteMessage* message = dynamic_cast<BlockWriteCompleteMessage*> (msg);
-        CloseParameter param;
-        memset(&param, 0, sizeof(param));
-        param.need_new_ = false;
-        const BlockInfo* info = message->get_block();
-        param.block_info_.block_id_ = info->block_id_;
-        param.block_info_.version_ = info->version_;
-        param.block_info_.file_count_ = info->file_count_;
-        param.block_info_.size_ = info->size_;
-        param.block_info_.del_size_ =info->del_size_;
-        param.block_info_.del_file_count_ =info->del_file_count_;
-        param.id_ = message->get_server_id();
-        param.lease_id_ = message->get_lease_id();
-        param.status_ = message->get_success();
-        param.type_   = message->get_unlink_flag();
-        ret = layout_manager_.get_client_request_server().close(param);
-        if (TFS_SUCCESS != ret)
-        {
-          TBSYS_LOG(INFO, "%s, ret: %d", param.error_msg_, ret);
-        }
-        TBSYS_LOG(DEBUG, "close, block: %"PRI64_PREFIX"u, server: %s, status: %d, lease_id: %"PRI64_PREFIX"u, ret: %d",
-          param.block_info_.block_id_, tbsys::CNetUtil::addrToString(param.id_).c_str(), param.status_, param.lease_id_, ret);
-        ret = message->reply(new StatusMessage(ret, param.error_msg_));
-      }
-      return ret;
-    }
-
-    int NameServer::closev2(common::BasePacket* msg)
-    {
-      int32_t ret = ((NULL != msg) && (msg->getPCode() == UPDATE_BLOCK_INFO_MESSAGE_V2)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
-      if (common::TFS_SUCCESS == ret)
-      {
-        UpdateBlockInfoMessageV2* message = dynamic_cast<UpdateBlockInfoMessageV2*> (msg);
-        CloseParameter param;
-        param.status_   = WRITE_COMPLETE_STATUS_YES;
-        param.id_       = message->get_server_id();
-        param.block_info_= message->get_block_info();
-        param.lease_id_ = param.block_info_.block_id_;
-        param.need_new_ = false;
-        param.error_msg_[0] = '\0';
-        param.type_ = message->get_type();
-        ret = layout_manager_.get_client_request_server().close(param);
-        if (TFS_SUCCESS != ret)
-        {
-          TBSYS_LOG(INFO, "%s, ret: %d", param.error_msg_, ret);
-        }
-        TBSYS_LOG(DEBUG, "close, block: %"PRI64_PREFIX"u, server: %s, status: %d, ret: %d",
-          param.block_info_.block_id_, tbsys::CNetUtil::addrToString(param.id_).c_str(), param.status_, ret);
-        ret = message->reply(new StatusMessage(ret, param.error_msg_));
-      }
-      return ret;
-    }
-
     int NameServer::batch_open(common::BasePacket* msg)
-    {
-      int32_t ret = ((NULL != msg) && (msg->getPCode() == BATCH_GET_BLOCK_INFO_MESSAGE)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
-      if (TFS_SUCCESS == ret)
-      {
-        BatchGetBlockInfoMessage* message = dynamic_cast<BatchGetBlockInfoMessage*>(msg);
-        int32_t block_count = message->get_block_count();
-        int32_t mode     = message->get_mode();
-        int32_t flag     = 0;
-        uint64_t blocks[message->get_block_id().size()];
-        for (uint32_t index = 0; index < message->get_block_id().size(); index++)
-        {
-          blocks[index] = message->get_block_id()[index];
-        }
-        common::ArrayHelper<uint64_t> helper(message->get_block_id().size(), blocks, message->get_block_id().size());
-        BlockMeta metas[MAX_BATCH_SIZE];
-        common::ArrayHelper<BlockMeta> meta_helper(MAX_BATCH_SIZE, metas);
-        BatchSetBlockInfoMessage* reply = new (std::nothrow)BatchSetBlockInfoMessage();
-        assert(NULL != reply);
-        ret = layout_manager_.get_client_request_server().batch_open(helper, mode, block_count, meta_helper, flag);
-        TBSYS_LOG(DEBUG, "batch open return %"PRI64_PREFIX"d blocks meta.", meta_helper.get_array_index());
-        if (TFS_SUCCESS == ret)
-        {
-          for (int64_t index = 0; index < meta_helper.get_array_index(); ++index)
-          {
-            BlockMeta* meta = meta_helper.at(index);
-            BlockInfoSeg seg;
-            if (mode & (T_WRITE | T_CREATE | T_UNLINK))
-            {
-              seg.lease_id_ = meta->lease_id_;
-              seg.version_  = meta->version_;
-            }
-            for (int32_t i = 0; i < meta->size_; ++i)
-              seg.ds_.push_back(meta->ds_[i]);
-            reply->get_infos().insert(std::make_pair(meta->block_id_, seg));
-          }
-          ret = message->reply(reply);
-        }
-        else
-        {
-          reply->free();
-          if(EXIT_NO_DATASERVER == ret)
-          {
-            ret = message->reply_error_packet(TBSYS_LOG_LEVEL(INFO), EXIT_NO_DATASERVER,
-                "not found dataserver, dataserver size equal 0");
-          }
-          else if (EXIT_ACCESS_PERMISSION_ERROR == ret)
-          {
-            ret = message->reply_error_packet(TBSYS_LOG_LEVEL(INFO), EXIT_NAMESERVER_ONLY_READ,
-                "current nameserver only read");
-          }
-          else
-          {
-            ret = message->reply_error_packet(TBSYS_LOG_LEVEL(INFO), ret,
-                "batch get get block information error, mode: %d, ret: %d", mode, ret);
-          }
-        }
-      }
-      return ret;
-    }
-
-    int NameServer::batch_openv2(common::BasePacket* msg)
     {
       int32_t ret = ((NULL != msg) && (msg->getPCode() == BATCH_GET_BLOCK_INFO_MESSAGE_V2)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
       if (TFS_SUCCESS == ret)
@@ -595,15 +462,19 @@ namespace tfs
         BatchGetBlockInfoRespMessageV2* reply = new (std::nothrow)BatchGetBlockInfoRespMessageV2();
         ArrayHelper<uint64_t> blocks(message->get_size(), message->get_block_ids(), message->get_size());
         ArrayHelper<BlockMeta> meta(MAX_BATCH_SIZE, reply->get_block_metas());
-        int32_t  flag     = message->get_flag();
-        int32_t  mode     = message->get_mode();
-        int32_t  block_count = message->get_size();
-        block_count = std::min(MAX_BATCH_SIZE, block_count);
-        ret = layout_manager_.get_client_request_server().batch_open(blocks, mode, block_count, meta, flag);
+        const int32_t  mode     = message->get_mode();
+        const int32_t  flag     = message->get_flag();
+        for (int64_t index = 0; index < blocks.get_array_index() && index < meta.get_array_size(); ++index)
+        {
+          meta.push_back(BlockMeta());
+          BlockMeta* bm = meta.at(index);
+          bm->block_id_ = *blocks.at(index);
+        }
+        ret = layout_manager_.get_client_request_server().batch_open(mode, flag, meta);
         if (TFS_SUCCESS == ret)
         {
           reply->set_size(meta.get_array_index());
-          TBSYS_LOG(DEBUG, "batch openv2 return %"PRI64_PREFIX"d blocks meta.", meta.get_array_index());
+          TBSYS_LOG(DEBUG, "batch open return %"PRI64_PREFIX"d blocks meta.", meta.get_array_index());
           ret = message->reply(reply);
         }
         else
@@ -625,6 +496,26 @@ namespace tfs
                 "batch get get block information error, mode: %d, ret: %d", mode, ret);
           }
         }
+      }
+      return ret;
+    }
+
+    int NameServer::update_block_info(common::BasePacket* msg)
+    {
+      int32_t ret = ((NULL != msg) && (msg->getPCode() == UPDATE_BLOCK_INFO_MESSAGE_V2)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
+      if (common::TFS_SUCCESS == ret)
+      {
+        UpdateBlockInfoMessageV2* message = dynamic_cast<UpdateBlockInfoMessageV2*> (msg);
+        const BlockInfoV2 info = message->get_block_info();
+        const uint64_t server_id =  message->get_server_id();
+        const UpdateBlockInfoType type = message->get_type();
+        bool addnew = UPDATE_BLOCK_INFO_REPL == type ? true : false;
+        ret = layout_manager_.update_block_info(info, server_id, Func::get_monotonic_time(), addnew);
+        char buf[256] = {'\0'};
+        snprintf(buf, 256, "update block: %"PRI64_PREFIX"u information %s, server: %s, ret: %d",
+            info.block_id_, TFS_SUCCESS == ret ? "successful" : "failed", tbsys::CNetUtil::addrToString(server_id).c_str(), ret);
+        TBSYS_LOG_DW(ret, buf);
+        ret = message->reply(new StatusMessage(ret, buf));
       }
       return ret;
     }
@@ -701,6 +592,19 @@ namespace tfs
       return ret;
     }
 
+    int NameServer::client_keepalive(common::BasePacket* msg)
+    {
+      int32_t ret = ((NULL != msg) && (msg->getPCode() == CLIENT_NS_KEEPALIVE_MESSAGE)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
+      if (TFS_SUCCESS == ret)
+      {
+        ClientNsKeepaliveMessage* req_msg = dynamic_cast<ClientNsKeepaliveMessage*>(msg);
+        ClientNsKeepaliveResponseMessage* rsp_msg = new ClientNsKeepaliveResponseMessage();
+        layout_manager_.get_client_request_server().client_keepalive(req_msg->get_flag(), rsp_msg->get_data(), rsp_msg->get_cluster_config(), rsp_msg->get_interval());
+        ret = msg->reply(rsp_msg);
+      }
+      return ret;
+    }
+
     int NameServer::client_control_cmd(common::BasePacket* msg)
     {
       int32_t ret = ((NULL != msg) && (msg->getPCode() == CLIENT_CMD_MESSAGE)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
@@ -770,12 +674,19 @@ namespace tfs
               ngi.owner_status_ = NS_STATUS_UNINITIALIZE;
               ngi.peer_status_ = NS_STATUS_UNINITIALIZE;
               ngi.vip_ = Func::get_addr(get_ip_addr());
+              const int32_t base_port = get_port();
+              const int32_t heart_base_port = base_port + SYSPARAM_NAMESERVER.business_port_count_;
               for (iter = ns_ip_list.begin();iter != ns_ip_list.end(); ++iter)
               {
                 if (local_ip == (*iter))
-                  ngi.owner_ip_port_ = tbsys::CNetUtil::ipToAddr((*iter), get_port());
+                {
+                  ngi.owner_ip_port_ = tbsys::CNetUtil::ipToAddr((*iter), heart_base_port);
+                }
                 else
-                  ngi.peer_ip_port_ = tbsys::CNetUtil::ipToAddr((*iter), get_port());
+                {
+                  ngi.sync_log_peer_ip_port_ = tbsys::CNetUtil::ipToAddr((*iter), base_port);
+                  ngi.peer_ip_port_ = tbsys::CNetUtil::ipToAddr((*iter), heart_base_port);
+                }
               }
               ngi.switch_role(true);
             }
@@ -802,7 +713,11 @@ namespace tfs
             && pcode != HEARTBEAT_AND_NS_HEART_MESSAGE
             && pcode != SET_DATASERVER_MESSAGE
             && pcode != REQ_REPORT_BLOCKS_TO_NS_MESSAGE
-            && pcode != CLIENT_CMD_MESSAGE)
+            && pcode != CLIENT_CMD_MESSAGE
+            && pcode != CLIENT_NS_KEEPALIVE_MESSAGE
+            && pcode != DS_GIVEUP_BLOCK_MESSAGE
+            && pcode != DS_APPLY_BLOCK_MESSAGE
+            && pcode != DS_RENEW_BLOCK_MESSAGE)
           {
             ret = ngi.owner_status_ < NS_STATUS_INITIALIZED? common::TFS_ERROR : common::TFS_SUCCESS;
           }
@@ -827,7 +742,9 @@ namespace tfs
             && pcode != MASTER_AND_SLAVE_HEART_RESPONSE_MESSAGE
             && pcode != SET_DATASERVER_MESSAGE
             && pcode != REQ_REPORT_BLOCKS_TO_NS_MESSAGE
-            && pcode != CLIENT_CMD_MESSAGE)
+            && pcode != CLIENT_CMD_MESSAGE
+            && pcode != CLIENT_NS_KEEPALIVE_MESSAGE
+            && pcode != DS_GIVEUP_BLOCK_MESSAGE)
           {
             if (ngi.owner_status_ < NS_STATUS_INITIALIZED)
             {
@@ -867,7 +784,7 @@ namespace tfs
         uint64_t ipport = msg->get_connection()->getServerId();
         GetFamilyInfoResponseMessage* reply_msg = new GetFamilyInfoResponseMessage();
         ArrayHelper<std::pair<uint64_t, uint64_t> > members(MAX_MARSHALLING_NUM, reply_msg->get_members());
-        ret = layout_manager_.get_client_request_server().open(family_aid_info, members, mode, family_id);
+        ret = layout_manager_.get_client_request_server().open(family_id, mode, family_aid_info, members);
         if (TFS_SUCCESS == ret)
         {
           reply_msg->set_family_id(family_id);
@@ -885,19 +802,129 @@ namespace tfs
       return ret;
     }
 
-    int NameServer::repair(common::BasePacket* msg)
+    int NameServer::apply_block(common::BasePacket* msg)
     {
-      int32_t ret = ((NULL != msg) && (msg->getPCode() == REPAIR_BLOCK_MESSAGE_V2)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
+      int32_t ret = ((NULL != msg) && (msg->getPCode() == DS_APPLY_BLOCK_MESSAGE)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
       if (TFS_SUCCESS == ret)
       {
-        char error_msg[512] = {'\0'};
-        RepairBlockMessageV2* message = dynamic_cast<RepairBlockMessageV2*>(msg);
-        const uint64_t block_id = message->get_block_id();
-        const uint64_t server   = message->get_server_id();
-        const int64_t  family_id = message->get_family_id();
-        const int32_t  type     = message->get_repair_type();
-        ret = layout_manager_.repair(error_msg, 512, block_id, server, family_id, type, Func::get_monotonic_time());
-        ret = message->reply(new StatusMessage(ret, error_msg));
+        TIMER_START();
+        DsApplyBlockMessage* ab_msg = dynamic_cast<DsApplyBlockMessage*>(msg);
+        uint64_t server   = ab_msg->get_server_id();
+        int32_t MAX_COUNT = ab_msg->get_size();
+        MAX_COUNT = std::min(MAX_COUNT, MAX_WRITABLE_BLOCK_COUNT);
+        DsApplyBlockResponseMessage* reply_msg = new (std::nothrow)DsApplyBlockResponseMessage();
+        assert(NULL != reply_msg);
+        ArrayHelper<BlockLease> output(MAX_COUNT, reply_msg->get_block_lease());
+        ret = layout_manager_.get_client_request_server().apply_block(server, output);
+        if (TFS_SUCCESS == ret)
+        {
+          reply_msg->set_size(output.get_array_index());
+          ret = ab_msg->reply(reply_msg);
+        }
+        else
+        {
+          reply_msg->free();
+        }
+        TIMER_END();
+        TBSYS_LOG(DEBUG, "dataserver: %s apply block %s consume times: %"PRI64_PREFIX"d(us), ret: %d, need: %d, actual: %"PRI64_PREFIX"d",
+          tbsys::CNetUtil::addrToString(server).c_str(),TFS_SUCCESS == ret ? "successful" : "failed", TIMER_DURATION(),
+          ret, MAX_COUNT, output.get_array_index());
+      }
+      return ret;
+    }
+
+    int NameServer::renew_block(common::BasePacket* msg)
+    {
+      int32_t ret = ((NULL != msg) && (msg->getPCode() == DS_RENEW_BLOCK_MESSAGE)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
+      if (TFS_SUCCESS == ret)
+      {
+        TIMER_START();
+        DsRenewBlockMessage* ab_msg = dynamic_cast<DsRenewBlockMessage*>(msg);
+        uint64_t server   = ab_msg->get_server_id();
+        int32_t MAX_COUNT = ab_msg->get_size();
+        MAX_COUNT = std::min(MAX_COUNT, MAX_WRITABLE_BLOCK_COUNT);
+        DsRenewBlockResponseMessage* reply_msg = new (std::nothrow)DsRenewBlockResponseMessage();
+        assert(NULL != reply_msg);
+        ArrayHelper<BlockInfoV2> input(MAX_WRITABLE_BLOCK_COUNT, ab_msg->get_block_infos(), ab_msg->get_size());
+        ArrayHelper<BlockLease>  output(MAX_COUNT, reply_msg->get_block_lease());
+        ret = layout_manager_.get_client_request_server().renew_block(server, input, output);
+        if (TFS_SUCCESS == ret)
+        {
+          reply_msg->set_size(output.get_array_index());
+          ret = ab_msg->reply(reply_msg);
+        }
+        else
+        {
+          reply_msg->free();
+        }
+        TIMER_END();
+        TBSYS_LOG(DEBUG, "dataserver: %s renew block %s consume times: %"PRI64_PREFIX"d(us), ret: %d, input: %"PRI64_PREFIX"d, output: %"PRI64_PREFIX"d",
+          tbsys::CNetUtil::addrToString(server).c_str(),TFS_SUCCESS == ret ? "successful" : "failed", TIMER_DURATION(),
+          ret, input.get_array_index(), output.get_array_index());
+      }
+      return ret;
+    }
+
+    int NameServer::apply_block_for_update(common::BasePacket* msg)
+    {
+      int32_t ret = ((NULL != msg) && (msg->getPCode() == DS_APPLY_BLOCK_FOR_UPDATE_MESSAGE)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
+      if (TFS_SUCCESS == ret)
+      {
+        TIMER_START();
+        DsApplyBlockForUpdateMessage* ab_msg = dynamic_cast<DsApplyBlockForUpdateMessage*>(msg);
+        uint64_t server   = ab_msg->get_server_id();
+        DsApplyBlockForUpdateResponseMessage* reply_msg = new (std::nothrow)DsApplyBlockForUpdateResponseMessage();
+        assert(NULL != reply_msg);
+        const int32_t MAX_COUNT = 1;
+        BlockLease lease[MAX_COUNT];
+        lease[0].block_id_ = ab_msg->get_block_id();
+        ArrayHelper<BlockLease> output(MAX_COUNT, lease, MAX_COUNT);
+        ret = layout_manager_.get_client_request_server().apply_block_for_update(server,output);
+        if (TFS_SUCCESS == ret)
+        {
+          reply_msg->set_block_lease(lease[0]);
+          ret = ab_msg->reply(reply_msg);
+        }
+        else
+        {
+          reply_msg->free();
+        }
+        TIMER_END();
+        TBSYS_LOG(DEBUG, "dataserver: %s apply block for update %s consume times: %"PRI64_PREFIX"d(us), ret: %d, need: %d, actual: %"PRI64_PREFIX"d",
+          tbsys::CNetUtil::addrToString(server).c_str(),TFS_SUCCESS == ret ? "successful" : "failed", TIMER_DURATION(),
+          ret, MAX_COUNT, output.get_array_index());
+      }
+      return ret;
+    }
+
+    int NameServer::giveup_block(common::BasePacket* msg)
+    {
+      int32_t ret = ((NULL != msg) && (msg->getPCode() == DS_GIVEUP_BLOCK_MESSAGE)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
+      if (TFS_SUCCESS == ret)
+      {
+        TIMER_START();
+        DsGiveupBlockMessage* ab_msg = dynamic_cast<DsGiveupBlockMessage*>(msg);
+        uint64_t server   = ab_msg->get_server_id();
+        int32_t MAX_COUNT = ab_msg->get_size();
+        assert(MAX_COUNT <= MAX_WRITABLE_BLOCK_COUNT);
+        DsGiveupBlockResponseMessage* reply_msg = new (std::nothrow)DsGiveupBlockResponseMessage();
+        assert(NULL != reply_msg);
+        ArrayHelper<BlockInfoV2> input(MAX_COUNT, ab_msg->get_block_infos(), MAX_COUNT);
+        ArrayHelper<BlockLease> output(MAX_COUNT, reply_msg->get_block_lease());
+        ret = layout_manager_.get_client_request_server().giveup_block(server, input, output);
+        if (TFS_SUCCESS == ret)
+        {
+          reply_msg->set_size(output.get_array_index());
+          ret = ab_msg->reply(reply_msg);
+        }
+        else
+        {
+          reply_msg->free();
+        }
+        TIMER_END();
+        TBSYS_LOG(DEBUG, "dataserver: %s giveup block %s consume times: %"PRI64_PREFIX"d(us), ret: %d, need: %d, actual: %"PRI64_PREFIX"d",
+          tbsys::CNetUtil::addrToString(server).c_str(),TFS_SUCCESS == ret ? "successful" : "failed", TIMER_DURATION(),
+          ret, MAX_COUNT, output.get_array_index());
       }
       return ret;
     }

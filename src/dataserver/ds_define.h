@@ -42,7 +42,7 @@ namespace tfs
     static const int32_t EXIT_POST_MSG_RET_POST_MSG_ERROR  = -1;
 
     static const int32_t PHYSICAL_BLOCK_ID_INIT_VALUE = 1;
-    static const int32_t MAX_MMAP_SIZE = (common::MAX_INDEX_ELEMENT_NUM * common::FILE_INFO_V2_LENGTH ) + common::INDEX_HEADER_V2_LENGTH;
+    static const int32_t MAX_MMAP_SIZE = (tfs::common::MAX_INDEX_ELEMENT_NUM * common::FILE_INFO_V2_LENGTH ) + common::INDEX_HEADER_V2_LENGTH;
 
     // flow control parameter
     static const int32_t MB = 1 * 1024 * 1024;
@@ -59,6 +59,14 @@ namespace tfs
     #define RW_COUNT_R_FAILED  "rw-count-r-failed"
     #define RW_COUNT_W_FAILED  "rw-count-w-failed"
     #define RW_COUNT_U_FAILED  "rw-count-r-failed"*/
+
+    struct FileInfoCompare
+    {
+      bool operator () (const common::FileInfoV2& left, const common::FileInfoV2& right)
+      {
+        return left.id_ < right.id_;
+      }
+    };
 
     struct SuperBlockInfo
     {
@@ -138,12 +146,15 @@ namespace tfs
             const char* function, const char* format, ...);
       common::DataServerStatInfo information_;
       uint64_t ns_vip_port_;
+      uint64_t master_ns_ip_port_;
       int32_t max_mr_network_bandwidth_mb_;
       int32_t max_rw_network_bandwidth_mb_;
+      int32_t max_block_size_;
+      int32_t max_write_file_count_;
       int32_t verify_index_reserved_space_ratio_;
       int32_t check_integrity_interval_days_;
-      int8_t enable_old_interface_;
-      int8_t enable_version_check_;
+      common::DataServerLiveStatus status_;
+      int32_t global_switch_;
       volatile bool is_reporting_block_;
       DsRuntimeGlobalInformation();
       static DsRuntimeGlobalInformation& instance();
@@ -203,7 +214,6 @@ namespace tfs
     };
 
     int ds_async_callback(common::NewClient* client);
-    int post_message_to_server(common::BasePacket* message, const std::vector<uint64_t>& servers);
   }/** end namespace dataserver **/
 }/** end namespace tfs **/
 

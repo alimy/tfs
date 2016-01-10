@@ -21,10 +21,10 @@
 #include <Shared.h>
 #include <Handle.h>
 #include <Timer.h>
-#include "gc.h"
 #include "ns_define.h"
 #include "common/lock.h"
 #include "common/internal.h"
+#include "common/base_object.h"
 
 #ifdef TFS_GTEST
 #include <gtest/gtest.h>
@@ -35,7 +35,8 @@ namespace tfs
   namespace nameserver
   {
     class TaskManager;
-    class Task : public GCObject
+    class LayoutManager;
+    class Task: public common::BaseObject<LayoutManager>
     {
         friend class TaskManager;
       public:
@@ -47,12 +48,14 @@ namespace tfs
         virtual void dump(std::stringstream& stream) = 0;
         virtual void dump(const int32_t level, const char* file, const int32_t line,
                           const char* function, pthread_t thid, const char* format, ...) = 0;
+        virtual void dump_block(const int32_t level, const char* file, const int32_t line,
+                         const char* function, pthread_t thid, tbsys::CLogger& log) = 0;
         virtual void runTimerTask();
         bool operator < (const Task& task) const;
-        bool timeout(const time_t now) const;
         int send_msg_to_server(const uint64_t server, common::BasePacket* msg);
         const char* transform_type_to_str() const;
         const char* transform_status_to_str(const int8_t status) const;
+        int log(const int32_t type, common::BasePacket* msg);
       public:
         TaskManager& manager_;
         int64_t seqno_;
@@ -94,6 +97,8 @@ namespace tfs
         virtual void dump(std::stringstream& stream);
         virtual void dump(const int32_t level, const char* file, const int32_t line,
                           const char* function, pthread_t thid, const char* format, ...);
+        virtual void dump_block(const int32_t level, const char* file, const int32_t line,
+                         const char* function, pthread_t thid, tbsys::CLogger& log);
       protected:
         DISALLOW_COPY_AND_ASSIGN(ReplicateTask);
         uint64_t* servers_;
@@ -139,6 +144,8 @@ namespace tfs
         virtual void dump(std::stringstream& stream);
         virtual void dump(const int32_t level, const char* file, const int32_t line,
                           const char* function, pthread_t thid, const char* format, ...);
+        virtual void dump_block(const int32_t level, const char* file, const int32_t line,
+                         const char* function, pthread_t thid, tbsys::CLogger& log);
       private:
         DISALLOW_COPY_AND_ASSIGN(ECMarshallingTask);
       protected:
@@ -157,6 +164,7 @@ namespace tfs
         virtual int handle();
         virtual int handle_complete(common::BasePacket* msg);
       protected:
+        common::BlockInfoV2* query_(common::BlockInfoV2* infos, const int32_t num, const uint64_t block);
         DISALLOW_COPY_AND_ASSIGN(ECReinstateTask);
     };
 

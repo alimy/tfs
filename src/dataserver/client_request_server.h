@@ -25,26 +25,27 @@
 #include "common/status_message.h"
 #include "message/message_factory.h"
 #include "common/client_manager.h"
-#include "sync_base.h"
-#include "lease_manager.h"
-#include "data_manager.h"
+#include "aop_manager.h"
 #include "data_helper.h"
+
 
 namespace tfs
 {
   namespace dataserver
   {
     class DataService;
+    class TaskManager;
     class ClientRequestServer
     {
       public:
         explicit ClientRequestServer(DataService& service);
         virtual ~ClientRequestServer();
         inline BlockManager& get_block_manager();
-        inline DataManager& get_data_manager();
+        inline OpManager& get_op_manager();
         inline DataHelper& get_data_helper();
         inline TrafficControl& get_traffic_control();
         inline TaskManager& get_task_manager();
+        inline LeaseManager& get_lease_manager();
 
         /** main entrance, dispatch task */
         int handle(tbnet::Packet* packet);
@@ -65,12 +66,12 @@ namespace tfs
         /** write, close, unlink callback */
         int write_file_callback(message::WriteFileMessageV2* message);
         int close_file_callback(message::CloseFileMessageV2* message);
-        int prepare_unlink_file_callback(message::UnlinkFileMessageV2* message);
         int unlink_file_callback(message::UnlinkFileMessageV2* message);
 
         /** block service interface */
         int new_block(message::NewBlockMessageV2* message);
         int remove_block(message::RemoveBlockMessageV2* message);
+        int clean_family_info(message::CleanFamilyInfoMessage* message);
 
         /** data & index interface */
         int read_raw_data(message::ReadRawdataMessageV2* message);
@@ -79,12 +80,14 @@ namespace tfs
         int write_index(message::WriteIndexMessageV2* message);
         int query_ec_meta(message::QueryEcMetaMessage* message);
         int commit_ec_meta(message::CommitEcMetaMessage* message);
+        int get_all_blocks_header(message::GetAllBlocksHeaderMessage* message);
 
       public:
         int query_ec_meta(const uint64_t block_id,
             common::ECMeta& ec_meta, const int32_t lock_time);
         int commit_ec_meta(const uint64_t block_id,
             const common::ECMeta& ec_meta, const int8_t switch_flag, const int8_t unlock_flag);
+        int del_block(const uint64_t block_id, const bool tmp = false);
 
         /** tool support interface */
       private:

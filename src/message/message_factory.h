@@ -62,6 +62,10 @@
 #include "read_index_message_v2.h"
 #include "write_index_message_v2.h"
 #include "ec_meta_message.h"
+#include "ds_lease_message.h"
+#include "get_dataserver_all_blocks_header.h"
+#include "sync_file_entry_message.h"
+#include "get_dataserver_stat_info_message.h"
 #include "expire_message.h"
 #include "client_ns_keepalive_message.h"
 

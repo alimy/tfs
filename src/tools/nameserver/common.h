@@ -19,10 +19,10 @@
 #include <vector>
 #include <tbnet.h>
 #include <Handle.h>
-#include "common/new_client.h"
 #include "common/client_manager.h"
 #include "message/message_factory.h"
 #include "common/config_item.h"
+#include "common/internal.h"
 #include "nameserver/ns_define.h"
 
 namespace tfs
@@ -50,6 +50,8 @@ namespace tfs
       CMD_NUM = 2,
       CMD_BLOCK_INFO,
       CMD_BLOCK_ID,//CMD_BLOCK_ID, CMD_FAMILY_ID
+      CMD_BLOCK_STATUS,
+      CMD_BLOCK_FULL,
       CMD_SERVER_LIST,
       CMD_SERVER_INFO,
       CMD_SERVER_ID,
@@ -59,6 +61,7 @@ namespace tfs
       CMD_ALL,
       CMD_PART,
       CMD_FOR_MONITOR,
+      CMD_NEED_FAMILY,
       CMD_COUNT,
       CMD_INTERVAL,
       CMD_REDIRECT,
@@ -70,7 +73,9 @@ namespace tfs
     {
       BLOCK_TYPE_BLOCK_INFO = 1,
       BLOCK_TYPE_BLOCK_ID = 2,
-      BLOCK_TYPE_SERVER_LIST = 4
+      BLOCK_TYPE_SERVER_LIST = 4,
+      BLOCK_TYPE_BLOCK_STATUS = 8,
+      BLOCK_TYPE_BLOCK_FULL = 16,
     };
     enum SubServerType
     {
@@ -131,10 +136,12 @@ namespace tfs
     struct ParamInfo
     {
       ParamInfo() :
-        type_(CMD_NOP), num_(MAX_READ_NUM), count_(1), interval_(2), filename_(""), id_(0), server_ip_port_(""), rack_ip_mask_("")
+        type_(CMD_NOP), num_(MAX_READ_NUM), count_(1), interval_(2), filename_(""),
+        need_family_(false), id_(0), server_ip_port_(""), rack_ip_mask_("")
       {}
       ParamInfo(const int8_t type) :
-        type_(type), num_(MAX_READ_NUM), count_(1), interval_(2), filename_(""), id_(0), server_ip_port_(""), rack_ip_mask_("")
+        type_(type), num_(MAX_READ_NUM), count_(1), interval_(2), filename_(""),
+        need_family_(false), id_(0), server_ip_port_(""), rack_ip_mask_("")
       {}
       ~ParamInfo(){}
       int8_t type_;
@@ -142,6 +149,7 @@ namespace tfs
       uint64_t count_;
       uint64_t interval_;
       std::string filename_;
+      bool need_family_;
       union
       {
         uint64_t block_id_;
@@ -157,31 +165,26 @@ namespace tfs
       public:
         ServerBase();
         virtual ~ServerBase();
-        int deserialize(tbnet::DataBuffer& input, const int32_t length, int32_t& offset, const int8_t type);
+        int serialize(tbnet::DataBuffer& output, int32_t& length);
+        int deserialize(tbnet::DataBuffer& input, const int32_t length, int32_t& offset, const int8_t type = 0);
+        int fetch_family_set();
         void dump() const;
 
 #ifdef TFS_NS_DEBUG
         int64_t total_elect_num_;
 #endif
-        uint64_t id_;
-        int64_t use_capacity_;
-        int64_t total_capacity_;
-        common::Throughput total_tp_;
-        common::Throughput last_tp_;
-        int32_t current_load_;
-        int32_t block_count_;
-        time_t last_update_time_;
-        time_t startup_time_;
-        time_t current_time_;
-        common::DataServerLiveStatus status_;
+        common::ServerStat server_stat_;
         std::set<uint64_t> hold_;
         std::set<uint64_t> writable_;
         std::set<uint64_t> master_;
+        std::set<int64_t> family_set_;
     };
 
     struct ServerInfo
     {
       uint64_t server_id_;
+      int64_t  family_id_;
+      int32_t  version_;
       operator uint64_t() const {return server_id_;}
       ServerInfo operator=(const ServerInfo& a)
       {
@@ -203,6 +206,12 @@ namespace tfs
       public:
         common::BlockInfoV2 info_;
         std::vector<ServerInfo> server_list_;
+        int64_t expire_time_;
+        int64_t last_leave_time_;
+        int8_t create_flag_;
+        int8_t in_replicate_queue_;
+        int8_t has_lease_;
+        int8_t choose_master_;
 
         BlockBase();
         virtual ~BlockBase();

@@ -363,26 +363,25 @@ namespace tfs
       return iret;
     }
 
-    int post_msg_to_server(uint64_t servers, tbnet::Packet* msg,
-                          NewClient::callback_func func, const bool save_msg)
+    int post_msg_to_server(uint64_t server, tbnet::Packet* msg, NewClient::callback_func func, bool save_source_msg)
     {
-      int32_t iret = servers > 0 && NULL != msg  && NULL != func? common::TFS_SUCCESS : common::TFS_ERROR;
-      if (TFS_SUCCESS == iret)
+      int32_t ret = INVALID_SERVER_ID != server && NULL != msg  && NULL != func? common::TFS_SUCCESS : common::TFS_ERROR;
+      if (TFS_SUCCESS == ret)
       {
-        NewClient* client = NewClientManager::get_instance().create_client();
-        iret = (NULL != client) ? TFS_SUCCESS : EXIT_CLIENT_MANAGER_CREATE_CLIENT_ERROR;
-        if (TFS_SUCCESS == iret)
+        NewClient* new_client = NewClientManager::get_instance().create_client();
+        ret = (NULL != new_client) ? TFS_SUCCESS : EXIT_CLIENT_MANAGER_CREATE_CLIENT_ERROR;
+        if (TFS_SUCCESS == ret)
         {
           std::vector<uint64_t> tmp;
-          tmp.push_back(servers);
-          iret = client->async_post_request(tmp, msg, func, save_msg);
-          if (TFS_SUCCESS != iret)
+          tmp.push_back(server);
+          ret = new_client->async_post_request(tmp, msg, func, save_source_msg);
+          if (TFS_SUCCESS != ret)
           {
-            NewClientManager::get_instance().destroy_client(client);
+            NewClientManager::get_instance().destroy_client(new_client);
           }
         }
       }
-      return iret;
+      return ret;
     }
 
     // test whether the DataServerStatInfo is still alive.

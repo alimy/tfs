@@ -47,7 +47,6 @@ namespace tfs
         static int replace_ip(const VIpTransferItem& transfer_item,
             const std::string& source_ip, std::string& dest_ip);
         static uint32_t calculate_distance(const std::string& ip_str, const std::string& addr);
-        static std::string addrToStringNoPort(uint64_t ipport);
     };
   }
 }

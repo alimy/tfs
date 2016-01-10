@@ -18,7 +18,7 @@ AM_CPPFLAGS=-fPIC -I${top_srcdir}/src\
 
 AM_LDFLAGS=-lz -lrt -lpthread -ldl -luuid $(TAIR_CACHE_LDFLAGS)
 
-lib_LTLIBRARIES= libtfsclient.la libtfsclient_c.la
+lib_LTLIBRARIES= #libtfsclient.la libtfsclient_c.la
 
 api_source_list = tfs_file.cpp tfs_large_file.cpp tfs_small_file.cpp tfs_session.cpp \
                   fsname.cpp tfs_session_pool.cpp tfs_client_impl.cpp tfs_client_api.cpp \

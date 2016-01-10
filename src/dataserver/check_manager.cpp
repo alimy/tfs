@@ -227,7 +227,19 @@ namespace tfs
       vector<uint64_t> replicas;
       IndexDataV2 peer_index;
       int ret = get_data_helper().get_block_replicas(peer_ns, block_id, replicas);
-      ret = (replicas.size() > 0) ? TFS_SUCCESS : EXIT_NO_DATASERVER;
+      if (TFS_SUCCESS == ret)
+      {
+        ret = (replicas.size() > 0) ? TFS_SUCCESS : EXIT_NO_DATASERVER;
+      }
+      else if (EXIT_NO_BLOCK == ret || EXIT_BLOCK_NOT_FOUND == ret)
+      {
+        // less block in slave cluster will auto synced
+        if (flag & CHECK_FLAG_SYNC_LESS)
+        {
+          ret = TFS_SUCCESS;
+        }
+      }
+
       if (TFS_SUCCESS == ret)
       {
         vector<uint64_t>::iterator iter = replicas.begin();
@@ -318,14 +330,6 @@ namespace tfs
       }
       return TFS_SUCCESS;
     }
-
-    struct FileInfoCompare
-    {
-      bool operator () (const FileInfoV2& left, const FileInfoV2& right)
-      {
-        return left.id_ < right.id_;
-      }
-    };
 
     void CheckManager::compare_block_fileinfos(const uint64_t block_id,
         const vector<FileInfoV2>& left,

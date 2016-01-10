@@ -62,8 +62,7 @@ namespace tfs
       int create_family_id(int64_t& family_id);
       int create_family(common::FamilyInfo& family_info);
       int del_family(const int64_t family_id);
-      int scan_all_family(int64_t& start_family_id);
-      int scan_all_family_log();
+
     private:
       DISALLOW_COPY_AND_ASSIGN( OpLogSyncManager);
       virtual bool handlePacketQueue(tbnet::Packet *packet, void *args);
@@ -72,16 +71,42 @@ namespace tfs
       int transfer_log_msg_(common::BasePacket* msg);
       int recv_log_(common::BasePacket* msg);
       int replay_all_();
+      common::BasePacket* malloc_(const int32_t type);
+
+      int scan_all_family_(const int32_t thseqno, const int32_t chunk, int64_t& start_family_id);
+      int scan_all_family_log_();
+      int load_family_info_(const int32_t thread_seqno);
+      int load_family_log_(const int32_t thread_seqno);
+      int load_all_family_info_(const int32_t thread_seqno, bool& load_complete);
+
+      class LoadFamilyInfoThreadHelper: public tbutil::Thread
+      {
+        public:
+          LoadFamilyInfoThreadHelper(OpLogSyncManager& manager, const int32_t thread_seqno):
+            manager_(manager), thread_seqno_(thread_seqno), load_complete_(false){start(THREAD_STATCK_SIZE);}
+          void set_reload() { load_complete_ = false;}
+          bool load_complete() const { return load_complete_;}
+          virtual ~LoadFamilyInfoThreadHelper() {}
+          void run();
+        private:
+          OpLogSyncManager& manager_;
+          int32_t thread_seqno_;
+          bool load_complete_;
+          DISALLOW_COPY_AND_ASSIGN(LoadFamilyInfoThreadHelper);
+      };
+      typedef tbutil::Handle<LoadFamilyInfoThreadHelper> LoadFamilyInfoThreadHelperPtr;
+
     private:
+      static const int32_t DEFATUL_TAIR_INDEX = 0;
       LayoutManager& manager_;
       OpLog* oplog_;
       common::FileQueue* file_queue_;
       common::FileQueueThread* file_queue_thread_;
       BlockIdFactory id_factory_;
       tbutil::Mutex mutex_;
-      TairHelper* dbhelper_;
-      //DataBaseHelper* dbhelper_;
+      TairHelper* dbhelper_[MAX_LOAD_FAMILY_INFO_THREAD_NUM];
       tbnet::PacketQueueThread work_thread_;
+      LoadFamilyInfoThreadHelperPtr load_family_info_thread_[MAX_LOAD_FAMILY_INFO_THREAD_NUM];
     };
   }//end namespace nameserver
 }//end namespace tfs

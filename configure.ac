@@ -2,10 +2,10 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.59)
-AC_INIT([tfs], 2.6.0, duolong@taobao.com)
+AC_INIT([tfs], 2.6.2, duolong@taobao.com)
 AC_CONFIG_SRCDIR([src/common/config_item.h])
 
-AM_INIT_AUTOMAKE(tfs, 2.6.0)
+AM_INIT_AUTOMAKE(tfs, 2.6.2)
 # Checks for programs.
 AC_PROG_AWK
 AC_PROG_CXX
@@ -94,7 +94,7 @@ if ! test -d "${TAIR_ROOT}/include" -a -d "${TBLIB_ROOT}/lib"; then
   exit 1;
 fi
 TAIR_STORE_CPPFLAGS="-DWITH_UNIQUE_STORE -I${TAIR_ROOT}/include"
-TAIR_STORE_LDFLAGS="${TAIR_ROOT}/lib/libtairclientapi.a -lboost_thread -lz -lsnappy"
+TAIR_STORE_LDFLAGS="${TAIR_ROOT}/lib/libtairclientapi.a  -L/usr/lib64/boost1.46.1 -lboost_thread -lz -lsnappy"
 AC_SUBST([TAIR_STORE_CPPFLAGS])
 AC_SUBST([TAIR_STORE_LDFLAGS])
 
@@ -243,8 +243,6 @@ AC_CONFIG_FILES([Makefile
                  scripts/Makefile
                  scripts/ha/Makefile
                  src/Makefile
-                 src/adminserver/Makefile
-                 src/new_client/Makefile
                  src/clientv2/Makefile
                  src/requester/Makefile
                  src/common/Makefile
@@ -254,9 +252,10 @@ AC_CONFIG_FILES([Makefile
                  src/monitor/Makefile
                  src/nameserver/Makefile
                  src/rcserver/Makefile
-                 src/name_meta_server/Makefile
                  src/kv_meta_server/Makefile
-                 src/rootserver/Makefile
+                 src/syncserver/Makefile
+                 src/migrateserver/Makefile
+                 src/checkserver/Makefile
                  src/life_cycle_manager/Makefile
                  src/life_cycle_manager/root_manager/Makefile
                  src/life_cycle_manager/expire_server/Makefile
@@ -265,13 +264,10 @@ AC_CONFIG_FILES([Makefile
                  src/tools/util/Makefile
                  src/tools/dataserver/Makefile
                  src/tools/nameserver/Makefile
-                 src/tools/adminserver/Makefile
                  src/tools/cluster/Makefile
-                 src/tools/workers/Makefile
-                 src/checkserver/Makefile
-                 src/tools/metaserver/Makefile])
+                 src/tools/workers/Makefile])
                  #tests/Makefile
-                 #tests/batch/Makefile
+                 #tests/batch/Makefile])
                  #tests/rcserver/Makefile
                  #tests/kv_meta_server/Makefile
                  #tests/name_meta_server/Makefile
@@ -280,5 +276,6 @@ AC_CONFIG_FILES([Makefile
                  #tests/rootserver/Makefile
                  #tests/dataserver/Makefile
                  #tests/clientv2/Makefile
+                 #tests/requester/Makefile
                  #tests/intergrate/Makefile])
 AC_OUTPUT

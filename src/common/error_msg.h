@@ -64,7 +64,15 @@ namespace tfs
     const int32_t EXIT_ALREADY_MMAPPED_ERROR = -1036;
     const int32_t EXIT_ALREADY_MMAPPED_MAX_SIZE_ERROR = -1037;
     const int32_t EXIT_OP_TAIR_ERROR = -1038;
-    const int32_t EXIT_WORK_QUEUE_FULL = -1039;
+    const int32_t EXIT_APPLY_LEASE_ALREADY_ISSUED = -1039;
+    const int32_t EXIT_LEASE_NOT_EXIST = -1040;
+    const int32_t EXIT_LEASE_EXPIRED = -1041;
+    const int32_t EXIT_CANNOT_APPLY_LEASE = -1042;
+    const int32_t EXIT_CANNOT_RENEW_LEASE = -1043;
+    const int32_t EXIT_CANNOT_GIVEUP_LEASE = -1044;
+    const int32_t EXIT_LEASE_EXISTED = -1045;
+    const int32_t EXIT_QUEUE_FULL_ERROR = -1046;
+    const int32_t EXIT_WORK_QUEUE_FULL = -1047;
 
     const int32_t EXIT_FILE_OP_ERROR = -2000;
     const int32_t EXIT_OPEN_FILE_ERROR = -2001;
@@ -98,7 +106,7 @@ namespace tfs
     const int32_t EXIT_DATASERVER_NOT_FOUND = -5004;
     const int32_t EXIT_CANNOT_GET_LEASE = -5005;// lease not found
     const int32_t EXIT_COMMIT_ERROR = -5006;
-    const int32_t EXIT_LEASE_EXPIRED = -5007;
+    //const int32_t EXIT_LEASE_EXPIRED = -5007;
     const int32_t EXIT_BINLOG_ERROR = -5008;
     const int32_t EXIT_NO_REPLICATE = -5009;
     const int32_t EXIT_BLOCK_BUSY = -5010;
@@ -111,7 +119,7 @@ namespace tfs
     const int32_t EIXT_SERVER_OBJECT_NOT_FOUND = -5017;//server object not found in XXX
     const int32_t EXIT_UPDATE_RELATION_ERROR = -5018;//update relation error
     const int32_t EXIT_DISCARD_NEWBLK_ERROR  = -5019;//nameserver in safe_mode_time, discard newblk packet
-    const int32_t EXIT_BLOCK_REPLICATE_EXIST = -5020;//ÈÄöËøáÂ∑•ÂÖ∑Âä†ËΩΩblockÊó∂ÔºåblockÁöÑÂ§á‰ªΩÂ∑≤ÁªèÂ≠òÂú®
+    const int32_t EXIT_BLOCK_REPLICATE_EXIST = -5020;//Õ®π˝π§æﬂº”‘ÿblock ±£¨blockµƒ±∏∑›“—æ≠¥Ê‘⁄
     const int32_t EXIT_CHOOSE_CREATE_BLOCK_TARGET_SERVER_ERROR = -5021;
     const int32_t EXIT_ADD_TASK_ERROR = -5022;
     const int32_t EXIT_ADD_NEW_BLOCK_ERROR = -5023;
@@ -149,6 +157,19 @@ namespace tfs
     const int32_t EXIT_COMMIT_BLOCK_UPDATE_ERROR = -5055;
     const int32_t EXIT_INITIALIZE_TAIR_ERROR = -5056;
     const int32_t EXIT_REPORT_BLOCK_ERROR = -5057;
+    const int32_t EXIT_BLOCK_NOT_IN_CURRENT_GROUP = -5058;
+    const int32_t EXIT_BLOCK_COPIES_INCOMPLETE = -5059;
+    const int32_t EXIT_SEND_SYNC_FILE_ENTRY_MSG_ERROR = -5060;
+    const int32_t EXIT_CHOOSE_SOURCE_SERVER_ERROR = -5061;
+    const int32_t EXIT_CHOOSE_RACK_ERROR = -5062;
+    const int32_t EXIT_APPLY_BLOCK_SAFE_MODE_TIME_ERROR = -5063;
+    const int32_t EXIT_COPIES_OUT_OF_LIMIT = -5064;
+    const int32_t EXIT_CANNOT_ACCEPT_THIS_COPIES_ERROR = -5065;
+    const int32_t EXIT_VERIYF_BLOCK_CANNOT_APPLY_LESAE  = -5066;
+    const int32_t EXIT_MARSHALLING_CANNOT_COMPACT = -5067;
+    const int32_t EXIT_LOAD_BLOCK_ERROR = -5068;
+    const int32_t EXIT_CANNOT_MIGRATE_BLOCK_ERROR = -5069;
+
 
     const int32_t EXIT_WRITE_OFFSET_ERROR = -8001; // write offset error
     const int32_t EXIT_READ_OFFSET_ERROR = -8002; // read offset error
@@ -218,7 +239,7 @@ namespace tfs
     const int32_t EXIT_PHYSICAL_BLOCK_EXIST_ERROR = -8066;
     const int32_t EXIT_VERIFY_INDEX_BLOCK_NOT_FOUND_ERROR = -8067;
     const int32_t EXIT_INDEX_DATA_INVALID_ERROR = -8068;
-    const int32_t EXIT_ALLOC_PHYSICAL_BLOCK_USE_ERROR = -8069;//ÂΩìÂâçÁâ©ÁêÜBLOCKÊ≠£Âú®‰ΩøÁî®
+    const int32_t EXIT_ALLOC_PHYSICAL_BLOCK_USE_ERROR = -8069;//µ±«∞ŒÔ¿ÌBLOCK’˝‘⁄ π”√
     const int32_t EXIT_NOT_SUPPORT_ERROR = -8070; // a clue to old clients
     const int32_t EXIT_BLOCK_LEASE_OVERLOAD_ERROR = -8071;
     const int32_t EXIT_BLOCK_LEASE_INVALID_ERROR = -8072;
@@ -229,6 +250,11 @@ namespace tfs
     const int32_t EXIT_BLOCK_IN_TASK_QUEUE = -8077;
     const int32_t EXIT_CHECK_QUEUE_FULL = -8078;
     const int32_t EXIT_BG_TASK_QUEUE_FULL = -8079;
+    const int32_t EXIT_OP_META_ERROR = -8080;
+    const int32_t EXIT_NO_WRITABLE_BLOCK = -8081;
+    const int32_t EXIT_BLOCK_HAS_WRITE = -8082;
+    const int32_t EXIT_MIGRATE_DS_HEARTBEAT_ERROR = -8083;
+    const int32_t EXIT_DATASERVER_READ_ONLY = -8084;//current dataserver read only
 
     const int32_t EXIT_SESSION_EXIST_ERROR = -9001;
     const int32_t EXIT_SESSIONID_INVALID_ERROR = -9002;
@@ -288,13 +314,10 @@ namespace tfs
     const int32_t EXIT_INVALID_KV_META_SERVER = -17008;// no kv meta server
     const int32_t EXIT_KV_RETURN_HAS_MORE_DATA = -17009; //tair return over 1M of get range once
     const int32_t EXIT_REQ_OFFSET_NOT_FIND = -17100;//do direct scan offset but reqoffset not in scan
-    const int32_t EXIT_KV_METADATA_LENNTH_EXCEED = -17101;//do direct scan offset but reqoffset not in scan
-    const int32_t EXIT_KV_STORE_CAN_NOT_CONNECT = -17102;
 
     // life cycle manager related
     const int32_t EXIT_LIFE_CYCLE_INFO_EXIST = -18000;
     const int32_t EXIT_INVALID_LIFECYCLE_ROOT_SERVER = -18001;
-
 
     //sync file
     const int32_t EXIT_SYNC_FILE_PART_SUCCESSFUL = -20000;
@@ -307,6 +330,15 @@ namespace tfs
     const int32_t EXIT_NO_HTTP_REQUEST_HEADER = -21002;
     const int32_t EXIT_WRONG_HTTP_PROTOCOL = -21003;
     const int32_t EXIT_SEND_HTTP_ERROR = -21004;
+
+    // migrate server error code
+    const int32_t EXIT_GET_ALL_BLOCK_HEADER_ERROR = -22000;
+    const int32_t EXIT_DO_MIGRATE_FAIL = -22001;
+    const int32_t EXIT_CHOOSE_MIGRATE_DEST_SERVER_ERROR = -22002;
+
+    const int32_t EXIT_NO_BLOCK_NEED_MIGRATE_ERROR = -19002;
+    // sync server error code
+    const int32_t EXIT_SOURCE_DS_SYNC_THREAD_NOT_FOUND = -23000;
   }
 }
 #endif //TFS_COMMON_ERRMSG_H_

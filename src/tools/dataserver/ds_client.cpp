@@ -27,6 +27,7 @@
 
 #include "common/internal.h"
 #include "common/func.h"
+#include "common/version.h"
 #include "common/client_manager.h"
 #include "message/message_factory.h"
 #include "tools/util/ds_lib.h"
@@ -57,6 +58,7 @@ enum CmdSet
   CMD_READ_FILE_INFO,
   CMD_SEND_CRC_ERROR,
   CMD_LIST_BITMAP,
+  CMD_LIST_BLOCKS_THROUGHPUT,
   CMD_HELP,
   CMD_UNKNOWN,
   CMD_NOP,
@@ -65,6 +67,7 @@ enum CmdSet
 
 void init();
 void usage(const char* name);
+void version(const char* app_name);
 void signal_handler(const int sig);
 int parse_cmd(char* buffer, VSTRING & param);
 int switch_cmd(const int cmd, VSTRING & param);
@@ -124,7 +127,7 @@ int main(int argc, char* argv[])
     usage(argv[0]);
     return TFS_ERROR;
   }
-  while ((i = getopt(argc, argv, "d:i::")) != -1)
+  while ((i = getopt(argc, argv, "d:i::v")) != -1)
   {
     switch (i)
     {
@@ -138,6 +141,9 @@ int main(int argc, char* argv[])
         printf("ip or port is invalid, please try again.\n");
         return TFS_ERROR;
       }
+      break;
+    case 'v':
+      version(argv[0]);
       break;
     case ':':
       printf("missing -d");
@@ -211,14 +217,21 @@ void init()
   cmd_map["quit"] = CMD_QUIT;
   cmd_map["send_crc_error"] = CMD_SEND_CRC_ERROR;
   cmd_map["list_bitmap"] = CMD_LIST_BITMAP;
+  cmd_map["list_blocks_throughput"] = CMD_LIST_BLOCKS_THROUGHPUT;
 }
 
 // no return.
 // show the prompt of command.
 void usage(const char* name)
 {
-  printf("Usage: %s -d ip:port \n", name);
+  printf("Usage: %s -d ip:port [-v]\n", name);
   exit( TFS_ERROR);
+}
+
+void version(const char* app_name)
+{
+  fprintf(stderr, "%s %s\n", app_name, Version::get_build_description());
+  exit(0);
 }
 
 //no return.
@@ -436,29 +449,34 @@ int switch_cmd(const int cmd, VSTRING & param)
     }
   case CMD_VERIFY_FILE_DATA:
     {
-      if (param.size() != 2)
+      if (param.size() < 2 || param.size() > 3)
       {
-        printf("Usage:read_file_data blockid fileid\n");
+        printf("Usage:read_file_data blockid fileid [attach_block_id]\n");
         printf("check if tfs data crc match.\n");
         break;
       }
       uint64_t block_id = strtoull(const_cast<char*> (param[0].c_str()), reinterpret_cast<char**> (NULL), 10);
       uint64_t file_id = strtoull(const_cast<char*> (param[1].c_str()), reinterpret_cast<char**> (NULL), 10);
+      uint64_t attach_block_id = block_id;
+      if (param.size() == 3)
+      {
+        attach_block_id = strtoull(const_cast<char*> (param[2].c_str()), reinterpret_cast<char**> (NULL), 10);
+      }
 
       ds_task.block_id_ = block_id;
-      ds_task.attach_block_id_ = block_id;
+      ds_task.attach_block_id_ = attach_block_id;
       ds_task.new_file_id_ = file_id;
 
       ret = DsLib::verify_file_data(ds_task);
       if (TFS_SUCCESS == ret)
       {
-        printf ("verify file success. blockid: %"PRI64_PREFIX"u, fileid: %"PRI64_PREFIX"u\n",
-            block_id, file_id);
+        printf ("verify file success. blockid: %"PRI64_PREFIX"u, %"PRI64_PREFIX"u\n",
+            attach_block_id, file_id);
       }
       else
       {
-        printf ("verify file fail. blockid: %"PRI64_PREFIX"u, fileid: %"PRI64_PREFIX"u\n",
-            block_id, file_id);
+        printf ("verify file fail. blockid: %"PRI64_PREFIX"u, %"PRI64_PREFIX"u\n",
+            attach_block_id, file_id);
       }
 
       break;
@@ -534,25 +552,27 @@ int switch_cmd(const int cmd, VSTRING & param)
     }
   case CMD_READ_FILE_INFO:
     {
-      if (param.size() < 2 || param.size() > 3)
+      if (param.size() < 3 || param.size() > 4)
       {
-        printf("Usage:read_file_info block_id file_id [ds_mode]\n");
+        printf("Usage:read_file_info block_id attach_block_id file_id [ds_mode]\n");
         printf("      ds_mode  0|1,  0          => exclude deleted file\n\
                                      1(default) => include deleted file\n");
         printf("get the file information.\n");
         break;
       }
       uint64_t ds_block_id = strtoull(const_cast<char*> (param[0].c_str()), reinterpret_cast<char**> (NULL), 10);
-      uint64_t ds_file_id = strtoull(const_cast<char*> (param[1].c_str()), reinterpret_cast<char**> (NULL), 10);
+      uint64_t ds_attach_block_id = strtoull(const_cast<char*> (param[1].c_str()), reinterpret_cast<char**> (NULL), 10);
+      uint64_t ds_file_id = strtoull(const_cast<char*> (param[2].c_str()), reinterpret_cast<char**> (NULL), 10);
       int32_t ds_mode = 1;
-      if (3 == param.size())
+      if (4 == param.size())
       {
-        ds_mode = atoi(const_cast<char*> (param[2].c_str()));
+        ds_mode = atoi(const_cast<char*> (param[3].c_str()));
       }
       ds_task.block_id_ = ds_block_id;
+      ds_task.attach_block_id_ = ds_attach_block_id;
       ds_task.new_file_id_ = ds_file_id;
       ds_task.mode_ = ds_mode;
-      ret = DsLib::read_file_info(ds_task);
+      ret = DsLib::read_file_info_v2(ds_task);
       break;
     }
   case CMD_SEND_CRC_ERROR:
@@ -602,6 +622,44 @@ int switch_cmd(const int cmd, VSTRING & param)
       ret = DsLib::send_crc_error(ds_task);
       break;
     }
+  case CMD_LIST_BLOCKS_THROUGHPUT:
+    {
+      vector<IndexHeaderV2> blocks_header;
+      ret = DsLib::get_blocks_index_header(ds_task, blocks_header);
+      if (TFS_SUCCESS == ret)
+      {
+        multiset<BlockVisit> blocks_visit;
+        int64_t total_visit_count = 0;
+        vector<IndexHeaderV2>::iterator header_it = blocks_header.begin();
+        for ( ; header_it != blocks_header.end(); ++header_it)
+        {
+          total_visit_count = header_it->throughput_.read_visit_count_;
+          total_visit_count += header_it->throughput_.write_visit_count_;
+          total_visit_count += header_it->throughput_.update_visit_count_;
+          total_visit_count += header_it->throughput_.unlink_visit_count_;
+          blocks_visit.insert(BlockVisit(header_it->info_.block_id_,
+              total_visit_count, header_it->info_.last_access_time_));
+        }
+
+        printf("block List Size = %zd\n", blocks_visit.size());
+        printf("TYPE      BLOCKID       VISIT_COUNT     LAST_VISIT_TIME\n");
+        printf("----------------------------------------------------------\n");
+        multiset<BlockVisit>::iterator it = blocks_visit.begin();
+        for (; it != blocks_visit.end(); ++it)
+        {
+          printf("%c     %10"PRI64_PREFIX"u    %10"PRI64_PREFIX"d    %s\n", IS_VERFIFY_BLOCK(it->block_id_) ? 'C' : 'D',
+              it->block_id_, it->total_visit_count_, Func::time_to_str(it->last_access_time_).c_str());
+        }
+        printf("----------------------------------------------------------\n");
+        printf("TYPE BLOCKID     VISIT_COUNT     LAST_VISIT_TIME\n");
+        printf("Total: %zd\n", blocks_visit.size());
+      }
+      else
+      {
+        fprintf(stderr, "list block throughput fail\n");
+      }
+    }
+    break;
   case CMD_UNKNOWN:
     fprintf(stderr, "unknown command.\n");
     ret = show_help(param);
@@ -661,18 +719,16 @@ int show_help(VSTRING &)
     "get_ping_status                                                             get the ping status of dataServer.\n"
     "list_block  type                                                            list all the blocks in a dataserver.\n"
     "get_block_info  block_id                                                    get the information of a block in the dataserver.\n"
+    "list_blocks_throughput                                                      list all blocks' visit count in ds order by count desc\n"
     "list_file  block_id                                                         list all the files in a block.\n"
     "read_file_data  blockid attach_blockid fileid local_file_name               download a tfs file to local.\n"
-    "verify_file_data  tfs_file_name                                             check tfs file data crc.\n"
+ "verify_file_data  block_id file_id [attach_block_id]                           check tfs file data crc.\n"
     "write_file_data block_id file_id local_file_name                            upload a local file to tfs\n"
     "unlink_file  block_id file_id [unlink_type]                                 delete a file.\n"
     "read_file_info  block_id file_id [ds_mode]                                  get the file information.\n"
     "list_bitmap  type                                                           list the bitmap of the server\n"
     "create_file_id block_id file_id                                             create a new file_id\n"
     "remove_block block_id                                                       remove a block\n"
-    "reset_block_version block_id                                                 reset block version to 1, will not affect files in the block\n"
-    "rename_file block_id old_file_id new_file_id                                rename old file_id to a new file_id\n"
-    "send_crc_error  block_id file_id crc [error_flag] [ds_addr1 ds_addr2 ...]   label file crc error or block eio error, will repair file or block\n"
     "quit                                                                        quit console.\n"
     "help                                                                        show help.\n\n");
   return TFS_SUCCESS;

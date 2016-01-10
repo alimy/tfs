@@ -106,6 +106,9 @@ namespace tfs
         case REQ_EC_DISSOLVE_MESSAGE:
           ret = add_dissolve_task(dynamic_cast<ECDissolveMessage*>(packet));
           break;
+        case NS_REQ_RESOLVE_BLOCK_VERSION_CONFLICT_MESSAGE:
+          ret = add_resolve_conflict_task(dynamic_cast<NsReqResolveBlockVersionConflictMessage*>(packet));
+          break;
         case RESP_DS_REPLICATE_BLOCK_MESSAGE:
         case RESP_DS_COMPACT_BLOCK_MESSAGE:
           ret = handle_complete(packet);
@@ -157,25 +160,24 @@ namespace tfs
     {
       int64_t seqno = message->get_seqno();
       int32_t expire_time = message->get_expire_time();
-      const ReplBlock* repl_info = message->get_repl_block();
+      const ReplBlock& repl_info = message->get_repl_block();
       DsRuntimeGlobalInformation& ds_info = DsRuntimeGlobalInformation::instance();
       int ret = TFS_SUCCESS;
-      if ((NULL == repl_info) ||
-          (seqno < 0) || (expire_time <= 0) ||
-          (INVALID_BLOCK_ID == repl_info->block_id_) ||
-          (INVALID_SERVER_ID == repl_info->destination_id_))
+      if((seqno < 0) || (expire_time <= 0) ||
+          (INVALID_BLOCK_ID == repl_info.block_id_) ||
+          (INVALID_SERVER_ID == repl_info.destination_id_))
       {
         ret = EXIT_PARAMETER_ERROR;
       }
       else
       {
-        ret = check_source(repl_info->source_id_, repl_info->source_num_);
+        ret = check_source(repl_info.source_id_, repl_info.source_num_);
       }
 
       if (TFS_SUCCESS == ret)
       {
         ReplicateTask* task = new (std::nothrow) ReplicateTask(service_, seqno,
-            ds_info.ns_vip_port_, expire_time, *repl_info);
+            ds_info.ns_vip_port_, expire_time, repl_info);
         ret = add_task_queue(task);
         if (TFS_SUCCESS != ret)
         {
@@ -361,6 +363,35 @@ namespace tfs
       return ret;
     }
 
+    int TaskManager::add_resolve_conflict_task(NsReqResolveBlockVersionConflictMessage* message)
+    {
+      int64_t seqno = message->get_seqno();
+      int32_t expire_time = message->get_expire_time();
+      uint64_t block_id = message->get_block();
+      uint64_t* servers= message->get_members();
+      int32_t size = message->get_size();
+      DsRuntimeGlobalInformation& ds_info = DsRuntimeGlobalInformation::instance();
+      int ret = ((seqno < 0) || (expire_time <= 0) || INVALID_BLOCK_ID == block_id ||
+          (NULL == servers) || (size <= 1)) ?EXIT_PARAMETER_ERROR : TFS_SUCCESS;
+      if (TFS_SUCCESS == ret)
+      {
+        ResolveVersionConflictTask* task = new (std::nothrow) ResolveVersionConflictTask(service_,
+            seqno, ds_info.ns_vip_port_, expire_time, block_id);
+        assert(NULL != task);
+        ret = task->set_servers(servers, size);
+        if (TFS_SUCCESS == ret)
+        {
+          ret = add_task_queue(task);
+        }
+        if (TFS_SUCCESS != ret)
+        {
+          get_block_manager().get_gc_manager().add(task);
+        }
+      }
+
+      return ret;
+    }
+
     int TaskManager::add_task_queue(Task* task)
     {
       int ret = task_queue_.size() < static_cast<uint32_t>(SYSPARAM_DATASERVER.max_bg_task_queue_size_) ?
@@ -377,6 +408,10 @@ namespace tfs
           }
         }
         else if (PLAN_TYPE_REPLICATE == task->get_type())
+        {
+          need_add_block = true;
+        }
+        else if (PLAN_TYPE_RESOLVE_VERSION_CONFLICT == task->get_type())
         {
           need_add_block = true;
         }
@@ -426,7 +461,7 @@ namespace tfs
         task_monitor_.unlock();
 
         TBSYS_LOG(DEBUG, "Start task, seqno: %"PRI64_PREFIX"d, type: %s, %s",
-            task->get_seqno(), task->get_type_str(), task->dump().c_str());
+            task->get_seqno(), plan_type_to_str(task->get_type()), task->dump().c_str());
 
         int ret = TFS_SUCCESS;
         int64_t start_time = Func::get_monotonic_time_us();
@@ -437,7 +472,7 @@ namespace tfs
         int64_t end_time = Func::get_monotonic_time_us();
 
         TBSYS_LOG(INFO, "Finish task, seqno: %"PRI64_PREFIX"d, type: %s, cost time: %"PRI64_PREFIX"d",
-          task->get_seqno(), task->get_type_str(), end_time - start_time);
+          task->get_seqno(), plan_type_to_str(task->get_type()), end_time - start_time);
 
         if (task->is_completed())
         {

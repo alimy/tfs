@@ -56,7 +56,9 @@ namespace tfs
       int update_block_info(const common::BlockInfoV2& info) const;
       int update_block_version(const int8_t step = common::VERSION_INC_STEP_DEFAULT);
       int get_block_info(common::BlockInfoV2& info) const;
+      int get_block_info_in_memory(common::BlockInfoV2& info) const;
       int get_index_header(common::IndexHeaderV2& header) const;
+      int get_index_header_in_memory(common::IndexHeaderV2& header) const;
       int set_index_header(const common::IndexHeaderV2& header);
       int flush();
       virtual int check_block_intact() { return common::TFS_SUCCESS;}
@@ -126,10 +128,6 @@ namespace tfs
         int unlink(int64_t& size, const uint64_t fileid, const int32_t action, const uint64_t logic_block_id = common::INVALID_BLOCK_ID);
         int traverse(std::vector<common::FileInfo>& finfos, const uint64_t logic_block_id = common::INVALID_BLOCK_ID) const;
         int check_block_intact();
-        int inc_write_visit_count(const int32_t step = 1, const int32_t nbytes = 0);
-        int inc_read_visit_count(const int32_t step = 1,  const int32_t nbytes = 0);
-        int inc_update_visit_count(const int32_t step = 1,const int32_t nbytes = 0);
-        int inc_unlink_visit_count(const int32_t step = 1,const int32_t nbytes = 0);
       private:
         IndexHandle* get_index_handle_() const { return dynamic_cast<IndexHandle*>(index_handle_);}
 

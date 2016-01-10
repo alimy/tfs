@@ -20,6 +20,7 @@
 #include "common/internal.h"
 #include "dataserver/ds_define.h"
 #include "common/file_opv2.h"
+#include "common/version.h"
 
 using namespace std;
 using namespace tfs::common;
@@ -35,8 +36,7 @@ void dump_index_header(const IndexHeaderV2& header)
   printf("del file count:            %d\n", header.info_.del_file_count_);
   printf("del file size:             %d\n", header.info_.del_size_);
   printf("update file count:         %d\n", header.info_.update_file_count_);
-  printf("update file size:          %d\n", header.info_.update_size_);
-  printf("last access time:          %d\n", header.info_.last_access_time_);
+  printf("update file size:          %d\n",  header.info_.update_size_);
   printf("used offset:               %d\n", header.used_offset_);
   printf("seq no:                    %d\n", header.seq_no_);
   printf("marshalling offset:        %d\n", header.marshalling_offset_);
@@ -140,6 +140,7 @@ int main(int argc, char* argv[])
 {
   if (argc != 2)
   {
+    cout << Version::get_build_description() << endl;
     cout << "Usage: " << argv[0] << " filename " << endl;
     return -1;
   }

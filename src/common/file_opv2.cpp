@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <Memory.hpp>
 
 #include "error_msg.h"

@@ -247,6 +247,9 @@ int parse_param(const VSTRING& param, ComType com_type, ParamInfo& ret_param)
           case CMD_BLOCK_MASTER:
             ret_param.type_ = SERVER_TYPE_BLOCK_MASTER;
             break;
+          case CMD_NEED_FAMILY:
+            ret_param.need_family_ = true;
+            break;
           default:
             ret = CMD_UNKNOWN;
             break;
@@ -265,6 +268,12 @@ int parse_param(const VSTRING& param, ComType com_type, ParamInfo& ret_param)
             break;
           case CMD_SERVER_LIST:
             g_need_cmp ? (ret_param.type_ = BLOCK_CMP_SERVER) : (ret_param.type_ = BLOCK_TYPE_SERVER_LIST);
+            break;
+          case CMD_BLOCK_STATUS:
+            ret_param.type_ = BLOCK_TYPE_BLOCK_STATUS;
+            break;
+          case CMD_BLOCK_FULL:
+            ret_param.type_ |= BLOCK_TYPE_BLOCK_FULL;// additional condition
             break;
           case CMD_ALL:
             ret_param.type_ = BLOCK_CMP_ALL_INFO;
@@ -289,6 +298,9 @@ int parse_param(const VSTRING& param, ComType com_type, ParamInfo& ret_param)
             break;
           case CMD_FOR_MONITOR:
             ret_param.type_ = MACHINE_TYPE_FOR_MONITOR;
+            break;
+          case CMD_NEED_FAMILY:
+            ret_param.need_family_ = true;
             break;
           default:
             ret = CMD_UNKNOWN;
@@ -330,21 +342,21 @@ int parse_param(const VSTRING& param, ComType com_type, ParamInfo& ret_param)
         switch (cmd)
         {
           case CMD_IP_GROUP_ID:
-           if (get_value((*iter).c_str(), ret_param.server_ip_port_) )
+            if (get_value((*iter).c_str(), ret_param.server_ip_port_) )
+            {
+              string::size_type index = ret_param.server_ip_port_.find_first_of(":");//允许用户输入含端口的ip_group
+              if(string::npos != index)
               {
-               string::size_type index = ret_param.server_ip_port_.find_first_of(":");//允许用户输入含端口的ip_group
-               if(string::npos != index)
-               {
-                 ret_param.server_ip_port_ = ret_param.server_ip_port_.substr(0, index);
-               }
-               ret_param.type_ = RACK_BLOCK_TYPE_BLOCK_LIST;//默认为RACK_BLOCK_TYPE_RACK_LIST
-             }
-             if(0 == Func::get_addr(ret_param.server_ip_port_.c_str()))
+                ret_param.server_ip_port_ = ret_param.server_ip_port_.substr(0, index);
+              }
+              ret_param.type_ = RACK_BLOCK_TYPE_BLOCK_LIST;//默认为RACK_BLOCK_TYPE_RACK_LIST
+            }
+            if(0 == Func::get_addr(ret_param.server_ip_port_.c_str()))
             {
               ret = TFS_ERROR;
             }
             break;
-         case CMD_IP_MASK_ID:
+          case CMD_IP_MASK_ID:
             if(!get_value((*iter).c_str(), ret_param.rack_ip_mask_))//mask
             {
               ret = TFS_ERROR;
@@ -354,7 +366,7 @@ int parse_param(const VSTRING& param, ComType com_type, ParamInfo& ret_param)
               ret = TFS_ERROR;
             }
             break;
-         default:
+          default:
             ret = CMD_UNKNOWN;
             break;
         }
@@ -417,6 +429,9 @@ void init()
   g_sub_cmd_map["-writable"] = CmdInfo(CMD_BLOCK_WRITABLE, false);
   g_sub_cmd_map["-master"] = CmdInfo(CMD_BLOCK_MASTER, false);
   g_sub_cmd_map["-server"] = CmdInfo(CMD_SERVER_LIST, false);
+  g_sub_cmd_map["-status"] = CmdInfo(CMD_BLOCK_STATUS, false);
+  g_sub_cmd_map["-full"] = CmdInfo(CMD_BLOCK_FULL, false);
+
   g_sub_cmd_map["-all"] = CmdInfo(CMD_ALL, false);
   g_sub_cmd_map["-part"] = CmdInfo(CMD_PART, false);
   g_sub_cmd_map["-monitor"] = CmdInfo(CMD_FOR_MONITOR, false);
@@ -434,9 +449,12 @@ void init()
   g_sub_cmd_map["-w"] = CmdInfo(CMD_BLOCK_WRITABLE, false);
   g_sub_cmd_map["-m"] = CmdInfo(CMD_BLOCK_MASTER, false);
   g_sub_cmd_map["-s"] = CmdInfo(CMD_SERVER_LIST, false);
+  g_sub_cmd_map["-t"] = CmdInfo(CMD_BLOCK_STATUS, false);
+  g_sub_cmd_map["-u"] = CmdInfo(CMD_BLOCK_FULL, false);
   g_sub_cmd_map["-a"] = CmdInfo(CMD_ALL, false);
   g_sub_cmd_map["-p"] = CmdInfo(CMD_PART, false);
   g_sub_cmd_map["-f"] = CmdInfo(CMD_FOR_MONITOR, false);
+  g_sub_cmd_map["-y"] = CmdInfo(CMD_NEED_FAMILY, false);
   g_sub_cmd_map["-c"] = CmdInfo(CMD_COUNT, true);
   g_sub_cmd_map["-i"] = CmdInfo(CMD_INTERVAL, true);
   g_sub_cmd_map[">"] = CmdInfo(CMD_REDIRECT, true);
@@ -449,31 +467,35 @@ void print_help()
     fprintf(stderr, "block [-n num] [-d block_id] [-s] [-c] [-i] [> filename]   show block info.\n"
         "  -n the number of one fetch, default 1024, optional.\n"
         "  -d block id, optional.\n"
+        "  -u list full block only, optional.\n"
+        "  -t print block status, optional.\n"
         "  -s print server list, optional.\n"
         "  -c execute times, default 1, it will always loop execute when it is 0, optional.\n"
         "  -i interval time, default 2, optional.\n"
         "  > redirect to file, optional.\n");
-    fprintf(stderr, "family [-n num] [-d family_id] [-c] [-i] [> filename]   show family info.\n"
+    fprintf(stderr, "family [-n num] [-d family_id [-s]] [-c] [-i] [> filename]   show family info.\n"
         "  -n the number of one fetch, default 1024, optional.\n"
         "  -d family id, optional.\n"
         "  -s print server list, can be used when -d specify family optional.\n"
         "  -c execute times, default 1, it will always loop execute when it is 0, optional.\n"
         "  -i interval time, default 2, optional.\n"
         "  > redirect to file, optional.\n");
-    fprintf(stderr, "server [-n num] [-r server_ip] [-b] [-w] [-m] [-c] [-i] [> filename]  show server info.\n"
+    fprintf(stderr, "server [-n num] [-r server_ip] [-b] [-w] [-m] [-c] [-i] [-y] [> filename]  show server info.\n"
         "  -n the number of one fetch, default 1024, optional.\n"
         "  -r server ip string, when parameter -n is invalid.\n"
         "  -b print block list, optional.\n"
         "  -w print writable block list, optional.\n"
         "  -m print master block list, optional.\n"
         "  -c execute times, default 1, it will always loop execute when it is 0, optional.\n"
+        "  -y show family count for each server, optional.\n"
         "  -i interval time, optional.\n"
         "  > redirect to file, optional.\n");
-    fprintf(stderr, "machine [-a] [-p] [-f] [-c] [-i] [> filename]   show machine info.\n"
+    fprintf(stderr, "machine [-a] [-p] [-f] [-c] [-i] [-y] [> filename]   show machine info.\n"
         "  -a print all info, optional.\n"
         "  -p print part of infos, optional.\n"
         "  -f print stat of certain infos, for monitor, optional.\n"
         "  -c execute times, default 1, it will always loop execute when it is 0, optional.\n"
+        "  -y show family count for each machine, optional.\n"
         "  -i interval\n"
         "  > redirect to file, optional.\n");
     fprintf(stderr, "block_dist [-n num] [ [-ip [-d block_id]] | [-mask ip_mask] ] [-c] [-i] [> filename]   show unnormal block rack distribution, set rack by mask.\n"
@@ -568,7 +590,8 @@ int cmd_show_server(VSTRING& param)
   {
     if (!g_need_cmp)
     {
-      g_show_info.show_server(ret_param.type_, ret_param.num_, ret_param.server_ip_port_, ret_param.count_, ret_param.interval_, ret_param.filename_);
+      g_show_info.show_server(ret_param.type_, ret_param.num_, ret_param.server_ip_port_,
+          ret_param.count_, ret_param.interval_, ret_param.need_family_, ret_param.filename_);
     }
     else
     {
@@ -584,7 +607,8 @@ int cmd_show_machine(VSTRING& param)
   ParamInfo ret_param(MACHINE_TYPE_ALL);
   if ((ret = parse_param(param, MACHINE_TYPE, ret_param)) != TFS_ERROR)
   {
-    g_show_info.show_machine(ret_param.type_, ret_param.num_, ret_param.count_, ret_param.interval_, ret_param.filename_);
+    g_show_info.show_machine(ret_param.type_, ret_param.num_, ret_param.count_, ret_param.interval_,
+        ret_param.need_family_, ret_param.filename_);
   }
   return ret;
 }

@@ -93,7 +93,7 @@ typedef enum
   T_WRITE = 2,
   T_CREATE = 4,
   T_NEWBLK = 8,
-  T_UPDATE = 16,  // compatible for write_to_ds version
+  T_UPDATE = 16,
   T_STAT = 32,
   T_LARGE = 64,
   T_UNLINK = 128,
@@ -140,7 +140,9 @@ typedef enum
 {
   TFS_FILE_DEFAULT_OPTION = 0,
   TFS_FILE_NO_SYNC_LOG = 1,
-  TFS_FILE_CLOSE_FLAG_WRITE_DATA_FAILED = 2
+  TFS_FILE_CLOSE_FLAG_WRITE_DATA_FAILED = 2,
+  TFS_FILE_FIRST_WRITE_TO_SLAVE = 4,
+  TFS_FILE_OP_NO_LEASE = 8
 } OptionFlag;
 
 typedef enum

@@ -26,6 +26,8 @@ namespace tfs
     class TrafficControl;
     class BlockManager;
     class DataService;
+    class LogicBlock;
+    class VerifyLogicBlock;
     class DataHelper
     {
       public:
@@ -73,7 +75,11 @@ namespace tfs
             char* data, const int32_t len, const int32_t off, const int8_t flag);
         int write_file(const uint64_t server_id, const uint64_t block_id,
             const uint64_t attach_block_id, const uint64_t file_id,
-            const char*data, const int32_t len, const int32_t status, const bool tmp);
+            const char*data, const int32_t len, const int32_t status,
+            const bool tmp, const int32_t flag);
+        int unlink_file(const uint64_t server_id, const uint64_t block_id,
+            const uint64_t attach_block_id, const uint64_t file_id,
+            const int32_t status);
 
         int stat_file_degrade(const uint64_t block_id, const uint64_t file_id, const int32_t flag,
             const common::FamilyInfoExt& family_info, common::FileInfoV2& finfo);
@@ -83,6 +89,7 @@ namespace tfs
 
         int get_block_replicas(const uint64_t ns_id, const uint64_t block_id,
             common::VUINT64& servers);
+        int get_block_info(const uint64_t ns_id, const uint64_t block_id, common::BlockInfoV2& info);
 
         int check_integrity(const uint64_t block_id);
 
@@ -118,10 +125,14 @@ namespace tfs
             char* data, int32_t& length, const int32_t offset, const int8_t flag);
         int write_file_ex(const uint64_t server_id, const uint64_t block_id,
             const uint64_t attach_block_id, const uint64_t file_id,
-            const char* data, const int32_t length, const int32_t offset, uint64_t& lease_id);
+            const char* data, const int32_t length, const int32_t offset, uint64_t& lease_id,
+            const int32_t flag);
         int close_file_ex(const uint64_t server_id, const uint64_t block_id,
             const uint64_t attach_block_id, const uint64_t file_id, const uint64_t lease_id,
             const uint32_t crc, const int32_t status, const bool tmp);
+        int unlink_file_ex(const uint64_t server_id, const uint64_t block_id,
+            const uint64_t attach_block_id, const uint64_t file_id,
+            const int32_t status);
 
         int prepare_read_degrade(const common::FamilyInfoExt& family_info, int* erased);
         int read_file_degrade_ex(const uint64_t block_id, const common::FileInfoV2& finfo,
@@ -130,6 +141,7 @@ namespace tfs
 
         int get_block_replicas_ex(const uint64_t ns_id, const uint64_t block_id,
             common::VUINT64& servers);
+        int get_block_info_ex(const uint64_t ns_id, const uint64_t block_id, common::BlockInfoV2& info);
 
         // async request interface
         void process_fail_response(common::NewClient* new_client);
@@ -139,7 +151,8 @@ namespace tfs
         int async_query_ec_meta(const common::FamilyInfoExt& family_info, const int* erased,
             common::ECMeta* ec_metas, const int32_t timeout_ms = common::DEFAULT_NETWORK_CALL_TIMEOUT);
 
-        int check_integrity(BaseLogicBlock* src);
+        int check_integrity(LogicBlock* src);
+        int check_integrity(VerifyLogicBlock* src);
         int calc_big_file_crc(BaseLogicBlock* src,
             const common::FileInfoV2& finfo, uint32_t& crc);
 

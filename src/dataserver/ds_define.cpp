@@ -53,33 +53,37 @@ namespace tfs
     }
 
     DsRuntimeGlobalInformation::DsRuntimeGlobalInformation():
-      ns_vip_port_(0),
+      ns_vip_port_(common::INVALID_SERVER_ID),
+      master_ns_ip_port_(common::INVALID_SERVER_ID),
       max_mr_network_bandwidth_mb_(common::DEFAULT_MAX_MR_NETWORK_CAPACITY_MB),
       max_rw_network_bandwidth_mb_(common::DEFAULT_MAX_RW_NETWORK_CAPACITY_MB),
       verify_index_reserved_space_ratio_(common::VERIFY_INDEX_RESERVED_SPACKE_DEFAULT_RATIO),
       check_integrity_interval_days_(common::CHECK_INTEGRITY_INTERVAL_DAYS_DEFAULT),
-      enable_old_interface_(common::ENABLE_OLD_INTERFACE_FLAG_NO),
-      enable_version_check_(common::ENABLE_VERSION_CHECK_FLAG_YES),
+      global_switch_(common::ENABLE_VERSION_CHECK | common::ENABLE_READ_STATSTICS),
       is_reporting_block_(false)
     {
       memset(&information_, 0, sizeof(information_));
-      information_.status_ = common::DATASERVER_STATUS_DEAD;
+      max_mr_network_bandwidth_mb_ = 0;
+      max_rw_network_bandwidth_mb_ = 0;
+      max_block_size_ = 0;
+      max_write_file_count_ = 0;
+      status_ = common::DATASERVER_STATUS_DEAD;
     }
 
     void DsRuntimeGlobalInformation::startup()
     {
       information_.startup_time_ = time(NULL);
-      information_.status_ = common::DATASERVER_STATUS_ALIVE;
+      status_ = common::DATASERVER_STATUS_ALIVE;
     }
 
     void DsRuntimeGlobalInformation::destroy()
     {
-      information_.status_ = common::DATASERVER_STATUS_DEAD;
+      status_ = common::DATASERVER_STATUS_DEAD;
     }
 
     bool DsRuntimeGlobalInformation::is_destroyed() const
     {
-      return information_.status_ == common::DATASERVER_STATUS_DEAD;
+      return status_ == common::DATASERVER_STATUS_DEAD;
     }
 
     DsRuntimeGlobalInformation& DsRuntimeGlobalInformation::instance()
@@ -110,37 +114,6 @@ namespace tfs
       UNUSED(line);
       UNUSED(function);
       UNUSED(format);
-    }
-    static int send_msg_to_server_helper(const uint64_t server, std::vector<uint64_t>& servers)
-    {
-      std::vector<uint64_t>::iterator iter = std::find(servers.begin(), servers.end(), server);
-      if (iter != servers.end())
-      {
-        servers.erase(iter);
-      }
-      return common::TFS_SUCCESS;
-    }
-
-    int post_message_to_server(common::BasePacket* message, const std::vector<uint64_t>& servers)
-    {
-      int32_t ret = (!servers.empty() && NULL != message) ? 0 : -1;
-      if (0 == ret)
-      {
-        DsRuntimeGlobalInformation& info = DsRuntimeGlobalInformation::instance();
-        std::vector<uint64_t> targets(servers);
-        ret = (common::TFS_SUCCESS == send_msg_to_server_helper(info.information_.id_, targets)) ?  0 : -1;
-        if (0 == ret)
-        {
-          if (!targets.empty())
-          {
-            common::NewClient* client = common::NewClientManager::get_instance().create_client();
-            ret = common::TFS_SUCCESS == common::post_msg_to_server(targets, client, message, ds_async_callback) ? 1 : -1;
-            if (ret < 0)
-              common::NewClientManager::get_instance().destroy_client(client);
-          }
-        }
-      }
-      return ret;
     }
   }/** end namespace dataserver **/
 }/** end namespace tfs **/

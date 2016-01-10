@@ -57,7 +57,7 @@ int SyncFileBase::cmp_and_sync_file(const uint64_t block_id, const FileInfoV2& s
   ret = sync_file(file_name, source_buf, dest_buf, timestamp, force, unlink, result);
   if (TFS_SUCCESS != ret)
   {
-    TBSYS_LOG(INFO, "sync file (%s) failed, blockid: %"PRI64_PREFIX"u fileid: %"PRI64_PREFIX"u, ret: %d", file_name.c_str(), block_id, source_file_info.id_, ret);
+    TBSYS_LOG(INFO, "sync file (%s) failed, blockid: %"PRI64_PREFIX"u fileid: %"PRI64_PREFIX"d, ret: %d", file_name.c_str(), block_id, source_file_info.id_, ret);
   }
   return ret;
 }
@@ -136,10 +136,8 @@ int SyncFileBase::sync_file(const string& file_name, const TfsFileStat& source_b
     {
       ret = copy_file(file_name, source_buf.flag_);
       result = (TFS_SUCCESS == ret) ? SYNC_SUCCESS : SYNC_FAILED;
+      TBSYS_LOG(WARN, "file info size or crc conflict!! filename: %s, source size: %"PRI64_PREFIX"d -> dest size: %"PRI64_PREFIX"d, source crc: %u -> dest crc: %u, force:%d, copy file %s", file_name.c_str(), source_buf.size_, dest_buf.size_, source_buf.crc_, dest_buf.crc_, force, TFS_SUCCESS == ret ? "success" : "fail");
     }
-    TBSYS_LOG(WARN, "file info size or crc conflict!! filename: %s, source size: %"PRI64_PREFIX"d -> dest size: %"PRI64_PREFIX"d,"
-        " source crc: %u -> dest crc: %u, force:%d, copy file %s", file_name.c_str(), source_buf.size_, dest_buf.size_, source_buf.crc_, dest_buf.crc_,
-        force,  force ? (TFS_SUCCESS == ret ? "success" : "fail") : "no action");
   }
   else if (source_buf.flag_ != dest_buf.flag_)//4. dest file data has not update, keeep status agreed with src status
   { // 不需要判断 source_buf.modify_time_ >= dest_buf.modify_time_but in diff stat
@@ -184,8 +182,7 @@ int SyncFileBase::unlink_file(const string& file_name, const int32_t status)
   int32_t override_action = 0;
   int64_t file_size;//unlink可以获取操作成功后文件的size大小，这里没用
   SET_OVERRIDE_FLAG(override_action, status);//将源集群的文件状态原样同步到目标机器
-  ret = TfsClientImplV2::Instance()->unlink(file_size, file_name.c_str(), NULL,
-      static_cast<TfsUnlinkType>(override_action), dest_ns_addr_.c_str(), TFS_FILE_NO_SYNC_LOG);
+  ret = TfsClientImplV2::Instance()->unlink(file_size, file_name.c_str(), NULL, static_cast<TfsUnlinkType>(override_action), dest_ns_addr_.c_str());
   if (TFS_SUCCESS != ret)
   {
     TBSYS_LOG(ERROR, "unlink dest tfsfile fail, filename: %s, src status:%d, ret:%d", file_name.c_str(), status, ret);

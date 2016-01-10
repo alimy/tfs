@@ -20,7 +20,7 @@ libtfscommon_a_SOURCES = internal.cpp parameter.cpp func.cpp file_queue.cpp \
        file_opv2.h file_op.h meta_server_define.h  tfs_vector.h version.h base_http_message.h http_message_factory.h\
 			 atomic.h base_main.h http_packet_streamer.h base_packet_factory.h base_packet.h http_packet.h base_packet_streamer.h \
 			 base_service.h buffer.h cdefine.h client_manager.h config_item.h define.h http_packet_streamer.h\
-       directory_op.h error_msg.h file_queue.h file_queue_thread.h func.h \
+       directory_op.h error_msg.h file_queue.h file_queue_thread.h func.h base_object.h\
        internal.h local_packet.h lock.h new_client.h parameter.h cdefine.h rc_define.h serialization.h\
 			 statistics.h status_message.h stream.h session_util.h rts_define.h mmap_file.h meta_hash_helper.h\
 			 array_helper.h meta_define.h kv_rts_define.h mmap_file_op.h expire_define.h http_agent.h ob_crc.h

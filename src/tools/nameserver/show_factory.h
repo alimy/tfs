@@ -39,8 +39,6 @@ namespace tfs
       public:
         ServerShow(){}
         virtual ~ServerShow(){}
-        int serialize(tbnet::DataBuffer& output, int32_t& length);
-        int deserialize(tbnet::DataBuffer& input, int32_t& length);
         int calculate(ServerShow& old_server);
         void dump(const int8_t flag, FILE* fp) const;
       private:
@@ -101,7 +99,7 @@ namespace tfs
         ~MachineShow(){}
         void dump(const int8_t flag, FILE* fp) const;
         int init(ServerShow& server, ServerShow& old_server);
-        int add(ServerShow& server, ServerShow& old_server);
+        int add(ServerShow& server, ServerShow& old_server, const int8_t sub_type);
         int calculate();
 
       public:
@@ -112,10 +110,12 @@ namespace tfs
         common::Throughput last_tp_;
         common::Throughput max_tp_;
         int32_t current_load_;
+        uint32_t rack_id_;
         int32_t block_count_;
         time_t last_startup_time_;
         time_t consume_time_;
         int32_t index_;
+        std::set<int64_t> family_set_;
 
     };
 
@@ -148,6 +148,7 @@ namespace tfs
         common::Throughput last_tp_;
         int32_t current_load_;
         int32_t block_count_;
+        std::set<int64_t> family_set_;
         time_t last_update_time_;
         int64_t file_count_;
         int64_t block_size_;

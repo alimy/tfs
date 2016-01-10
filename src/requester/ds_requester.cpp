@@ -320,7 +320,7 @@ namespace tfs
 
       memset(&dindex.header_, 0, sizeof(IndexHeaderV2));
       dindex.header_.info_.block_id_ = sindex.header_.info_.block_id_;
-      dindex.header_.info_.version_ = sindex.header_.info_.version_;
+      dindex.header_.info_.version_ =  sindex.header_.info_.version_;
       dindex.header_.info_.file_count_ = dindex.finfos_.size();
       dindex.header_.info_.size_ = dbuf.getDataLen();
       dindex.header_.info_.del_file_count_ = 0;
@@ -345,7 +345,7 @@ namespace tfs
         int32_t retry = RETRY_TIMES;
         do
         {
-          length = std::min(total_len, traffic);
+          length = std::min(total_len - offset, traffic);
           WriteRawdataMessageV2 req;
           req.set_block_id(block);
           req.set_offset(offset);

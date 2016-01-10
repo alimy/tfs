@@ -61,22 +61,12 @@ namespace tfs
       return service_.get_block_manager();
     }
 
-    const char* Task::get_type_str() const
-    {
-      const char* typestr = NULL;
-      if (type_ <= PLAN_TYPE_EC_MARSHALLING)
-      {
-        typestr = planstr[type_];
-      }
-      return typestr;
-    }
-
     string Task::dump() const
     {
       std::stringstream tmp_stream;
       const char* delim = ", ";
 
-      tmp_stream << "dump " << get_type_str() << " task. ";
+      tmp_stream << "dump " << plan_type_to_str(type_) << " task. ";
       tmp_stream << "seqno: " << seqno_ << delim;
       tmp_stream << "task source: " << tbsys::CNetUtil::addrToString(source_id_) << delim;
       tmp_stream << "expire time: " << expire_time_ << delim;
@@ -315,7 +305,7 @@ namespace tfs
         ret = get_block_manager().switch_logic_block(block_id, true);
         if (TFS_SUCCESS == ret)
         {
-          ret = get_block_manager().del_block(block_id, true);
+          service_.get_client_request_server().del_block(block_id, true);
         }
       }
 
@@ -397,6 +387,7 @@ namespace tfs
             crc = Func::crc(crc, (buffer + inner_offset + reserve_size), (finfo->size_ - reserve_size));
             if (crc != finfo->crc_)
             {
+              TBSYS_LOG(WARN, "block %"PRI64_PREFIX"u compact crc error", src->id());
               Func::hex_dump(file_data, 10, true, TBSYS_LOG_LEVEL_INFO);//TODO
             }
             assert(crc == finfo->crc_);
@@ -518,7 +509,7 @@ namespace tfs
         tmp_stream << tbsys::CNetUtil::addrToString(repl_info_.source_id_[i]) << " ";
       }
       tmp_stream << "dest id: " << tbsys::CNetUtil::addrToString(repl_info_.destination_id_) << delim;
-      tmp_stream << "move flag: " << (0 == repl_info_.is_move_? "no": "yes");
+      tmp_stream << "move flag: " << (REPLICATE_BLOCK_MOVE_FLAG_NO == repl_info_.is_move_ ? "no": "yes");
       return tmp_stream.str();
     }
 
@@ -535,56 +526,59 @@ namespace tfs
 
     int ReplicateTask::report_to_ns(const int status)
     {
-      ReplicateBlockMessage req_rb_msg;
-      int ret = TFS_SUCCESS;
-
-      req_rb_msg.set_seqno(seqno_);
-      req_rb_msg.set_repl_block(&repl_info_);
-      req_rb_msg.set_status(status);
-
-      bool need_remove = false;
-      NewClient* client = NewClientManager::get_instance().create_client();
-      if (NULL == client)
+      BlockInfoV2 info;
+      int ret = get_block_manager().get_block_info(info, repl_info_.block_id_, false);
+      if (TFS_SUCCESS == ret)
       {
-        ret = EXIT_CLIENT_MANAGER_CREATE_CLIENT_ERROR;
-      }
-      else
-      {
-        tbnet::Packet* rsp_msg = NULL;
-        ret = send_msg_to_server(source_id_, client, &req_rb_msg, rsp_msg);
-        if (TFS_SUCCESS == ret)
+        ReplicateBlockMessage req_rb_msg;
+        req_rb_msg.set_seqno(seqno_);
+        req_rb_msg.set_repl_block(repl_info_);
+        req_rb_msg.set_status(status);
+        req_rb_msg.set_block_info(info);
+        bool need_remove = false;
+        NewClient* client = NewClientManager::get_instance().create_client();
+        if (NULL == client)
         {
-          if (STATUS_MESSAGE == rsp_msg->getPCode())
+          ret = EXIT_CLIENT_MANAGER_CREATE_CLIENT_ERROR;
+        }
+        else
+        {
+          tbnet::Packet* rsp_msg = NULL;
+          ret = send_msg_to_server(source_id_, client, &req_rb_msg, rsp_msg);
+          if (TFS_SUCCESS == ret)
           {
-            StatusMessage* sm = dynamic_cast<StatusMessage*> (rsp_msg);
-            if ((REPLICATE_BLOCK_MOVE_FLAG_YES == repl_info_.is_move_) &&
-                (STATUS_MESSAGE_REMOVE == sm->get_status()))
+            if (STATUS_MESSAGE == rsp_msg->getPCode())
             {
-              need_remove = true;
-              ret = TFS_SUCCESS;
-            }
-            else if (STATUS_MESSAGE_OK == sm->get_status())
-            {
-              ret = TFS_SUCCESS;
+              StatusMessage* sm = dynamic_cast<StatusMessage*> (rsp_msg);
+              if ((REPLICATE_BLOCK_MOVE_FLAG_YES == repl_info_.is_move_) &&
+                  (STATUS_MESSAGE_REMOVE == sm->get_status()))
+              {
+                need_remove = true;
+                ret = TFS_SUCCESS;
+              }
+              else if (STATUS_MESSAGE_OK == sm->get_status())
+              {
+                ret = TFS_SUCCESS;
+              }
+              else
+              {
+                ret = sm->get_status();
+              }
             }
             else
             {
-              ret = sm->get_status();
+              ret = EXIT_UNKNOWN_MSGTYPE;
             }
           }
-          else
-          {
-            ret = EXIT_UNKNOWN_MSGTYPE;
-          }
+          NewClientManager::get_instance().destroy_client(client);
         }
-        NewClientManager::get_instance().destroy_client(client);
-      }
 
-      if (need_remove)
-      {
-        int rm_ret = get_block_manager().del_block(repl_info_.block_id_);
-        TBSYS_LOG(INFO, "send repl block complete info: del blockid: %"PRI64_PREFIX"u, ret: %d\n",
-            repl_info_.block_id_, rm_ret);
+        if (need_remove)
+        {
+          int rm_ret = service_.get_client_request_server().del_block(repl_info_.block_id_);
+          TBSYS_LOG(INFO, "send repl block complete info: del blockid: %"PRI64_PREFIX"u, ret: %d\n",
+              repl_info_.block_id_, rm_ret);
+        }
       }
 
       service_.get_task_manager().remove_block(this);
@@ -608,7 +602,7 @@ namespace tfs
           "blockid: %"PRI64_PREFIX"u, status: %d, source: %s",
           seqno_, repl_info_.block_id_, status, tbsys::CNetUtil::addrToString(source_id_).c_str());
 
-      post_msg_to_server(source_id_, &resp_repl_msg, Task::ds_task_callback);
+      post_msg_to_server(source_id_,  &resp_repl_msg, Task::ds_task_callback);
 
       service_.get_task_manager().remove_block(this);
       return TFS_SUCCESS;
@@ -703,7 +697,7 @@ namespace tfs
 
       ECMeta ec_meta;
       // update source block version
-      if ((TFS_SUCCESS == ret) && (!repl_info_.is_move_))
+      if (TFS_SUCCESS == ret)
       {
         ec_meta.version_step_ = VERSION_INC_STEP_REPLICATE;
         for (int i = 0;  (i < repl_info_.source_num_) && (TFS_SUCCESS == ret); i++)
@@ -911,7 +905,7 @@ namespace tfs
               family_members_[i].block_, data[i], length, offset, true);
         }
 
-        // compute crc for all blocks, use ob_crc to accelerate
+        // compute crc for all blocks
         if (TFS_SUCCESS == ret)
         {
           for (int i = 0; i < member_num; i++)
@@ -1278,7 +1272,7 @@ namespace tfs
               family_members_[i].block_, data[i], length, offset, true);
         }
 
-        // compute lost data crc, use ob_crc to accelerate
+        // compute lost data crc
         if (TFS_SUCCESS == ret)
         {
           for (int32_t i = 0; i < member_num; i++)
@@ -1336,13 +1330,16 @@ namespace tfs
             family_members_[pi].block_, family_members_[i].block_, index_data);
         if (TFS_SUCCESS == ret)
         {
-          // compactible with old family
-          if (index_data.header_.data_crc_ != 0)
-          {
-            assert(index_data.header_.data_crc_ == crc_[i]);
-          }
           // update lost data node's marshalling len
           // it's needed when recover check block
+          // compactible with old family
+          if (index_data.header_.data_crc_ != 0 && ec_metas[pi].data_crc_ != 0 &&
+              index_data.header_.data_crc_ != crc_[i])
+          {
+            TBSYS_LOG(WARN, "check crc fail when recover family %ld %u:%ld, ret: %d",
+                family_id_, index_data.header_.data_crc_, crc_[i], EXIT_CHECK_CRC_ERROR);
+            // assert(index_data.header_.data_crc_ == crc_[i]);
+          }
           ec_metas[i].mars_offset_ = index_data.header_.marshalling_offset_;
           ret = get_data_helper().write_index(family_members_[i].server_,
               family_members_[i].block_, family_members_[i].block_, index_data, true);
@@ -1370,6 +1367,7 @@ namespace tfs
         ECMeta ec_meta;
         ec_meta.family_id_ = family_id_;
         ec_meta.data_crc_ = crc_[i];
+        ec_meta.version_step_ = VERSION_INC_STEP_REINSTATE;
         ret = get_data_helper().commit_ec_meta(family_members_[i].server_,
             family_members_[i].block_, ec_meta, SWITCH_BLOCK_YES);
       }
@@ -1418,8 +1416,20 @@ namespace tfs
         ec_meta.family_id_ = family_id_;
         ec_meta.mars_offset_ = marshalling_len;
         ec_meta.data_crc_ = crc_[i];
+        ec_meta.version_step_ = VERSION_INC_STEP_REINSTATE;
         ret = get_data_helper().commit_ec_meta(family_members_[i].server_,
             family_members_[i].block_, ec_meta, SWITCH_BLOCK_YES);
+
+        if (TFS_SUCCESS == ret)
+        {
+          BlockInfoV2 info;
+          ret = get_data_helper().get_block_info(family_members_[i].server_,
+              family_members_[i].block_, info);
+          if (TFS_SUCCESS == ret)
+          {
+            block_infos_[reinstate_num_++] = info;
+          }
+        }
       }
 
       return ret;
@@ -1454,7 +1464,8 @@ namespace tfs
         {
           ret = get_data_helper().write_file(family_members_[dest].server_,
               family_members_[dest].block_, block_id,
-              finfos[i].id_, data, length, finfos[i].status_, true);  // write to a temp block
+              finfos[i].id_, data, length, finfos[i].status_,
+              true, TFS_FILE_NO_SYNC_LOG | TFS_FILE_OP_NO_LEASE);  // write to a temp block
         }
         tbsys::gDeleteA(data);
       }
@@ -1655,7 +1666,7 @@ namespace tfs
         repl_block.source_id_[0] = family_members_[i].server_;
         repl_block.source_num_ = 1;  // when dissolve happens, there will be only one source
         repl_block.destination_id_ = family_members_[i+total_num].server_;
-        repl_block.is_move_ = 0;
+        repl_block.is_move_ = REPLICATE_BLOCK_MOVE_FLAG_NO;
 
         repl_msg.set_seqno(seqno_);
         repl_msg.set_expire_time(expire_time_);
@@ -1723,5 +1734,108 @@ namespace tfs
 
       return ret;
     }
+
+    ResolveVersionConflictTask::ResolveVersionConflictTask(DataService& service, const int64_t seqno,
+        const uint64_t source_id, const int32_t expire_time, const uint32_t block_id):
+      Task(service, seqno, source_id, expire_time)
+    {
+      type_ = PLAN_TYPE_RESOLVE_VERSION_CONFLICT;
+      block_id_ = block_id;
+      size_  = 0;
+    }
+
+    ResolveVersionConflictTask::~ResolveVersionConflictTask()
+    {
+
+    }
+
+    int ResolveVersionConflictTask::handle()
+    {
+      int ret = do_resolve();
+      int status = translate_status(ret);
+      return report_to_ns(status);
+    }
+
+    int ResolveVersionConflictTask::report_to_ns(const int32_t status)
+    {
+      UNUSED(status);
+      ResolveBlockVersionConflictMessage req_msg;
+      req_msg.set_seqno(get_seqno());
+      req_msg.set_block(block_id_);
+      int ret = req_msg.set_members(members_, size_);
+      if (TFS_SUCCESS == ret)
+      {
+        tbnet::Packet* ret_msg = NULL;
+        NewClient* client = NewClientManager::get_instance().create_client();
+        ret = (NULL != client) ? TFS_SUCCESS : EXIT_CLIENT_MANAGER_CREATE_CLIENT_ERROR;
+        if (TFS_SUCCESS == ret)
+        {
+          ret = send_msg_to_server(source_id_, client, &req_msg, ret_msg);
+          if (TFS_SUCCESS == ret)
+          {
+            if (RSP_RESOLVE_BLOCK_VERSION_CONFLICT_MESSAGE == ret_msg->getPCode())
+            {
+              ResolveBlockVersionConflictResponseMessage* msg =
+                dynamic_cast<ResolveBlockVersionConflictResponseMessage*>(ret_msg);
+              ret = msg->get_status();
+            }
+            else
+            {
+              ret = EXIT_RESOLVE_BLOCK_VERSION_CONFLICT_ERROR;
+            }
+            NewClientManager::get_instance().destroy_client(client);
+          }
+        }
+      }
+
+      TBSYS_LOG(INFO, "resolve_conflict report to ns. seqno: %"PRI64_PREFIX"d, "
+          "blockid: %"PRI64_PREFIX"u, status: %d, source: %s, ret: %d",
+          seqno_, block_id_, status, tbsys::CNetUtil::addrToString(source_id_).c_str(), ret);
+
+      return ret;
+    }
+
+    string ResolveVersionConflictTask::dump() const
+    {
+      const char* delim = ", ";
+      std::stringstream tmp_stream;
+      tmp_stream << Task::dump();
+      tmp_stream << "block id: " << block_id_ << delim;
+      for (int32_t i = 0; i < size_; i++)
+      {
+        tmp_stream << "server: " << tbsys::CNetUtil::addrToString(servers_[i]) << delim;
+      }
+      return tmp_stream.str();
+    }
+
+    int ResolveVersionConflictTask::set_servers(const uint64_t* servers, const int32_t size)
+    {
+      int ret = NULL != servers && size > 0 && size <= MAX_REPLICATION_NUM ?
+        TFS_SUCCESS : EXIT_PARAMETER_ERROR;
+      if (TFS_SUCCESS == ret)
+      {
+        size_ = size;
+        for (int32_t index = 0; index < size; index++)
+        {
+          servers_[index] = servers[index];
+          members_[index].first = servers[index];
+          members_[index].second.block_id_ = block_id_;
+          members_[index].second.version_ = -1;
+        }
+      }
+      return ret;
+    }
+
+    int ResolveVersionConflictTask::do_resolve()
+    {
+      // get every replica's block info
+      for (int32_t index = 0; index < size_; index++)
+      {
+        get_data_helper().get_block_info(servers_[index],
+            block_id_, members_[index].second);
+      }
+      return TFS_SUCCESS;
+    }
+
   }
 }
