@@ -6,12 +6,12 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: sync_backup.cpp 49 2010-11-16 09:58:57Z zongdai@taobao.com $
+ * Version: $Id: sync_backup.cpp 849 2011-09-27 11:58:02Z mingyan.zc@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
  *      - initial release
- *   zongdai <zongdai@taobao.com> 
+ *   zongdai <zongdai@taobao.com>
  *      - modify 2010-04-23
  *
  */
@@ -19,11 +19,16 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
-#include "sync_backup.h"
+
+#include "tbsys.h"
+
+#include "common/func.h"
+#include "common/directory_op.h"
+#include "new_client/fsname.h"
 #include "logic_block.h"
 #include "blockfile_manager.h"
-#include "client/fsname.h"
-#include <tbsys.h>
+#include "sync_base.h"
+#include "sync_backup.h"
 
 namespace tfs
 {
@@ -32,31 +37,36 @@ namespace tfs
     using namespace common;
     using namespace client;
 
-    SyncBackup::SyncBackup()
+    SyncBackup::SyncBackup() : tfs_client_(NULL)
+    {
+      src_addr_[0] = '\0';
+      dest_addr_[0] = '\0';
+    }
+
+    SyncBackup::~SyncBackup()
     {
     }
 
+#if defined(TFS_DS_GTEST)
+    int SyncBackup::do_sync(const SyncData *sf, const char*, const char*)
+#else
     int SyncBackup::do_sync(const SyncData *sf)
+#endif
     {
       int ret = TFS_ERROR;
       switch (sf->cmd_)
       {
-        case OPLOG_INSERT:
-          ret = copy_file(sf->block_id_, sf->file_id_);
-          break;
-        case OPLOG_REMOVE:
-          ret = remove_file(sf->block_id_, sf->file_id_, sf->old_file_id_);
-          break;
-        case OPLOG_RENAME:
-          ret = rename_file(sf->block_id_, sf->file_id_, sf->old_file_id_);
-          break;
+      case OPLOG_INSERT:
+        ret = copy_file(sf->block_id_, sf->file_id_);
+        break;
+      case OPLOG_REMOVE:
+        ret = remove_file(sf->block_id_, sf->file_id_, sf->old_file_id_);
+        break;
+      case OPLOG_RENAME:
+        ret = rename_file(sf->block_id_, sf->file_id_, sf->old_file_id_);
+        break;
       }
       return ret;
-    }
-
-    int SyncBackup::do_second_sync(const SyncData *sf)
-    {
-      return do_sync(sf);
     }
 
     int SyncBackup::copy_file(const uint32_t, const uint64_t)
@@ -79,606 +89,596 @@ namespace tfs
       return TFS_SUCCESS;
     }
 
-    bool NfsMirrorBackup::init()
+    TfsMirrorBackup::TfsMirrorBackup(SyncBase& sync_base, const char* src_addr, const char* dest_addr):
+        sync_base_(sync_base), do_sync_mirror_thread_(0)
     {
-      char tmpstr[TMP_PATH_SIZE];
-      char* nfs_path = CONFIG.get_string_value(CONFIG_PUBLIC, CONF_BACKUP_PATH, NULL);
-      if (NULL != nfs_path && strlen(nfs_path) > 0)
+      if (NULL != src_addr &&
+          strlen(src_addr) > 0 &&
+          NULL != dest_addr &&
+          strlen(dest_addr) > 0)
       {
-        sprintf(backup_path_, "%s/storage", nfs_path);
-        sprintf(remove_path_, "%s/removed", nfs_path);
-        sprintf(tmpstr, "%s:%d", CONFIG.get_string_value(CONFIG_NAMESERVER, CONF_IP_ADDR), CONFIG.get_int_value(
-              CONFIG_NAMESERVER, CONF_PORT));
-        source_client_ = new TfsClient();
-        int iret = source_client_->initialize(tmpstr);
-        if (iret != TFS_SUCCESS)
-        {
-          return false;
-        }
-        return true;
+        strcpy(src_addr_, src_addr);
+        strcpy(dest_addr_, dest_addr);
       }
-      return false;
     }
 
-    int NfsMirrorBackup::mk_dir(const char* path)
+    TfsMirrorBackup::~TfsMirrorBackup()
     {
-      struct stat statbuf;
-      if (stat(path, &statbuf) == -1)
-      {
-        TBSYS_LOG(INFO, "NfsMirrorBackup::mk_dir stat %s failed, (%s) not exist.\n", path, strerror(errno));
-        if (mkdir(path, 0755) < 0)
-        {
-          TBSYS_LOG(ERROR, "NfsMirrorBackup::mk_dir mkdir %s failed. (%s)\n", path, strerror(errno));
-          return TFS_ERROR;
-        }
-        return TFS_SUCCESS;
-      }
-      if (!S_ISDIR(statbuf.st_mode))
-      {
-        TBSYS_LOG(ERROR, "NfsMirrorBackup::mk_dir %s is not a directory.\n", path);
-        return TFS_ERROR;
-      }
-      return TFS_SUCCESS;
     }
-
-    int NfsMirrorBackup::mk_dirs(const char* path)
-    {
-      char parent[TMP_PATH_SIZE];
-      memset(parent, 0, TMP_PATH_SIZE);
-
-      if (strlen(path) <= 0)
-      {
-        return TFS_ERROR;
-      }
-      int32_t start = static_cast<int32_t> (strlen(path)) - 1;
-      for (int32_t i = start; i > 0; --i)
-      {
-        if (path[i] == '/' && i > 0)
-        {
-          strncpy(parent, path, i);
-          if (mk_dir(parent) == TFS_SUCCESS)
-          {
-            return mk_dir(path);
-          }
-          else
-          {
-            return TFS_ERROR;
-          }
-        }
-      }
-      return TFS_ERROR;
-    }
-
-    int NfsMirrorBackup::write_n(const int fd, const char* buffer, const int32_t length)
-    {
-      int32_t bytes_write = 0;
-      while (bytes_write < length)
-      {
-        int ret = ::write(fd, buffer + bytes_write, length - bytes_write);
-        if (ret < 0)
-        {
-          TBSYS_LOG(ERROR, "NfsMirrorBackup::write_n failed. error desc: %s\n", strerror(errno));
-          if (ret == EINTR)
-          {
-            return TFS_ERROR;
-          }
-          return ret;
-        }
-        bytes_write += ret;
-      }
-      return bytes_write;
-    }
-
-    void NfsMirrorBackup::get_backup_path(char* buf, const char* path, const uint32_t block_id)
-    {
-      sprintf(buf, "%s/%d/%u", path, block_id % BLOCK_DIR_NUM, block_id);
-    }
-
-    void NfsMirrorBackup::get_backup_file_name(char* buf, const char* path, const uint32_t block_id,
-        const uint64_t file_id)
-    {
-      FSName fsname;
-      fsname.set_block_id(block_id);
-      fsname.set_file_id(file_id);
-      sprintf(buf, "%s/%d/%u/%s", path, block_id % BLOCK_DIR_NUM, block_id, fsname.get_name());
-    }
-
-    int NfsMirrorBackup::copy_file(const uint32_t block_id, const uint64_t file_id)
-    {
-      int ret = TFS_SUCCESS;
-      LogicBlock* logic_block = BlockFileManager::get_instance()->get_logic_block(block_id);
-      if (NULL == logic_block)
-      {
-        return remote_copy_file(block_id, file_id);
-      }
-
-      FileInfo finfo;
-      memset(&finfo, 0, sizeof(FileInfo));
-
-      char copy_file_path[TMP_PATH_SIZE];
-      char copy_file_name[TMP_PATH_SIZE];
-      get_backup_path(copy_file_path, backup_path_, block_id);
-      get_backup_file_name(copy_file_name, backup_path_, block_id, file_id);
-
-      if (mk_dirs(copy_file_path) != TFS_SUCCESS)
-      {
-        return TFS_ERROR;
-      }
-
-      int32_t fd = -1;
-      if ((fd = ::open(copy_file_name, O_WRONLY | O_CREAT | O_TRUNC, 0660)) == -1)
-      {
-        TBSYS_LOG(ERROR, "copy_file, open file: %s failed. error desc: %s\n", copy_file_name, strerror(errno));
-        return TFS_ERROR;
-      }
-
-      char data[MAX_READ_SIZE];
-      int32_t rlen = 0;
-      int64_t offset = 0;
-      uint32_t crc = 0;
-      while (1)
-      {
-        rlen = MAX_READ_SIZE;
-        ret = logic_block->read_file(file_id, data, rlen, offset);
-        if (ret)
-        {
-          TBSYS_LOG(ERROR,
-              "read file fail. blockid: %u, fileid: %" PRI64_PREFIX "u, offset: %d, ret: %d\n",
-              block_id, file_id, offset, ret);
-          ::close(fd);
-          return ret;
-        }
-
-        int32_t wlen = 0;
-        if (offset == 0)
-        {
-          if (rlen < FILEINFO_SIZE)
-          {
-            TBSYS_LOG(ERROR,
-                "read file fail. blockid: %u, fileid: %" PRI64_PREFIX "u, read len: %d < sizeof(FileInfo), ret: %d\n",
-                block_id, file_id, rlen, EXIT_READ_FILE_SIZE_ERROR);
-            ::close(fd);
-            return EXIT_READ_FILE_SIZE_ERROR;
-          }
-          memcpy(&finfo, data, sizeof(FileInfo));
-          crc = Func::crc(crc, data + sizeof(FileInfo), rlen - sizeof(FileInfo));
-          wlen = write_n(fd, data + sizeof(FileInfo), rlen - sizeof(FileInfo));
-          if (wlen != rlen - FILEINFO_SIZE)
-          {
-            ret = TFS_ERROR;
-          }
-        }
-        else
-        {
-          crc = Func::crc(crc, data, rlen);
-          wlen = write_n(fd, data, rlen);
-          if (wlen != rlen)
-          {
-            ret = TFS_ERROR;
-          }
-        }
-
-        if (ret)
-        {
-          TBSYS_LOG(ERROR, "write tfsfile fail. blockid: %u, fileid: %" PRI64_PREFIX "u, %s\n", block_id, file_id,
-              strerror(errno));
-          ::close(fd);
-          return TFS_ERROR;
-        }
-        offset += rlen;
-        if (rlen < MAX_READ_SIZE)
-          break;
-      }
-
-      ::close(fd);
-      if (crc != finfo.crc_ || offset != finfo.size_)
-      {
-        TBSYS_LOG(
-            ERROR,
-            "crc or file size error. copy file name: %s, blockid: %u, fileid: %" PRI64_PREFIX "u, crc: %u<>%u, size: %d<>%d\n",
-            copy_file_name, block_id, file_id, crc, finfo.crc_, offset, finfo.size_);
-        return TFS_ERROR;
-      }
-
-      return TFS_SUCCESS;
-    }
-
-    int NfsMirrorBackup::move(const char* source, const char* dest)
-    {
-      struct stat statbuf;
-      if (stat(source, &statbuf) < 0)
-      {
-        TBSYS_LOG(WARN, "NfsMirrorBackup::rename stat %s failed. error desc: %s\n", source, strerror(errno));
-        return -2;
-      }
-      if (S_ISREG(statbuf.st_mode))
-      {
-        if (::rename(source, dest) != 0)
-        {
-          TBSYS_LOG(ERROR, "NfsMirrorBackup::rename remove %s failed. error desc: %s\n", source, strerror(errno));
-          return -1;
-        }
-        return 0;
-      }
-      else
-      {
-        TBSYS_LOG(WARN, "NfsMirrorBackup::rename %s is not a file. error desc: %s\n", source, strerror(errno));
-        return -2;
-      }
-      return 0;
-    }
-
-    int NfsMirrorBackup::remove_file(const uint32_t block_id, const uint64_t file_id, const int32_t undel)
-    {
-      char source[TMP_PATH_SIZE];
-      char dest[TMP_PATH_SIZE];
-      get_backup_file_name(source, backup_path_, block_id, file_id);
-      get_backup_file_name(dest, remove_path_, block_id, file_id);
-
-      int ret = TFS_SUCCESS;
-      TBSYS_LOG(DEBUG, "remove, blockid: %u, fileid: %" PRI64_PREFIX "u, undel:%d, %s, %s\n", block_id, file_id, undel,
-          source, dest);
-      if (undel)
-      {
-        ret = move(dest, source);
-      }
-      else
-      {
-        char dest_dir[TMP_PATH_SIZE];
-        get_backup_path(dest_dir, remove_path_, block_id);
-        if (mk_dirs(dest_dir) != TFS_SUCCESS)
-        {
-          return TFS_ERROR;
-        }
-        ret = move(source, dest);
-      }
-
-      if (ret == 0 || ret == -2)
-        return TFS_SUCCESS;
-      return TFS_ERROR;
-    }
-
-    int NfsMirrorBackup::rename_file(const uint32_t block_id, const uint64_t file_id, const uint64_t old_file_id)
-    {
-      char source[TMP_PATH_SIZE];
-      char dest[TMP_PATH_SIZE];
-      get_backup_file_name(source, backup_path_, block_id, old_file_id);
-      get_backup_file_name(dest, backup_path_, block_id, file_id);
-      return move(source, dest) == 0 ? TFS_SUCCESS : TFS_ERROR;
-    }
-
-    int NfsMirrorBackup::remote_copy_file(const uint32_t block_id, const uint64_t file_id)
-    {
-      FileInfo finfo;
-      FSName fsname;
-      fsname.set_block_id(block_id);
-      fsname.set_file_id(file_id);
-
-      if (source_client_->tfs_open(block_id, file_id, READ_MODE) != TFS_SUCCESS)
-      {
-        TBSYS_LOG(ERROR, "%s open read fail: %u %" PRI64_PREFIX "u (%s)\n", fsname.get_name(), block_id, file_id,
-            source_client_->get_error_message());
-        return TFS_ERROR;
-      }
-
-      if (source_client_->tfs_stat(&finfo) != TFS_SUCCESS)
-      {
-        TBSYS_LOG(ERROR, "%s stat src file fail: %u %" PRI64_PREFIX "u (%s)\n", fsname.get_name(), block_id, file_id,
-            source_client_->get_error_message());
-        source_client_->tfs_close();
-        return TFS_ERROR;
-      }
-
-      char copy_file_name[TMP_PATH_SIZE];
-      get_backup_file_name(copy_file_name, backup_path_, block_id, file_id);
-      int32_t fd = -1;
-      if ((fd = ::open(copy_file_name, O_WRONLY | O_CREAT | O_TRUNC, 0660)) == -1)
-      {
-        TBSYS_LOG(ERROR, "remote copy file, open file: %s failed.(%s)\n", copy_file_name, strerror(errno));
-        return TFS_ERROR;
-      }
-
-      char data[MAX_READ_SIZE];
-      int32_t rlen = 0;
-      int32_t total_size = 0;
-      uint32_t crc = 0;
-      while ((rlen = source_client_->tfs_read(data, MAX_READ_SIZE)) > 0)
-      {
-        if (write_n(fd, data, rlen) != rlen)
-        {
-          TBSYS_LOG(ERROR, "%s write tfsfile fail. blockid: %u, fileid: %" PRI64_PREFIX "u, error desc: (%s)\n",
-              fsname.get_name(), block_id, file_id, strerror(errno));
-          source_client_->tfs_close();
-          ::close(fd);
-          return TFS_ERROR;
-        }
-
-        crc = Func::crc(crc, data, rlen);
-        total_size += rlen;
-        if (rlen < MAX_READ_SIZE)
-          break;
-      }
-      source_client_->tfs_close();
-      ::close(fd);
-      if (crc != finfo.crc_ || total_size != finfo.size_)
-      {
-        TBSYS_LOG(ERROR, "%s crc error. blockid: %u, fileid: %" PRI64_PREFIX "u, crc: %u <> %u, size: %d <> %d\n",
-            fsname.get_name(), block_id, file_id, crc, finfo.crc_, total_size, finfo.size_);
-        return TFS_ERROR;
-      }
-      TBSYS_LOG(INFO, "copy success: %s", fsname.get_name());
-
-      return TFS_SUCCESS;
-    }
-
 
     bool TfsMirrorBackup::init()
     {
-      char tmpstr[TMP_PATH_SIZE];
-      TBSYS_LOG(INFO, "SyncMirror init slave ns ip: %s\n",
-          SYSPARAM_DATASERVER.slave_ns_ip_ ? SYSPARAM_DATASERVER.slave_ns_ip_ : "none");
-      if (SYSPARAM_DATASERVER.slave_ns_ip_ != NULL && strlen(SYSPARAM_DATASERVER.slave_ns_ip_) > 0)
+      bool ret = (strlen(src_addr_) > 0 && strlen(dest_addr_) > 0) ? true : false;
+      if (ret)
       {
-        tfs_client_ = new TfsClient();
-        int iret = tfs_client_->initialize(SYSPARAM_DATASERVER.slave_ns_ip_);
-        if (iret != TFS_SUCCESS)
-        {
-          TBSYS_LOG(ERROR, "slave tfsclient init fail. slave ns ip: %s\n", SYSPARAM_DATASERVER.slave_ns_ip_);
-          return false;
-        }
-        tfs_client_->set_option_flag(TFS_FILE_NO_SYNC_LOG);
-
-        second_tfs_client_ = new TfsClient();
-        iret = second_tfs_client_->initialize(SYSPARAM_DATASERVER.slave_ns_ip_);
-        if (iret != TFS_SUCCESS)
-        {
-          TBSYS_LOG(ERROR, "second slave tfsclient init fail. slave ns ip: %s\n", SYSPARAM_DATASERVER.slave_ns_ip_);
-          return false;
-        }
-        second_tfs_client_->set_option_flag(TFS_FILE_NO_SYNC_LOG);
-
-        sprintf(tmpstr, "%s:%d", SYSPARAM_DATASERVER.local_ns_ip_, SYSPARAM_DATASERVER.local_ns_port_);
-        source_client_ = new TfsClient();
-        iret = source_client_->initialize(tmpstr);
-        if (iret != TFS_SUCCESS)
-        {
-          return false;
-        }
-
-        TBSYS_LOG(INFO, "tfs mirror init slave ns ip: %s, local ns ip: %s, ns port: %d, source ip: %s\n",
-            SYSPARAM_DATASERVER.slave_ns_ip_, SYSPARAM_DATASERVER.local_ns_ip_, SYSPARAM_DATASERVER.local_ns_port_, tmpstr);
-
-        return true;
+#if defined(TFS_DS_GTEST)
+#else
+        tfs_client_ = TfsClientImpl::Instance();
+        ret =
+          tfs_client_->initialize(NULL, DEFAULT_BLOCK_CACHE_TIME, DEFAULT_BLOCK_CACHE_ITEMS, false) == TFS_SUCCESS ?
+          true : false;
+#endif
+        TBSYS_LOG(INFO, "TfsSyncMirror init. source ns addr: %s, destination ns addr: %s", src_addr_, dest_addr_);
+        if (do_sync_mirror_thread_ == 0)
+          do_sync_mirror_thread_ = new DoSyncMirrorThreadHelper(sync_base_);
       }
-      return false;
+      return ret;
     }
 
+    void TfsMirrorBackup::destroy()
+    {
+      if (0 != do_sync_mirror_thread_)
+      {
+        do_sync_mirror_thread_->join();
+        do_sync_mirror_thread_ = 0;
+      }     
+    }
+
+#if defined(TFS_DS_GTEST)
+    int TfsMirrorBackup::do_sync(const SyncData *sf, const char* src_block_file, const char* dest_block_file)
+#else
     int TfsMirrorBackup::do_sync(const SyncData *sf)
-    {
-      return do_sync(tfs_client_, sf);
-    }
-
-    int TfsMirrorBackup::do_second_sync(const SyncData *sf)
-    {
-      return do_sync(second_tfs_client_, sf);
-    }
-
-    int TfsMirrorBackup::do_sync(TfsClient* tfs_client, const SyncData *sf)
+#endif
     {
       int ret = TFS_ERROR;
       switch (sf->cmd_)
       {
-        case OPLOG_INSERT:
-          ret = copy_file(tfs_client, sf->block_id_, sf->file_id_);
-          break;
-        case OPLOG_REMOVE:
-          ret = remove_file(tfs_client, sf->block_id_, sf->file_id_, sf->old_file_id_);
-          break;
-        case OPLOG_RENAME:
-          ret = rename_file(tfs_client, sf->block_id_, sf->file_id_, sf->old_file_id_);
-          break;
+      case OPLOG_INSERT:
+#if defined(TFS_DS_GTEST)
+        ret = copy_file(sf->block_id_, sf->file_id_, src_block_file, dest_block_file);
+#else
+        ret = copy_file(sf->block_id_, sf->file_id_);
+#endif
+        break;
+      case OPLOG_REMOVE:
+#if defined(TFS_DS_GTEST)
+        ret = remove_file(sf->block_id_, sf->file_id_, static_cast<TfsUnlinkType>(sf->old_file_id_), dest_block_file);
+#else
+        ret = remove_file(sf->block_id_, sf->file_id_, static_cast<TfsUnlinkType>(sf->old_file_id_));
+#endif
+        break;
+      case OPLOG_RENAME:
+        ret = rename_file(sf->block_id_, sf->file_id_, sf->old_file_id_);
+        break;
       }
       return ret;
     }
 
-    int TfsMirrorBackup::remote_copy_file(TfsClient* tfs_client, const uint32_t block_id, const uint64_t file_id)
+#if defined(TFS_DS_GTEST)
+    int TfsMirrorBackup::remote_copy_file(const uint32_t block_id, const uint64_t file_id,
+                                          const char* src_block_file, const char* dest_block_file)
+#else
+    int TfsMirrorBackup::remote_copy_file(const uint32_t block_id, const uint64_t file_id)
+#endif
     {
-      FileInfo finfo;
-      FSName fsname;
-      fsname.set_block_id(block_id);
-      fsname.set_file_id(file_id);
-
-      if (source_client_->tfs_open(block_id, file_id, READ_MODE) != TFS_SUCCESS)
+      int32_t ret = block_id > 0 ? TFS_SUCCESS : EXIT_BLOCKID_ZERO_ERROR;
+      if (TFS_SUCCESS == ret)
       {
-        TBSYS_LOG(ERROR, "%s open read fail. blockid: %u, fileid: %" PRI64_PREFIX "u, error desc: (%s)\n",
-            fsname.get_name(), block_id, file_id, source_client_->get_error_message());
-        return TFS_ERROR;
-      }
-
-      if (source_client_->tfs_stat(&finfo) != TFS_SUCCESS)
-      {
-        TBSYS_LOG(ERROR, "%s stat src file fail. blockid: %u, fileid: %" PRI64_PREFIX "u, error desc: (%s)\n",
-            fsname.get_name(), block_id, file_id, source_client_->get_error_message());
-        source_client_->tfs_close();
-        return TFS_ERROR;
-      }
-
-      if (tfs_client->tfs_open(block_id, file_id, (WRITE_MODE | NEWBLK_MODE)) != TFS_SUCCESS)
-      {
-        TBSYS_LOG(ERROR, "%s open write fail. blockid: %u, fileid: %" PRI64_PREFIX "u, error desc: (%s)\n",
-            fsname.get_name(), block_id, file_id, tfs_client->get_error_message());
-        source_client_->tfs_close();
-        return TFS_ERROR;
-      }
-
-      char data[MAX_READ_SIZE];
-      int32_t rlen = 0;
-      int32_t total_size = 0;
-      uint32_t crc = 0;
-      while ((rlen = source_client_->tfs_read(data, MAX_READ_SIZE)) > 0)
-      {
-        if (tfs_client->tfs_write(data, rlen) != rlen)
+        int dest_fd = -1;
+#if defined(TFS_DS_GTEST)
+        int src_fd = open(src_block_file, O_RDONLY);
+#else
+        FSName fsname(block_id, file_id);
+        int src_fd = tfs_client_->open(fsname.get_name(), NULL, src_addr_, T_READ);
+#endif
+        if (src_fd <= 0)
         {
-          TBSYS_LOG(ERROR, "%s write tfsfile fail. blockid: %u, fileid: %" PRI64_PREFIX "u, error desc: (%s)\n",
-              fsname.get_name(), block_id, file_id, tfs_client->get_error_message());
-          source_client_->tfs_close();
-          tfs_client->tfs_close();
-          return TFS_ERROR;
+#if defined(TFS_DS_GTEST)
+          TBSYS_LOG(ERROR, "%s open src read fail. blockid: %u, fileid: %"PRI64_PREFIX"u, ret: %d",
+                      src_block_file, block_id, file_id, src_fd);
+#else
+          // if the block is missing, need not sync
+          if (EXIT_BLOCK_NOT_FOUND == src_fd)
+          {
+            ret = TFS_SUCCESS;
+            TBSYS_LOG(DEBUG, "tfs file: %s, blockid: %u, fileid: %" PRI64_PREFIX "u not exists in src: %s, ret: %d, need not sync",
+                      fsname.get_name(), block_id, file_id, src_addr_, ret);
+          }
+          else
+          {
+            TBSYS_LOG(ERROR, "%s open src read fail. blockid: %u, fileid: %"PRI64_PREFIX"u, ret: %d",
+                      fsname.get_name(), block_id, file_id, src_fd);
+            ret = src_fd;
+          }
+#endif
+        }
+        else // open src file success
+        {
+#if defined(TFS_DS_GTEST)
+          struct stat file_stat;
+          ret = stat(src_block_file, &file_stat);
+#else
+          TfsFileStat file_stat;
+          ret = tfs_client_->fstat(src_fd, &file_stat);
+#endif
+          if (TFS_SUCCESS != ret) // src file stat fail
+          {
+            // if block not found or the file is deleted, need not sync 
+            if (EXIT_NO_LOGICBLOCK_ERROR != ret &&
+                EXIT_META_NOT_FOUND_ERROR != ret &&
+                EXIT_FILE_STATUS_ERROR != ret)
+            {
+#if defined(TFS_DS_GTEST)
+              TBSYS_LOG(ERROR, "%s stat src file fail. blockid: %u, fileid: %"PRI64_PREFIX"u, ret: %d",
+                        src_block_file, block_id, file_id, ret);
+#else
+              TBSYS_LOG(ERROR, "%s stat src file fail. blockid: %u, fileid: %"PRI64_PREFIX"u, ret: %d",
+                        fsname.get_name(), block_id, file_id, ret);
+#endif
+            }
+          }
+          else // src file stat ok
+          {
+#if defined(TFS_DS_GTEST)
+            dest_fd = open(dest_block_file, O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
+#else
+            dest_fd = tfs_client_->open(fsname.get_name(), NULL, dest_addr_, T_WRITE|T_NEWBLK);
+#endif
+            if (dest_fd <= 0)
+            {
+#if defined(TFS_DS_GTEST)
+              TBSYS_LOG(ERROR, "%s open dest write fail. blockid: %u, fileid: %" PRI64_PREFIX "u, ret: %d",
+                      dest_block_file, block_id, file_id, dest_fd);
+#else
+              TBSYS_LOG(ERROR, "%s open dest write fail. blockid: %u, fileid: %" PRI64_PREFIX "u, ret: %d",
+                      fsname.get_name(), block_id, file_id, dest_fd);
+#endif
+              ret = dest_fd;
+            }
+            else // source file stat ok, destination file open ok
+            {
+#if defined(TFS_DS_GTEST)
+              ret = file_stat.st_size <= 0 ? TFS_ERROR : TFS_SUCCESS;
+#else
+              tfs_client_->set_option_flag(dest_fd, TFS_FILE_NO_SYNC_LOG);
+              ret = file_stat.size_ <= 0 ? TFS_ERROR : TFS_SUCCESS;
+#endif
+              if (TFS_SUCCESS == ret)
+              {
+                char data[MAX_READ_SIZE];
+                int64_t total_length = 0;
+                uint32_t crc = 0;
+                int32_t length = 0;
+                int32_t write_length = 0;
+#if defined(TFS_DS_GTEST)
+                while (total_length < file_stat.st_size
+                      && TFS_SUCCESS == ret)
+                {
+                  length = read(src_fd, data, MAX_READ_SIZE);
+#else
+                while (total_length < file_stat.size_
+                      && TFS_SUCCESS == ret)
+                {
+                  length = tfs_client_->read(src_fd, data, MAX_READ_SIZE);
+#endif
+                  if (length <= 0)
+                  {
+                    ret = EXIT_READ_FILE_ERROR;
+#if defined(TFS_DS_GTEST)
+                    TBSYS_LOG(ERROR, "%s read src tfsfile fail. blockid: %u, fileid: %"PRI64_PREFIX"u, length: %d",
+                       src_block_file, block_id, file_id, length);
+#else
+                    TBSYS_LOG(ERROR, "%s read src tfsfile fail. blockid: %u, fileid: %"PRI64_PREFIX"u, length: %d",
+                       fsname.get_name(), block_id, file_id, length);
+#endif
+                  }
+                  else // read src file success
+                  {
+#if defined(TFS_DS_GTEST)
+                    write_length = write(dest_fd, data, length);
+#else
+                    write_length = tfs_client_->write(dest_fd, data, length);
+#endif
+                    if (write_length != length)
+                    {
+                      ret = EXIT_WRITE_FILE_ERROR;
+#if defined(TFS_DS_GTEST)
+                      TBSYS_LOG(ERROR, "%s write dest tfsfile fail. blockid: %u, fileid: %" PRI64_PREFIX "u, length: %d, write_length: %d",
+                          dest_block_file, block_id, file_id, length, write_length);
+#else
+                      TBSYS_LOG(ERROR, "%s write dest tfsfile fail. blockid: %u, fileid: %" PRI64_PREFIX "u, length: %d, write_length: %d",
+                          fsname.get_name(), block_id, file_id, length, write_length);
+#endif
+                    }
+                    else
+                    {
+                      crc = Func::crc(crc, data, length);
+                      total_length += length;
+                    }
+                  } // read src file success
+                } // while (total_length < file_stat.st_size && TFS_SUCCESS == ret)
+
+                // write successful & check file size & check crc 
+                if (TFS_SUCCESS == ret)
+                {
+#if defined(TFS_DS_GTEST)
+                  ret = total_length == file_stat.st_size ? TFS_SUCCESS : EXIT_SYNC_FILE_ERROR;//check file size
+#else
+                  ret = total_length == file_stat.size_ ? TFS_SUCCESS : EXIT_SYNC_FILE_ERROR;//check file size
+#endif
+                  if (TFS_SUCCESS != ret)
+                  {
+#if defined(TFS_DS_GTEST)
+                    TBSYS_LOG(ERROR, "file size error. %s, blockid: %u, fileid :%" PRI64_PREFIX "u, crc: %u <> %u, size: %d <> %d",
+                        dest_block_file, block_id, file_id, total_length, file_stat.st_size);
+#else
+                    TBSYS_LOG(ERROR, "file size error. %s, blockid: %u, fileid :%" PRI64_PREFIX "u, size: %d <> %d",
+                        fsname.get_name(), block_id, file_id, crc, file_stat.crc_, total_length, file_stat.size_);
+#endif
+                  }
+                  else
+                  {
+#if defined(TFS_DS_GTEST)
+#else
+                    ret = crc != file_stat.crc_ ? EXIT_CHECK_CRC_ERROR : TFS_SUCCESS;//check crc
+                    if (TFS_SUCCESS != ret)
+                    {
+                      TBSYS_LOG(ERROR, "crc error. %s, blockid: %u, fileid :%" PRI64_PREFIX "u, crc: %u <> %u, size: %d <> %d",
+                          fsname.get_name(), block_id, file_id, crc, file_stat.crc_, total_length, file_stat.size_);
+                    }
+#endif
+                  }
+                } // write successful & check file size & check crc
+              } // source file stat ok, destination file open ok, size normal
+            } // source file stat ok, destination file open ok
+          } // source file stat ok
+        } // src file open ok 
+
+        if (src_fd > 0)
+        {
+          // close source file
+#if defined(TFS_DS_GTEST)
+          close(src_fd);
+#else
+          tfs_client_->close(src_fd);
+#endif
+          if (dest_fd > 0)
+          {
+            // close destination file anyway
+#if defined(TFS_DS_GTEST)
+            int tmp_ret = close(dest_fd);
+#else
+            int tmp_ret = tfs_client_->close(dest_fd);
+#endif
+            if (tmp_ret != TFS_SUCCESS)
+            {
+#if defined(TFS_DS_GTEST)
+              TBSYS_LOG(ERROR, "%s close dest tfsfile fail. blockid: %u, fileid: %" PRI64_PREFIX "u. ret: %d",
+                  dest_block_file, block_id, file_id, tmp_ret);
+#else
+              TBSYS_LOG(ERROR, "%s close dest tfsfile fail. blockid: %u, fileid: %" PRI64_PREFIX "u. ret: %d",
+                  fsname.get_name(), block_id, file_id, tmp_ret);
+#endif
+              ret = tmp_ret;
+            }
+          }
         }
 
-        crc = Func::crc(crc, data, rlen);
-        total_size += rlen;
-        if (rlen < MAX_READ_SIZE)
-          break;
+        if (TFS_SUCCESS == ret)
+        {
+#if defined(TFS_DS_GTEST)
+          TBSYS_LOG(INFO, "tfs remote copy file %s success. blockid: %u, fileid: %" PRI64_PREFIX "u",
+              src_block_file, block_id, file_id);
+#else
+          TBSYS_LOG(INFO, "tfs remote copy file %s success to dest: %s. blockid: %u, fileid: %" PRI64_PREFIX "u",
+              fsname.get_name(), dest_addr_, block_id, file_id);
+#endif
+        }
+        else
+        {
+#if defined(TFS_DS_GTEST)
+          TBSYS_LOG(ERROR, "tfs remote copy file fail: %s, blockid: %u, fileid: %" PRI64_PREFIX "u, ret: %d",
+              src_block_file, block_id, file_id, ret);
+#else
+          // if block not found or the file is deleted, need not sync 
+          if (EXIT_NO_LOGICBLOCK_ERROR == ret ||
+              EXIT_META_NOT_FOUND_ERROR == ret ||
+              EXIT_FILE_STATUS_ERROR == ret)
+          {
+            ret = TFS_SUCCESS;
+            TBSYS_LOG(DEBUG, "blockid: %u, fileid: %" PRI64_PREFIX "u not exists in src: %s, ret: %d, need not sync",
+                block_id, file_id, src_addr_, ret);
+          }
+          else
+          {
+            TBSYS_LOG(ERROR, "tfs remote copy file %s fail to dest: %s. blockid: %u, fileid: %" PRI64_PREFIX "u, ret: %d",
+                fsname.get_name(), dest_addr_, block_id, file_id, ret);
+          }
+#endif
+        }
       }
-
-      source_client_->tfs_close();
-      int ret = tfs_client->tfs_close();
-      if (TFS_SUCCESS != ret)
-      {
-        TBSYS_LOG(ERROR, "%s close fail. blockid: %u, fileid: %" PRI64_PREFIX "u. error desc: (%s)\n",
-            fsname.get_name(), block_id, file_id, tfs_client->get_error_message());
-        return TFS_ERROR;
-      }
-      if (crc != finfo.crc_ || total_size != finfo.size_)
-      {
-        TBSYS_LOG(ERROR, "%s crc error. blockid: %u, fileid: %" PRI64_PREFIX "u, crc: %u <> %u, size: %d <> %d\n",
-            fsname.get_name(), block_id, file_id, crc, finfo.crc_, total_size, finfo.size_);
-        return TFS_ERROR;
-      }
-      TBSYS_LOG(INFO, "tfs remote copy file: %s, blockid: %d, fileid: %" PRI64_PREFIX "u", fsname.get_name(), block_id,
-          file_id);
-
-      return TFS_SUCCESS;
+      return ret;
     }
 
-    int TfsMirrorBackup::copy_file(TfsClient* tfs_client, const uint32_t block_id, const uint64_t file_id)
+#if defined(TFS_DS_GTEST)
+    int TfsMirrorBackup::copy_file(const uint32_t block_id, const uint64_t file_id,
+                                   const char* src_block_file, const char* dest_block_file)
+#else
+    int TfsMirrorBackup::copy_file(const uint32_t block_id, const uint64_t file_id)
+#endif
     {
-      int ret = TFS_SUCCESS;
-      LogicBlock* logic_block = BlockFileManager::get_instance()->get_logic_block(block_id);
-      if (NULL == logic_block)
+      int32_t ret = block_id > 0 ? TFS_SUCCESS : EXIT_BLOCKID_ZERO_ERROR;
+      if (TFS_SUCCESS == ret)
       {
-        return remote_copy_file(tfs_client, block_id, file_id);
-      }
-
-      FileInfo finfo;
-      memset(&finfo, 0, sizeof(FileInfo));
-      if (tfs_client->tfs_open(block_id, file_id, (WRITE_MODE | NEWBLK_MODE)) != TFS_SUCCESS)
-      {
-        TBSYS_LOG(ERROR, "open tfsfile fail: %s\n", tfs_client->get_error_message());
-        return TFS_ERROR;
-      }
-
-      char data[MAX_READ_SIZE];
-      int32_t rlen = 0;
-      int32_t offset = 0;
-      uint32_t crc = 0;
-      while (1)
-      {
-        rlen = MAX_READ_SIZE;
-        ret = logic_block->read_file(file_id, data, rlen, offset);
-        if (ret)
+        LogicBlock* logic_block = BlockFileManager::get_instance()->get_logic_block(block_id);
+        if (NULL == logic_block)
         {
-          TBSYS_LOG(ERROR,
-              "read file fail. blockid: %u, fileid: %" PRI64_PREFIX "u, offset: %d, ret: %d\n",
-              block_id, file_id, offset, ret);
-          return ret;
+#if defined(TFS_DS_GTEST)
+          return remote_copy_file(block_id, file_id, src_block_file, dest_block_file);
+#else
+          return remote_copy_file(block_id, file_id);
+#endif
         }
 
-        int32_t wlen = 0;
-        if (offset == 0)
-        {
-          if (rlen < FILEINFO_SIZE)
-          {
-            TBSYS_LOG(
-                ERROR,
-                "read file fail. blockid: %u, fileid: %" PRI64_PREFIX "u, read len: %d < sizeof(FileInfo), ret: %d\n",
-                block_id, file_id, rlen, EXIT_READ_FILE_SIZE_ERROR);
-            return EXIT_READ_FILE_SIZE_ERROR;
-          }
+#if defined(TFS_DS_GTEST)
+#else
+        FSName fsname(block_id, file_id);
+#endif
+        char data[MAX_READ_SIZE];
+        uint32_t crc  = 0;
+        int32_t offset = 0;
+        int32_t write_length = 0;
+        int32_t length = MAX_READ_SIZE;
+        int64_t total_length = 0;
+        FileInfo finfo;
 
-          memcpy(&finfo, data, sizeof(FileInfo));
-          crc = Func::crc(crc, data + sizeof(FileInfo), rlen - sizeof(FileInfo));
-          wlen = tfs_client->tfs_write(data + sizeof(FileInfo), rlen - sizeof(FileInfo));
-          if (wlen != rlen - FILEINFO_SIZE)
+        logic_block->rlock();
+        ret = logic_block->read_file(file_id, data, length, offset, READ_DATA_OPTION_FLAG_NORMAL);//read first data & fileinfo
+        if (TFS_SUCCESS != ret)
+        {
+          // if file is local deleted or not exists in local, need not sync
+          if (EXIT_FILE_INFO_ERROR != ret && EXIT_META_NOT_FOUND_ERROR != ret)
           {
-            TBSYS_LOG(ERROR,
-                "tfswrite file fail. blockid: %u, fileid: %" PRI64_PREFIX "u, write len: %d <> %d, file size: %d\n",
-                block_id, file_id, rlen - sizeof(FileInfo), wlen, finfo.size_);
-            ret = TFS_ERROR;
+            TBSYS_LOG(ERROR, "read file fail. blockid: %u, fileid: %"PRI64_PREFIX"u, offset: %d, ret: %d",
+                block_id, file_id, offset, ret);
           }
         }
         else
         {
-          crc = Func::crc(crc, data, rlen);
-          wlen = tfs_client->tfs_write(data, rlen);
-          if (wlen != rlen)
+          if (length < FILEINFO_SIZE)
           {
+            ret = EXIT_READ_FILE_SIZE_ERROR;
             TBSYS_LOG(ERROR,
-                "tfswrite file fail. blockid: %u, fileid: %" PRI64_PREFIX "u, write len: %d <> %d, file size: %d\n",
-                block_id, file_id, rlen, wlen, finfo.size_);
-            ret = TFS_ERROR;
+                "read file fail. blockid: %u, fileid: %"PRI64_PREFIX"u, read len: %d < sizeof(FileInfo):%d, ret: %d",
+                block_id, file_id, length, FILEINFO_SIZE, ret);
+          }
+          else
+          {
+            memcpy(&finfo, data, FILEINFO_SIZE);
+            // open dest tfs file
+#if defined(TFS_DS_GTEST)
+            int dest_fd = open(dest_block_file, O_WRONLY|O_CREAT|O_TRUNC, S_IRWXU);
+#else
+            int dest_fd = tfs_client_->open(fsname.get_name(), NULL, dest_addr_, T_WRITE|T_NEWBLK);
+#endif
+            if (dest_fd <= 0)
+            {
+              TBSYS_LOG(ERROR, "open dest tfsfile fail. ret: %d", dest_fd);
+              ret = TFS_ERROR;
+            }
+            else
+            {
+#if defined(TFS_DS_GTEST)
+              write_length = write(dest_fd, (data + FILEINFO_SIZE), (length - FILEINFO_SIZE));
+#else
+              // set no sync flag avoid the data being sync in the backup cluster again
+              tfs_client_->set_option_flag(dest_fd, TFS_FILE_NO_SYNC_LOG);
+              write_length = tfs_client_->write(dest_fd, (data + FILEINFO_SIZE), (length - FILEINFO_SIZE));
+#endif
+              if (write_length != (length - FILEINFO_SIZE))
+              {
+                ret = EXIT_WRITE_FILE_ERROR; 
+                TBSYS_LOG(ERROR,
+                        "write dest tfsfile fail. blockid: %u, fileid: %"PRI64_PREFIX"u, write len: %d <> %d, file size: %d",
+                        block_id, file_id, write_length, (length - FILEINFO_SIZE), finfo.size_);
+              }
+              else
+              {
+                total_length = length - FILEINFO_SIZE;
+                finfo.size_ -= FILEINFO_SIZE;
+                offset += length;
+                crc = Func::crc(crc, (data + FILEINFO_SIZE), (length - FILEINFO_SIZE));
+              }
+
+              if (TFS_SUCCESS == ret)
+              {
+                while (total_length < finfo.size_
+                      && TFS_SUCCESS == ret)
+                {
+                  length = ((finfo.size_ - total_length) > MAX_READ_SIZE) ? MAX_READ_SIZE : finfo.size_ - total_length;
+                  ret = logic_block->read_file(file_id, data, length, offset, READ_DATA_OPTION_FLAG_NORMAL);//read data
+                  if (TFS_SUCCESS != ret)
+                  {
+                    TBSYS_LOG(ERROR, "read file fail. blockid: %u, fileid: %"PRI64_PREFIX"u, offset: %d, ret: %d",
+                        block_id, file_id, offset, ret);
+                  }
+                  else
+                  {
+#if defined(TFS_DS_GTEST)
+                    write_length = write(dest_fd, data, length);
+#else
+                    write_length = tfs_client_->write(dest_fd, data, length);
+#endif
+                    if (write_length != length )
+                    {
+                      ret = EXIT_WRITE_FILE_ERROR; 
+                      TBSYS_LOG(ERROR,
+                          "write dest tfsfile fail. blockid: %u, fileid: %"PRI64_PREFIX"u, write len: %d <> %d, file size: %d",
+                          block_id, file_id, write_length, length, finfo.size_);
+                    }
+                    else
+                    {
+                      total_length += length;
+                      offset += length;
+                      crc = Func::crc(crc, data, length);
+                    }
+                  }
+                }
+              }
+
+              //write successful & check file size & check crc 
+              if (TFS_SUCCESS == ret)
+              {
+                ret = total_length == finfo.size_ ? TFS_SUCCESS : EXIT_SYNC_FILE_ERROR; // check file size
+                if (TFS_SUCCESS != ret)
+                {
+#if defined(TFS_DS_GTEST)
+                   TBSYS_LOG(ERROR, "file size error. %s, blockid: %u, fileid :%" PRI64_PREFIX "u, crc: %u <> %u, size: %d <> %d",
+                         dest_block_file, block_id, file_id, crc, finfo.crc_, total_length, finfo.size_);
+#else
+                   TBSYS_LOG(ERROR, "file size error. %s, blockid: %u, fileid :%" PRI64_PREFIX "u, crc: %u <> %u, size: %d <> %d",
+                         fsname.get_name(), block_id, file_id, crc, finfo.crc_, total_length, finfo.size_);
+#endif
+                }
+                else
+                {
+                  ret = crc != finfo.crc_ ? EXIT_CHECK_CRC_ERROR : TFS_SUCCESS; // check crc
+                  if (TFS_SUCCESS != ret)
+                  {
+#if defined(TFS_DS_GTEST)
+                    TBSYS_LOG(ERROR, "crc error. %s, blockid: %u, fileid :%" PRI64_PREFIX "u, crc: %u <> %u, size: %d <> %d",
+                            dest_block_file, block_id, file_id, crc, finfo.crc_, total_length, finfo.size_);
+#else
+                    TBSYS_LOG(ERROR, "crc error. %s, blockid: %u, fileid :%" PRI64_PREFIX "u, crc: %u <> %u, size: %d <> %d",
+                            fsname.get_name(), block_id, file_id, crc, finfo.crc_, total_length, finfo.size_);
+#endif
+                  }
+                }
+              }
+
+              // close destination tfsfile anyway
+#if defined(TFS_DS_GTEST)
+              int32_t iret = close(dest_fd);
+#else
+              int32_t iret = tfs_client_->close(dest_fd);
+#endif
+              if (TFS_SUCCESS != iret)
+              {
+                TBSYS_LOG(ERROR, "close dest tfsfile fail, but write data %s . blockid: %u, fileid :%" PRI64_PREFIX "u",
+                         TFS_SUCCESS == ret ? "successful": "fail",block_id, file_id);
+              }
+            }
           }
         }
 
-        if (ret)
+        logic_block->unlock();
+        if (TFS_SUCCESS != ret)
         {
-          TBSYS_LOG(ERROR, "write tfsfile fail. blockid: %u, fileid: %" PRI64_PREFIX "u, %s\n", block_id, file_id,
-              tfs_client->get_error_message());
-          tfs_client->tfs_close();
-          return TFS_ERROR;
+          // if file is local deleted or not exists, need not sync
+          if (EXIT_FILE_INFO_ERROR == ret || EXIT_META_NOT_FOUND_ERROR == ret)
+          {
+             ret = TFS_SUCCESS;
+             TBSYS_LOG(DEBUG, "blockid: %u, fileid: %" PRI64_PREFIX "u not exists in src: %s, ret: %d, need not sync",
+                       block_id, file_id, src_addr_, ret);
+
+          }
+          else
+          {
+            TBSYS_LOG(ERROR, "tfs mirror copy file fail to dest: %s. blockid: %d, fileid: %"PRI64_PREFIX"u, ret: %d",
+                      dest_addr_, block_id, file_id, ret);
+          }
         }
-
-        offset += rlen;
-        if (rlen < MAX_READ_SIZE)
-          break;
+        else
+        {
+          TBSYS_LOG(INFO, "tfs mirror copy file success to dest: %s. blockid: %d, fileid: %"PRI64_PREFIX"u", 
+                    dest_addr_, block_id, file_id);
+        }
       }
-      ret = tfs_client->tfs_close();
-      if (TFS_SUCCESS != ret)
-      {
-        TBSYS_LOG(ERROR, "close tfsfile fail. error msg: %s, filename: %s\n", tfs_client->get_error_message(),
-            tfs_client->get_file_name());
-      }
-      if (crc != finfo.crc_ || offset != finfo.size_)
-      {
-        TBSYS_LOG(ERROR, "crc error.  %s, blockid: %u, fileid :%" PRI64_PREFIX "u, crc: %u <> %u, size: %d <> %d\n",
-            tfs_client->get_file_name(), block_id, file_id, crc, finfo.crc_, offset, finfo.size_);
-        ret = TFS_ERROR;
-      }
-
-      TBSYS_LOG(INFO, "tfs mirror copy file. blockid: %d, fileid: %" PRI64_PREFIX "u, ret: %d\n", block_id, file_id,
-          ret);
       return ret;
     }
 
-    int TfsMirrorBackup::remove_file(TfsClient* tfs_client, const uint32_t block_id, const uint64_t file_id,
-        const int32_t undel)
+#if defined(TFS_DS_GTEST)
+    int TfsMirrorBackup::remove_file(const uint32_t block_id, const uint64_t file_id,
+                                     const TfsUnlinkType action, const char* block_file)
+#else
+    int TfsMirrorBackup::remove_file(const uint32_t block_id, const uint64_t file_id,
+                                     const TfsUnlinkType action)
+#endif
     {
-      int ret = tfs_client->unlink(block_id, file_id, undel);
-      if (TFS_SUCCESS != ret)
+      int32_t ret = block_id > 0 ? TFS_SUCCESS : EXIT_BLOCKID_ZERO_ERROR;
+      if (TFS_SUCCESS == ret)
       {
-        TBSYS_LOG(ERROR, "unlink failure: %s\n", tfs_client->get_error_message());
+#if defined(TFS_DS_GTEST)
+        ret = unlink(block_file);
+#else
+        FSName fsname(block_id, file_id);
+
+        int64_t file_size = 0;
+        ret = tfs_client_->unlink(file_size, fsname.get_name(), NULL, dest_addr_, action, TFS_FILE_NO_SYNC_LOG);
+        //ret = tfs_client_->unlink(fsname.get_name(), NULL, dest_addr_, file_size, action, TFS_FILE_NO_SYNC_LOG);
+#endif
+        if (TFS_SUCCESS != ret)
+        {
+          // if block not found or the file is deleted, need not sync
+          if (EXIT_NO_BLOCK == ret ||
+              EXIT_META_NOT_FOUND_ERROR == ret ||
+              EXIT_FILE_STATUS_ERROR == ret)
+          {
+            ret = TFS_SUCCESS;
+            TBSYS_LOG(DEBUG, "blockid: %u, fileid: %" PRI64_PREFIX "u not exists in dest: %s, ret: %d, need not sync",
+                      block_id, file_id, dest_addr_, ret);
+
+          }
+          else
+          {
+            TBSYS_LOG(ERROR, "tfs mirror remove file fail to dest: %s. blockid: %d, fileid: %"PRI64_PREFIX"u, action: %d, ret: %d",
+                      dest_addr_, block_id, file_id, action, ret);
+          }
+        }
+        else
+        {
+          TBSYS_LOG(INFO, "tfs mirror remove file success to dest: %s. blockid: %d, fileid: %"PRI64_PREFIX"u, action: %d",
+                    dest_addr_, block_id, file_id, action);
+        }
       }
 
-      TBSYS_LOG(INFO, "tfs mirror remove file. blockid: %d, fileid: %" PRI64_PREFIX "u, ret: %d\n", block_id, file_id,
-          undel);
       return ret;
     }
 
-    int TfsMirrorBackup::rename_file(TfsClient* tfs_client, const uint32_t block_id, const uint64_t file_id,
-        const uint64_t old_file_id)
+    int TfsMirrorBackup::rename_file(const uint32_t block_id, const uint64_t file_id,
+                                     const uint64_t old_file_id)
     {
-      int ret = tfs_client->rename(block_id, old_file_id, file_id);
-      if (TFS_SUCCESS != ret)
-      {
-        TBSYS_LOG(ERROR, "unlink failure: %s\n", tfs_client->get_error_message());
-      }
+      UNUSED(block_id);
+      UNUSED(file_id);
+      UNUSED(old_file_id);
+      // FSName fsname(block_id, file_id);
+      // int ret = tfs_client->rename(block_id, old_file_id, file_id);
+      // if (TFS_SUCCESS != ret)
+      // {
+      //   TBSYS_LOG(ERROR, "unlink failure: %s\n", tfs_client->get_error_message());
+      // }
 
-      TBSYS_LOG(
-          INFO,
-          "tfs mirror rename file. blockid: %d, fileid: %" PRI64_PREFIX "u, old fileid: %" PRI64_PREFIX "u, ret: %d.\n",
-          block_id, file_id, old_file_id);
-      return ret;
+      // TBSYS_LOG(
+      //     INFO,
+      //     "tfs mirror rename file. blockid: %d, fileid: %" PRI64_PREFIX "u, old fileid: %" PRI64_PREFIX "u, ret: %d.\n",
+      //     block_id, file_id, old_file_id);
+      // return ret;
+      return TFS_SUCCESS;
+    }
+
+    void TfsMirrorBackup::DoSyncMirrorThreadHelper::run()
+    {
+      sync_base_.run_sync_mirror();
     }
 
   }

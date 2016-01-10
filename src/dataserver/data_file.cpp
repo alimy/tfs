@@ -6,15 +6,17 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: data_file.cpp 33 2010-11-01 05:24:35Z nayan@taobao.com $
+ * Version: $Id: data_file.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
  *      - initial release
  *
  */
-#include "data_file.h"
 #include "common/parameter.h"
+#include "common/func.h"
+#include "data_file.h"
+#include "dataservice.h"
 
 namespace tfs
 {
@@ -28,19 +30,18 @@ namespace tfs
       length_ = 0;
       crc_ = 0;
       fd_ = -1;
-      sprintf(tmp_file_name_, "%s/tmp/%"PRI64_PREFIX"u.dat", SYSPARAM_DATASERVER.work_dir_.c_str(), fn);
+      sprintf(tmp_file_name_, "%s/tmp/%"PRI64_PREFIX"u.dat", dynamic_cast<DataService*>(DataService::instance())->get_real_work_dir().c_str(), fn);
       atomic_set(&ref_count_, 0);
     }
 
     DataFile::DataFile(uint64_t fn, char* path)
     {
+      UNUSED(path);
       last_update_ = time(NULL);
       length_ = 0;
       crc_ = 0;
       fd_ = -1;
-
-      char* work_dir = CONFIG.get_string_value(CONFIG_DATASERVER, CONF_WORK_DIR, path);
-      sprintf(tmp_file_name_, "%s/tmp/%"PRI64_PREFIX"u.dat", work_dir, fn);
+      sprintf(tmp_file_name_, "%s/tmp/%"PRI64_PREFIX"u.dat", dynamic_cast<DataService*>(DataService::instance())->get_real_work_dir().c_str(), fn);
       atomic_set(&ref_count_, 0);
     }
 
@@ -69,7 +70,7 @@ namespace tfs
       }
       int32_t length = offset + len;
 
-      if (length > WRITE_DATA_TMPBUF_SIZE)      // write to file if length is large then max_read_size
+      if (length > WRITE_DATA_TMPBUF_SIZE || length_ > WRITE_DATA_TMPBUF_SIZE)      // write to file if length is large then max_read_size
       {
         if (fd_ == -1)          // first write to file
         {

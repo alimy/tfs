@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: data_handle.h 33 2010-11-01 05:24:35Z nayan@taobao.com $
+ * Version: $Id: data_handle.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -19,7 +19,7 @@
 #define TFS_DATASERVER_DATAHANDLE_H_
 
 #include "physical_block.h"
-#include "common/interval.h"
+#include "common/internal.h"
 
 namespace tfs
 {
@@ -29,7 +29,7 @@ namespace tfs
     class DataHandle
     {
       public:
-        DataHandle(LogicBlock* logic_blk) :
+        explicit DataHandle(LogicBlock* logic_blk) :
           logic_block_(logic_blk)
         {
         }

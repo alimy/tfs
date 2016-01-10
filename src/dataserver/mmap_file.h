@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: mmap_file.h 5 2010-09-29 07:44:56Z duanfei@taobao.com $
+ * Version: $Id: mmap_file.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -33,12 +33,12 @@ namespace tfs
     {
       public:
         MMapFile();
-        MMapFile(const int fd);
-        MMapFile(const MMapOption& mmap_option, const int fd);
+        explicit MMapFile(const int fd);
+        MMapFile(const common::MMapOption& mmap_option, const int fd);
         ~MMapFile();
 
         bool sync_file();
-        bool map_file(bool write = false);
+        bool map_file(const bool write = false);
         bool remap_file();
         void* get_data() const;
         int32_t get_size() const;
@@ -51,7 +51,7 @@ namespace tfs
         int32_t size_;
         int fd_;
         void* data_;
-        MMapOption mmap_file_option_;
+        common::MMapOption mmap_file_option_;
     };
   }
 }

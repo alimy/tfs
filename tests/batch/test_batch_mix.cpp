@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: test_batch_mix.cpp 10 2010-10-11 01:57:47Z duanfei@taobao.com $
+ * Version: $Id: test_batch_mix.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   qushan <qushan@taobao.com>
@@ -17,13 +17,14 @@
 #include <algorithm>
 #include <functional>
 #include "common/func.h"
-#include "client/tfs_client_api.h"
+#include "new_client/tfs_client_api.h"
 #include "util.h"
 #include "thread.h"
 
 using namespace KFS;
 using namespace tfs::common;
 using namespace tfs::client;
+using namespace std;
 
 #define FILE_NAME_LEN 18
 

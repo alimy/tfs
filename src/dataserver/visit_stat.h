@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: visit_stat.h 40 2010-11-09 03:01:34Z zongdai@taobao.com $
+ * Version: $Id: visit_stat.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   qushan <qushan@taobao.com>
@@ -16,7 +16,7 @@
 #ifndef TFS_DATASERVER_VISITSTAT_H_
 #define TFS_DATASERVER_VISITSTAT_H_
 
-#include "common/interval.h"
+#include "common/internal.h"
 #include <tbtimeutil.h>
 #include <set>
 #include <vector>

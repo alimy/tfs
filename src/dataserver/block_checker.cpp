@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: block_checker.cpp 18 2010-10-12 09:45:55Z nayan@taobao.com $
+ * Version: $Id: block_checker.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -17,9 +17,10 @@
  *      - modify 2010-04-23
  *
  */
+#include <Memory.hpp>
 #include "block_checker.h"
 #include "blockfile_manager.h"
-#include <Memory.hpp>
+#include "common/func.h"
 
 namespace tfs
 {
@@ -27,6 +28,7 @@ namespace tfs
   {
     using namespace common;
     using namespace tbutil;
+    using namespace std;
 
     BlockChecker::~BlockChecker()
     {

@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: test_batch_read.cpp 44 2010-11-12 07:43:00Z chuyu@taobao.com $
+ * Version: $Id: test_batch_read.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   qushan <qushan@taobao.com>
@@ -24,6 +24,7 @@
 using namespace KFS;
 using namespace tfs::client;
 using namespace tfs::common;
+using namespace std;
 
 static int32_t m_stop = 0;
 void sign_handler(int32_t sig)

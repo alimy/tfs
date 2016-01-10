@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: cpu_metrics.cpp 5 2010-09-29 07:44:56Z duanfei@taobao.com $
+ * Version: $Id: cpu_metrics.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   qushan <qushan@taobao.com>
@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "cpu_metrics.h"
-#include "common/interval.h"
+#include "common/internal.h"
 
 namespace tfs
 {

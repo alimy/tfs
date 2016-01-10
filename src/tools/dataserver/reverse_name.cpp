@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: reverse_name.cpp 21 2010-10-19 02:12:38Z nayan@taobao.com $
+ * Version: $Id: reverse_name.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -14,7 +14,7 @@
  *
  */
 #include "tbsys.h"
-#include "client/fsname.h"
+#include "new_client/fsname.h"
 
 using namespace tfs::client;
 

@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: data_file.h 40 2010-11-09 03:01:34Z zongdai@taobao.com $
+ * Version: $Id: data_file.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -23,7 +23,7 @@
 #include <ext/hash_map>
 #include <tbsys.h>
 #include "common/config_item.h"
-#include "common/config.h"
+//#include "common/config.h"
 #include "dataserver_define.h"
 
 namespace tfs
@@ -34,7 +34,7 @@ namespace tfs
     class DataFile
     {
       public:
-        DataFile(uint64_t fn);
+        explicit DataFile(uint64_t fn);
         DataFile(uint64_t fn, char* path);
         ~DataFile();
 

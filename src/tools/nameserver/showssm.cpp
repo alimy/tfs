@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: showssm.cpp 11 2010-10-11 02:48:43Z nayan@taobao.com $
+ * Version: $Id: showssm.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

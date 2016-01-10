@@ -6,21 +6,22 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: sync_backup.h 5 2010-09-29 07:44:56Z duanfei@taobao.com $
+ * Version: $Id: sync_backup.h 738 2011-08-30 12:28:17Z mingyan.zc@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
  *      - initial release
- *   zongdai <zongdai@taobao.com> 
+ *   zongdai <zongdai@taobao.com>
  *      - modify 2010-04-23
  *
  */
 #ifndef TFS_DATASERVER_SYNCBACKUP_H_
 #define TFS_DATASERVER_SYNCBACKUP_H_
 
-#include "common/interval.h"
-#include "client/tfs_client_api.h"
+#include "common/internal.h"
+#include "new_client/tfs_client_impl.h"
 #include <Memory.hpp>
+#include <TbThread.h>
 
 namespace tfs
 {
@@ -29,7 +30,6 @@ namespace tfs
     enum SyncType
     {
       SYNC_TO_TFS_MIRROR = 1,
-      SYNC_TO_NFS_MIRROR
     };
 
     struct SyncData
@@ -42,96 +42,83 @@ namespace tfs
       int32_t retry_time_;
     };
 
+    class SyncBase;
     class SyncBackup
     {
-      public:
-        SyncBackup();
-        virtual ~SyncBackup()
-        {
-        }
+    public:
+      SyncBackup();
+      virtual ~SyncBackup();
 
-        virtual bool init() = 0;
-        virtual int do_sync(const SyncData* sf);
-        virtual int do_second_sync(const SyncData* sf);
-        virtual int copy_file(const uint32_t block_id, const uint64_t file_id);
-        virtual int remove_file(const uint32_t block_id, const uint64_t file_id, const int32_t undel);
-        virtual int rename_file(const uint32_t block_id, const uint64_t file_id, const uint64_t old_file_id);
-        virtual int remote_copy_file(const uint32_t block_id, const uint64_t file_id);
+      virtual bool init() = 0;
+      virtual void destroy() = 0;
+#if defined(TFS_DS_GTEST)
+      virtual int do_sync(const SyncData* sf, const char* src_block_file, const char* dest_block_file);
+#else
+      virtual int do_sync(const SyncData* sf);
+#endif
+      virtual int copy_file(const uint32_t block_id, const uint64_t file_id);
+      virtual int remove_file(const uint32_t block_id, const uint64_t file_id, const int32_t undel);
+      virtual int rename_file(const uint32_t block_id, const uint64_t file_id, const uint64_t old_file_id);
+      virtual int remote_copy_file(const uint32_t block_id, const uint64_t file_id);
 
-      protected:
-        DISALLOW_COPY_AND_ASSIGN(SyncBackup);
+    protected:
+      DISALLOW_COPY_AND_ASSIGN(SyncBackup);
+      client::TfsClientImpl* tfs_client_;
 
-        static const int32_t TMP_PATH_SIZE = 256;
-        static const int32_t BLOCK_DIR_NUM = 100;
+      char src_addr_[common::MAX_ADDRESS_LENGTH];
+      char dest_addr_[common::MAX_ADDRESS_LENGTH];
     };
 
-    class NfsMirrorBackup: public SyncBackup
+    class TfsMirrorBackup : public SyncBackup
     {
       public:
-        NfsMirrorBackup() :
-          SyncBackup()
-        {
-        }
-        virtual ~NfsMirrorBackup()
-        {
-        }
+        TfsMirrorBackup(SyncBase& sync_base, const char* src_addr, const char* dest_addr);
+        virtual ~TfsMirrorBackup();
 
-      public:
-        virtual bool init();
-        virtual int copy_file(const uint32_t block_id, const uint64_t file_id);
-        virtual int remove_file(const uint32_t block_id, const uint64_t file_id, const int32_t undel);
-        virtual int rename_file(const uint32_t block_id, const uint64_t file_id, const uint64_t old_file_id);
-        virtual int remote_copy_file(const uint32_t block_id, const uint64_t file_id);
-
-      private:
-        DISALLOW_COPY_AND_ASSIGN(NfsMirrorBackup);
-
-        char backup_path_[TMP_PATH_SIZE];
-        char remove_path_[TMP_PATH_SIZE];
-        client::TfsClient* source_client_;
-
-        static int write_n(const int32_t fd, const char* buffer, const int32_t length);
-        static int mk_dir(const char* path);
-        static int mk_dirs(const char* path);
-        static void get_backup_path(char* buf, const char* path, const uint32_t block_id);
-        static void get_backup_file_name(char* buf, const char* path, const uint32_t block_id, const uint64_t file_id);
-        static int move(const char* source, const char* dest);
-    };
-
-    class TfsMirrorBackup: public SyncBackup
-    {
-      public:
-        TfsMirrorBackup() :
-          SyncBackup()
-        {
-          tfs_client_ = NULL;
-          second_tfs_client_ = NULL;
-          source_client_ = NULL;
-        }
-        virtual ~TfsMirrorBackup()
-        {
-          tbsys::gDelete(tfs_client_);
-          tbsys::gDelete(second_tfs_client_);
-          tbsys::gDelete(source_client_);
-        }
-
-        virtual bool init();
-        virtual int do_sync(const SyncData* sf);
-        virtual int do_second_sync(const SyncData* sf);
+        bool init();
+        void destroy();
+#if defined(TFS_DS_GTEST)
+        int do_sync(const SyncData* sf, const char* src_block_file, const char* dest_block_file);
+#else
+        int do_sync(const SyncData* sf);
+#endif
 
       private:
         DISALLOW_COPY_AND_ASSIGN(TfsMirrorBackup);
 
-        client::TfsClient* tfs_client_;
-        client::TfsClient* second_tfs_client_;
-        client::TfsClient* source_client_;
-
       private:
-        int do_sync(client::TfsClient* tfs_client, const SyncData* sf);
-        int copy_file(client::TfsClient* tfs_client, const uint32_t block_id, const uint64_t file_id);
-        int remove_file(client::TfsClient* tfs_client, const uint32_t block_id, const uint64_t file_id, const int32_t undel);
-        int rename_file(client::TfsClient* tfs_client, const uint32_t block_id, const uint64_t file_id, const uint64_t old_file_id);
-        int remote_copy_file(client::TfsClient* tfs_client, const uint32_t block_id, const uint64_t file_id);
+#if defined(TFS_DS_GTEST)
+        int copy_file(const uint32_t block_id, const uint64_t file_id, const char* src_block_file, const char* dest_block_file);
+        int remove_file(const uint32_t block_id, const uint64_t file_id, const common::TfsUnlinkType action, const char* dest_block_file);
+        int rename_file(const uint32_t block_id, const uint64_t file_id, const uint64_t old_file_id);
+        int remote_copy_file(const uint32_t block_id, const uint64_t file_id, const char* src_block_file, const char* dest_block_file);
+#else
+        int copy_file(const uint32_t block_id, const uint64_t file_id);
+        int remove_file(const uint32_t block_id, const uint64_t file_id, const common::TfsUnlinkType action);
+        int rename_file(const uint32_t block_id, const uint64_t file_id, const uint64_t old_file_id);
+        int remote_copy_file(const uint32_t block_id, const uint64_t file_id);
+#endif
+
+      class DoSyncMirrorThreadHelper: public tbutil::Thread
+      {
+        public:
+          explicit DoSyncMirrorThreadHelper(SyncBase& sync_base):
+              sync_base_(sync_base)
+          {
+            start();
+          }
+          virtual ~DoSyncMirrorThreadHelper(){}
+          void run();
+        private:
+          DISALLOW_COPY_AND_ASSIGN(DoSyncMirrorThreadHelper);
+          SyncBase& sync_base_;
+      };
+      typedef tbutil::Handle<DoSyncMirrorThreadHelper> DoSyncMirrorThreadHelperPtr;
+      
+    private:
+      SyncBase& sync_base_;
+      DoSyncMirrorThreadHelperPtr  do_sync_mirror_thread_;
+
     };
 
   }

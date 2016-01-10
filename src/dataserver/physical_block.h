@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: physical_block.h 33 2010-11-01 05:24:35Z nayan@taobao.com $
+ * Version: $Id: physical_block.h 726 2011-08-24 08:38:57Z nayan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -17,10 +17,9 @@
 #define TFS_DATASERVER_PHYSICALBLOCK_H_
 
 #include <string>
-#include "superblock.h"
-#include "file_op.h"
+#include "common/file_op.h"
 #include "dataserver_define.h"
-#include "common/config.h"
+//#include "common/config.h"
 #include "common/config_item.h"
 
 namespace tfs
@@ -79,7 +78,7 @@ namespace tfs
         int32_t data_start_; // the data start offset of this block file
         int32_t total_data_len_; // total data size
         BlockPrefix block_prefix_; // block meta info prefix
-        FileOperation* file_op_;   // file operation handle
+        common::FileOperation* file_op_;   // file operation handle
     };
 
   }

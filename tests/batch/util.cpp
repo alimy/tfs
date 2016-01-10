@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: util.cpp 5 2010-09-29 07:44:56Z duanfei@taobao.com $
+ * Version: $Id: util.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   qushan <qushan@taobao.com>
@@ -19,6 +19,7 @@
 
 using namespace tfs::client;
 using namespace tfs::common;
+using namespace std;
 
 int fetch_input_opt(int argc, char** argv, ThreadParam& param, int& thread_count)
 {

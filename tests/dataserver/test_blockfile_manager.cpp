@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: test_blockfile_manager.cpp 5 2010-09-29 07:44:56Z duanfei@taobao.com $
+ * Version: $Id: test_blockfile_manager.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   yangye
@@ -19,6 +19,7 @@
 
 using namespace tfs::dataserver;
 using namespace tfs::common;
+using namespace std;
 
 // delete test files and folders
 int clearfile(SuperBlock super_block)

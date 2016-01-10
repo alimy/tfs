@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: stat.h 5 2010-09-29 07:44:56Z duanfei@taobao.com $
+ * Version: $Id: stat.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

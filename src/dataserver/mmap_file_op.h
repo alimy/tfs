@@ -6,21 +6,21 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: mmap_file_op.h 5 2010-09-29 07:44:56Z duanfei@taobao.com $
+ * Version: $Id: mmap_file_op.h 726 2011-08-24 08:38:57Z nayan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
  *      - initial release
- *   qushan<qushan@taobao.com> 
+ *   qushan<qushan@taobao.com>
  *      - modify 2009-03-27
- *   zongdai <zongdai@taobao.com> 
+ *   zongdai <zongdai@taobao.com>
  *      - modify 2010-04-23
  *
  */
 #ifndef TFS_DATASERVER_MMAPFILE_OP_H_
 #define TFS_DATASERVER_MMAPFILE_OP_H_
 
-#include "file_op.h"
+#include "common/file_op.h"
 #include "mmap_file.h"
 #include <Memory.hpp>
 
@@ -31,7 +31,7 @@ namespace tfs
     class ParaInfo
     {
       public:
-        ParaInfo(const int32_t size) :
+        explicit ParaInfo(const int32_t size) :
           flag_(false)
         {
           new_buf_ = new char[size];
@@ -73,15 +73,16 @@ namespace tfs
         }
 
       private:
+        DISALLOW_COPY_AND_ASSIGN(ParaInfo);
         bool flag_;
         char* self_buf_;
         char* new_buf_;
     };
 
-    class MMapFileOperation: public FileOperation
+    class MMapFileOperation: public common::FileOperation
     {
       public:
-        MMapFileOperation(const std::string& file_name, int open_flags = O_RDWR | O_LARGEFILE) :
+        explicit MMapFileOperation(const std::string& file_name, int open_flags = O_RDWR | O_LARGEFILE) :
           FileOperation(file_name, open_flags), is_mapped_(false), map_file_(NULL)
         {
 
@@ -96,7 +97,7 @@ namespace tfs
         int pread_file(ParaInfo& m_meta_info, const int32_t size, const int64_t offset);
         int pwrite_file(const char* buf, const int32_t size, const int64_t offset);
 
-        int mmap_file(const MMapOption& mmap_option);
+        int mmap_file(const common::MMapOption& mmap_option);
         int munmap_file();
         void* get_map_data() const;
         int flush_file();

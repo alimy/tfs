@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: block_checker.h 5 2010-09-29 07:44:56Z duanfei@taobao.com $
+ * Version: $Id: block_checker.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -20,13 +20,12 @@
 #ifndef TFS_DATASERVER_BLOCKCHECKER_H_
 #define TFS_DATASERVER_BLOCKCHECKER_H_
 
+#include <Mutex.h>
 #include "logic_block.h"
 #include "dataserver_define.h"
 #include "file_repair.h"
 #include "requester.h"
-#include "common/interval.h"
-#include "common/config.h"
-#include <Mutex.h>
+//#include "common/config.h"
 
 namespace tfs
 {

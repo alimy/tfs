@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: logic_block.h 33 2010-11-01 05:24:35Z nayan@taobao.com $
+ * Version: $Id: logic_block.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -34,11 +34,11 @@ namespace tfs
   namespace dataserver
   {
 
-    class LogicBlock
+    class LogicBlock: public GCObject
     {
       public:
-        LogicBlock(const uint32_t logic_block_id, const uint32_t main_blk_key, const std::string& base_path);
-        LogicBlock(const uint32_t logic_block_id);
+        LogicBlock(const uint32_t logic_block_id, const uint32_t main_blk_key, const std::string& base_path, const time_t now = time(NULL));
+        LogicBlock(const uint32_t logic_block_id, const time_t now = time(NULL));
 
         ~LogicBlock();
 
@@ -52,8 +52,8 @@ namespace tfs
           return common::TFS_SUCCESS;
         }
 
-        int load_block_file(const int32_t bucket_size, const MMapOption mmap_option);
-        int init_block_file(const int32_t bucket_size, const MMapOption mmap_option, const BlockType block_type);
+        int load_block_file(const int32_t bucket_size, const common::MMapOption mmap_option);
+        int init_block_file(const int32_t bucket_size, const common::MMapOption mmap_option, const BlockType block_type);
         int delete_block_file();
 
         void add_physic_block(PhysicalBlock* physic_block);
@@ -62,18 +62,23 @@ namespace tfs
         int check_block_version(int32_t& remote_version, common::UpdateBlockType &repair);
         int close_write_file(const uint64_t inner_file_id, DataFile* datafile, const uint32_t crc);
 
-        int read_file(const uint64_t inner_file_id, char* buf, int32_t& nbytes, const int32_t offset);
+        int read_file(const uint64_t inner_file_id, char* buf, int32_t& nbytes, const int32_t offset, const int8_t flag);
         int read_file_info(const uint64_t inner_file_id, common::FileInfo& finfo);
 
         int rename_file(const uint64_t old_inner_file_id, const uint64_t new_inner_file_id);
-        int unlink_file(const uint64_t inner_file_id, const int32_t action);
+        int unlink_file(const uint64_t inner_file_id, const int32_t action, int64_t& file_size);
         int read_raw_data(char* buf, int32_t& nbyte, const int32_t offset);
         int write_raw_data(const char* buf, const int32_t nbytes, const int32_t offset);
 
+        void reset_seq_id(uint64_t file_id);
         int reset_block_version();
         int get_meta_infos(common::RawMetaVec& raw_metas);
         int get_sorted_meta_infos(common::RawMetaVec& meta_infos);
         int get_file_infos(std::vector<common::FileInfo>& fileinfos);
+
+        //gc callback
+        void callback();
+        void clear();
 
         common::BlockInfo* get_block_info() const
         {

@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: index_handle.cpp 33 2010-11-01 05:24:35Z nayan@taobao.com $
+ * Version: $Id: index_handle.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -304,6 +304,15 @@ namespace tfs
       TBSYS_LOG(DEBUG, "blockid: %u, get key: %" PRI64_PREFIX "u, seqno: %u", block_info()->block_id_, key,
           block_info()->seq_no_);
       return TFS_SUCCESS;
+    }
+
+    void IndexHandle::reset_avail_key(uint64_t key)
+    {
+      if (block_info()->seq_no_ <= key)
+      {
+        block_info()->seq_no_ = key + 1;
+        // overlap ...
+      }
     }
 
     int IndexHandle::check_block_version(int32_t& remote_version)

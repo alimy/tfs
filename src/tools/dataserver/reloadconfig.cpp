@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: reloadconfig.cpp 5 2010-09-29 07:44:56Z duanfei@taobao.com $
+ * Version: $Id: reloadconfig.cpp 853 2011-09-28 02:21:16Z mingyan.zc@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -18,24 +18,20 @@
 #include <vector>
 #include <string>
 
-#include "common/define.h"
-#include "common/config.h"
-#include "message/client.h"
-#include "message/client_pool.h"
-#include "message/message.h"
+#include "common/internal.h"
+#include "common/base_packet_factory.h"
+#include "common/base_packet_streamer.h"
 #include "message/message_factory.h"
+#include "common/new_client.h"
+#include "common/client_manager.h"
+#include "common/status_message.h"
+#include "message/reload_message.h"
 
 using namespace tfs::common;
 using namespace tfs::message;
 
 int reload_config(const uint64_t server_ip, const int32_t flag)
 {
-  Client* client = CLIENT_POOL.get_client(server_ip);
-  if (client->connect() != TFS_SUCCESS)
-  {
-    CLIENT_POOL.release_client(client);
-    return TFS_ERROR;
-  }
 
   printf("server_ip: %s,  flag: %u\n", tbsys::CNetUtil::addrToString(server_ip).c_str(), flag);
 
@@ -44,22 +40,22 @@ int reload_config(const uint64_t server_ip, const int32_t flag)
 
   req_rc_msg.set_switch_cluster_flag(flag);
 
-  Message* message = client->call(&req_rc_msg);
-  if (message != NULL)
+  NewClient* client = NewClientManager::get_instance().create_client();
+  tbnet::Packet* ret_msg = NULL;
+  if(TFS_SUCCESS == send_msg_to_server(server_ip, client, &req_rc_msg, ret_msg))
   {
-    printf("getmessagetype: %d\n", message->get_message_type());
-    if (message->get_message_type() == STATUS_MESSAGE)
+    printf("getmessagetype: %d\n", ret_msg->getPCode());
+    if (ret_msg->getPCode() == STATUS_MESSAGE)
     {
-      StatusMessage* s_msg = dynamic_cast<StatusMessage*>(message);
-      printf("getMessageType: %d %d==%d\n", message->get_message_type(), s_msg->get_status(), STATUS_MESSAGE_OK);
+      StatusMessage* s_msg = dynamic_cast<StatusMessage*>(ret_msg);
+      printf("getMessageType: %d %d==%d\n", ret_msg->getPCode(), s_msg->get_status(), STATUS_MESSAGE_OK);
       if (STATUS_MESSAGE_OK == s_msg->get_status())
       {
         ret_status = TFS_SUCCESS;
       }
     }
-    delete message;
   }
-  CLIENT_POOL.release_client(client);
+  NewClientManager::get_instance().destroy_client(client);
   return ret_status;
 }
 
@@ -95,8 +91,17 @@ int main(int argc, char* argv[])
     flag = strtoul(argv[2], reinterpret_cast<char**>(NULL), 10);
   }
 
-  int ret = reload_config(server_ip, flag);
-  if (ret == TFS_SUCCESS)
+  MessageFactory packet_factory;
+  BasePacketStreamer packet_streamer(&packet_factory);
+  int ret = NewClientManager::get_instance().initialize(&packet_factory, &packet_streamer);
+  if (TFS_SUCCESS != ret)
+  {
+    printf("initialize NewClientManager fail, must exit, ret: %d\n", ret);
+    return ret;
+  }
+
+  ret = reload_config(server_ip, flag);
+  if (TFS_SUCCESS == ret)
   {
     printf("reload Config Success.\n\n");
   }
@@ -104,6 +109,6 @@ int main(int argc, char* argv[])
   {
     printf("reload Config Fail ret=%d.\n\n", ret);
   }
-
+  NewClientManager::get_instance().destroy();
   return ret;
 }

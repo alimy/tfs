@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: file_queue.h 42 2010-11-12 07:32:15Z nayan@taobao.com $
+ * Version: $Id: file_queue.h 738 2011-08-30 12:28:17Z mingyan.zc@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -16,7 +16,7 @@
 #ifndef TFS_COMMON_FILE_QUEUE_H_
 #define TFS_COMMON_FILE_QUEUE_H_
 
-#include "define.h"
+#include "internal.h"
 #include <tbsys.h>
 
 namespace tfs
@@ -66,8 +66,6 @@ namespace tfs
 
       QueueItem *pop(const int32_t index = 0);
 
-      //QueueItem *pop(int32_t& offset, const int32_t index);
-
       int clear();
 
       bool empty() const;
@@ -94,13 +92,13 @@ namespace tfs
         int iret = write_header();
         if (iret != TFS_SUCCESS)
         {
-          TBSYS_LOG(ERROR, "write queue information header error, iret(%d)", iret);
+          TBSYS_LOG(ERROR, "write queue information header error, iret: %d", iret);
           return iret;
         }
         iret = open_read_file();
         if (iret != TFS_SUCCESS)
         {
-          TBSYS_LOG(ERROR, "open file failed, iret(%d)", iret);
+          TBSYS_LOG(ERROR, "open file failed, iret: %d", iret);
         }
         return iret;
       }
@@ -109,6 +107,10 @@ namespace tfs
       int open_write_file();
       int open_read_file();
       int delete_read_file();
+#if defined(TFS_DS_GTEST)
+    public:
+#else
+#endif
       int write_header();
       int recover_record();
 
@@ -116,6 +118,10 @@ namespace tfs
       int32_t read_fd_;
       int32_t write_fd_;
       int32_t information_fd_;
+#if defined(TFS_DS_GTEST)
+    public:
+#else
+#endif
       QueueInformationHeader queue_information_header_;
       int32_t max_file_size_;
       bool delete_file_flag_;

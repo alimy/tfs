@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: test_batch_write.cpp 10 2010-10-11 01:57:47Z duanfei@taobao.com $
+ * Version: $Id: test_batch_write.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   qushan <qushan@taobao.com>
@@ -26,6 +26,7 @@
 using namespace KFS;
 using namespace tfs::client;
 using namespace tfs::common;
+using namespace std;
 
 char global_write_buf[BUFFER_SIZE];
 

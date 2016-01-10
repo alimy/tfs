@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: logic_block.cpp 33 2010-11-01 05:24:35Z nayan@taobao.com $
+ * Version: $Id: logic_block.cpp 738 2011-08-30 12:28:17Z mingyan.zc@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -23,9 +23,10 @@ namespace tfs
   namespace dataserver
   {
     using namespace common;
+    using namespace std;
 
-    LogicBlock::LogicBlock(const uint32_t logic_block_id, const uint32_t main_blk_key, const std::string& base_path) :
-      logic_block_id_(logic_block_id), avail_data_size_(0), visit_count_(0), last_update_(time(NULL)),
+    LogicBlock::LogicBlock(const uint32_t logic_block_id, const uint32_t main_blk_key, const std::string& base_path, const time_t now) :
+      GCObject(now), logic_block_id_(logic_block_id), avail_data_size_(0), visit_count_(0), last_update_(now),
           last_abnorm_time_(0)
     {
       data_handle_ = new DataHandle(this);
@@ -33,9 +34,9 @@ namespace tfs
       physical_block_list_.clear();
     }
 
-    LogicBlock::LogicBlock(const uint32_t logic_block_id) :
-      logic_block_id_(logic_block_id), avail_data_size_(0), visit_count_(0),
-          last_update_(time(NULL)), last_abnorm_time_(0), data_handle_(NULL), index_handle_(NULL)
+    LogicBlock::LogicBlock(const uint32_t logic_block_id, const time_t now) :
+      GCObject(now), logic_block_id_(logic_block_id), avail_data_size_(0), visit_count_(0),
+          last_update_(now), last_abnorm_time_(0), data_handle_(NULL), index_handle_(NULL)
     {
     }
 
@@ -342,7 +343,7 @@ namespace tfs
       return ret;
     }
 
-    int LogicBlock::read_file(const uint64_t inner_file_id, char* buf, int32_t& nbytes, const int32_t offset)
+    int LogicBlock::read_file(const uint64_t inner_file_id, char* buf, int32_t& nbytes, const int32_t offset, const int8_t flag)
     {
       RawMeta file_meta;
       // 1. get file meta info(offset)
@@ -381,15 +382,29 @@ namespace tfs
       // 3. the first fragment, check fileinfo
       if (0 == offset)
       {
-        if ((((FileInfo *) buf)->id_ != inner_file_id) || (((((FileInfo *) buf)->flag_) & (FI_DELETED | FI_INVALID
-            | FI_CONCEAL)) != 0))
+        if ((flag & READ_DATA_OPTION_FLAG_FORCE))
         {
-          TBSYS_LOG(WARN,
-              "find FileInfo fail, blockid: %u, fileid: %" PRI64_PREFIX "u, id: %" PRI64_PREFIX "u, flag: %d",
-              logic_block_id_, inner_file_id, ((FileInfo *) buf)->id_, ((FileInfo *) buf)->flag_);
-          return EXIT_FILE_INFO_ERROR;
+          if ((((FileInfo *) buf)->id_ != inner_file_id) 
+              || (((((FileInfo *) buf)->flag_) & (FI_DELETED | FI_INVALID )) != 0))
+          {
+            TBSYS_LOG(WARN,
+                "find FileInfo fail, blockid: %u, fileid: %" PRI64_PREFIX "u, id: %" PRI64_PREFIX "u, flag: %d",
+                logic_block_id_, inner_file_id, ((FileInfo *) buf)->id_, ((FileInfo *) buf)->flag_);
+            return EXIT_FILE_INFO_ERROR;
+          }
         }
-      }
+        else
+        {
+          if ((((FileInfo *) buf)->id_ != inner_file_id) 
+              || (((((FileInfo *) buf)->flag_) & (FI_DELETED | FI_INVALID | FI_CONCEAL)) != 0))
+          {
+            TBSYS_LOG(WARN,
+                "find FileInfo fail, blockid: %u, fileid: %" PRI64_PREFIX "u, id: %" PRI64_PREFIX "u, flag: %d",
+                logic_block_id_, inner_file_id, ((FileInfo *) buf)->id_, ((FileInfo *) buf)->flag_);
+            return EXIT_FILE_INFO_ERROR;
+          }
+        }
+     }
 
       return TFS_SUCCESS;
     }
@@ -472,7 +487,7 @@ namespace tfs
       return index_handle_->flush();
     }
 
-    int LogicBlock::unlink_file(const uint64_t inner_file_id, const int32_t action)
+    int LogicBlock::unlink_file(const uint64_t inner_file_id, const int32_t action, int64_t& file_size)
     {
       // 1. ...
       ScopedRWLock scoped_lock(rw_lock_, WRITE_LOCKER);
@@ -495,6 +510,8 @@ namespace tfs
             inner_file_id, ret);
         return ret;
       }
+
+      file_size = finfo.size_ - FILEINFO_SIZE;
 
       int32_t oper_type = 0;
       // 4. dispatch action
@@ -607,6 +624,11 @@ namespace tfs
       }
 
       return TFS_SUCCESS;
+    }
+
+    void LogicBlock::reset_seq_id(uint64_t file_id)
+    {
+      index_handle_->reset_avail_key(file_id);
     }
 
     int LogicBlock::reset_block_version()
@@ -769,6 +791,20 @@ namespace tfs
       return TFS_SUCCESS;
     }
 
+    void LogicBlock::clear()
+    {
+      // clean physic block
+      for (list<PhysicalBlock*>::iterator lit = physical_block_list_.begin(); lit != physical_block_list_.end(); ++lit)
+      {
+        tbsys::gDelete(*lit);
+      }
+    }
+
+    void LogicBlock::callback()
+    {
+      clear();
+    }
+
     FileIterator::FileIterator(LogicBlock* logic_block)
     {
       logic_block_ = logic_block;
@@ -817,14 +853,34 @@ namespace tfs
       int32_t file_size = meta_it_->get_size();
       int32_t file_offset = meta_it_->get_offset();
       int32_t relative_offset = file_offset - read_offset_;
+      if (file_offset >= logic_block_->index_handle_->data_file_size())
+      {
+        TBSYS_LOG(ERROR, "get next file, blockid: %u, id: %"PRI64_PREFIX"u, file size: %d, file offset: %d, block size: %d, read offset: %d, relative offset: %d",
+            logic_block_->logic_block_id_, meta_it_->get_file_id(), file_size,
+            file_offset, logic_block_->index_handle_->data_file_size(), read_offset_, relative_offset);
+        return EXIT_META_OFFSET_ERROR;
+      }
 
-      // skip hole
+      TBSYS_LOG(DEBUG,
+          "get next file, blockid: %u, id: %"PRI64_PREFIX"u, file size: %d, file offset: %d, relative offset: %d, read offset: %d, buf len: %d\n",
+          logic_block_->logic_block_id_, meta_it_->get_file_id(), file_size, file_offset, relative_offset, read_offset_, buf_len_);
+
+      if (relative_offset < 0)
+      {
+        TBSYS_LOG(ERROR,
+            "get next file fail, blockid: %u, id: %"PRI64_PREFIX"u, file size: %d, file offset: %d, relative offset: %d, read offset: %d, buf len: %d, total size: %d\n",
+            logic_block_->logic_block_id_, meta_it_->get_file_id(), file_size,
+            file_offset, relative_offset, read_offset_, buf_len_, logic_block_->index_handle_->data_file_size());
+        return EXIT_META_OFFSET_ERROR;
+      }
+
+      // case: skip hole
       while (relative_offset > buf_len_)
       {
         TBSYS_LOG(
             WARN,
-            "blockid: %u, file offset skip a max compact size. relative offset: %d, file offset: %d, read offset: %d\n",
-            logic_block_->logic_block_id_, relative_offset, file_offset, read_offset_);
+            "blockid: %u, file offset skip a max compact size. relative offset: %d, file offset: %d, read offset: %d, buf len: %d, total size: %d\n",
+            logic_block_->logic_block_id_, relative_offset, file_offset, read_offset_, buf_len_, logic_block_->index_handle_->data_file_size());
         data_len_ = 0;
         read_offset_ += buf_len_;
         ret = fill_buffer();
@@ -833,11 +889,11 @@ namespace tfs
         relative_offset = file_offset - read_offset_;
       }
 
-      // uncomplete file left in buffer
+      // case: uncomplete file left in buffer
       if (file_size + relative_offset > buf_len_)
       {
         read_offset_ += buf_len_;
-        // big file
+        // file size is large the max compact read size
         if (file_size > MAX_COMPACT_READ_SIZE)
         {
           is_big_file_ = true;
@@ -858,6 +914,11 @@ namespace tfs
           data_len_ = 0;
           ++meta_it_;
         }
+        else // if two fileinfo at the same offset, recompute data offset and data len
+        {
+          data_offset_ = relative_offset;
+          data_len_ = buf_len_ - relative_offset;
+        }
         ret = fill_buffer();
         if (TFS_SUCCESS != ret)
           return ret;
@@ -877,9 +938,13 @@ namespace tfs
             ERROR,
             "FileInfo error. blockid: %u, disk file id: %" PRI64_PREFIX "u, size: %d, index file id: %" PRI64_PREFIX "u, size: %d\n",
             logic_block_->logic_block_id_, cur_fileinfo_.id_, cur_fileinfo_.size_, meta_it_->get_file_id(), file_size);
+        cur_fileinfo_.flag_ = FI_INVALID;
       }
-      data_offset_ = relative_offset + file_size;
-      data_len_ = left_size;
+      else // valid file will update data offset and datalen
+      {
+        data_offset_ = relative_offset + file_size;
+        data_len_ = left_size;
+      }
       cur_fileinfo_.size_ -= sizeof(FileInfo);
       ++meta_it_;
 

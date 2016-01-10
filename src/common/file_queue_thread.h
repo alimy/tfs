@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: file_queue_thread.h 5 2010-09-29 07:44:56Z duanfei@taobao.com $
+ * Version: $Id: file_queue_thread.h 738 2011-08-30 12:28:17Z mingyan.zc@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -45,7 +45,7 @@ namespace tfs
         FileQueueThread *queue_thread_;
 
       private:
-        DISALLOW_COPY_AND_ASSIGN( QueueThreadParam);
+        DISALLOW_COPY_AND_ASSIGN(QueueThreadParam);
       };
 
       typedef int (*deal_func)(const void * const data, const int64_t len, const int32_t thread_index, void* arg);
@@ -64,13 +64,13 @@ namespace tfs
       {
         tbutil::Monitor<tbutil::Mutex>::Lock lock(monitor_);
         QueueInformationHeader head = *file_queue_->get_queue_information_header();
-        TBSYS_LOG(INFO, "Update QinfoHead(before): readSeqNo(%d), readOffset(%d), writeSeqNo(%d),"
-          "writeFileSize(%d)", head.read_seqno_, head.read_offset_, head.write_seqno_, head.write_filesize_);
+        TBSYS_LOG(INFO, "Update QinfoHead(before): readSeqNo: %d, readOffset: %d, writeSeqNo: %d,"
+          "writeFileSize: %d", head.read_seqno_, head.read_offset_, head.write_seqno_, head.write_filesize_);
         head.read_seqno_ = head.write_seqno_;
         head.read_offset_ = head.write_filesize_;
         file_queue_->update_queue_information_header(&head);
-        TBSYS_LOG(INFO, "Update QinfoHead(after): readSeqNo(%d), readOffset(%d), writeSeqNo(%d),"
-          "writeFileSize(%d)", head.read_seqno_, head.read_offset_, head.write_seqno_, head.write_filesize_);
+        TBSYS_LOG(INFO, "Update QinfoHead(after): readSeqNo: %d, readOffset: %d, writeSeqNo: %d,"
+          "writeFileSize: %d", head.read_seqno_, head.read_offset_, head.write_seqno_, head.write_filesize_);
       }
 
     private:
@@ -79,7 +79,7 @@ namespace tfs
       void *args_;
       FileQueue *file_queue_;
       QueueThreadParam *queue_thread_param_;
-      vector<pthread_t> pids_;
+      std::vector<pthread_t> pids_;
       deal_func deal_func_;
       DESTROY_FLAG destroy_;
       tbutil::Monitor<tbutil::Mutex> monitor_;

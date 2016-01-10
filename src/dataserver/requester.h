@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: requester.h 5 2010-09-29 07:44:56Z duanfei@taobao.com $
+ * Version: $Id: requester.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -18,8 +18,6 @@
 
 #include "logic_block.h"
 #include "data_management.h"
-#include "message/client.h"
-#include "message/message_factory.h"
 
 namespace tfs
 {

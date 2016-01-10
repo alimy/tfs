@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: test_logic_block_and_compact.cpp 5 2010-09-29 07:44:56Z duanfei@taobao.com $
+ * Version: $Id: test_logic_block_and_compact.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
  *
  * Authors:
  *   yangye
@@ -36,6 +36,7 @@
 static const int32_t INSERT_FILE_NUM = 1000;
 using namespace tfs::dataserver;
 using namespace tfs::common;
+using namespace std;
 
 // need one more test for some exception, with TEST instead
 class TestLogicBlock: public ::testing::Test

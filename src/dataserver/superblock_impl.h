@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: superblock_impl.h 33 2010-11-01 05:24:35Z nayan@taobao.com $
+ * Version: $Id: superblock_impl.h 726 2011-08-24 08:38:57Z nayan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -16,9 +16,8 @@
 #ifndef TFS_DATASERVER_SUPERBLOCK_IMPL_H_
 #define TFS_DATASERVER_SUPERBLOCK_IMPL_H_
 
-#include "superblock.h"
 #include <string>
-#include "file_op.h"
+#include "common/file_op.h"
 #include "bit_map.h"
 #include "common/error_msg.h"
 
@@ -32,18 +31,18 @@ namespace tfs
         SuperBlockImpl(const std::string& filename, const int32_t super_start_offset, const bool flag = true);
         ~SuperBlockImpl();
 
-        int read_super_blk(SuperBlock& super_block) const;
-        int write_super_blk(const SuperBlock& super_block);
-        bool check_status(const char* block_tag, const SuperBlock& super_block) const;
+        int read_super_blk(common::SuperBlock& super_block) const;
+        int write_super_blk(const common::SuperBlock& super_block);
+        bool check_status(const char* block_tag, const common::SuperBlock& super_block) const;
         int read_bit_map(char* buf, const int32_t size) const;
         int write_bit_map(const BitMap* normal_bitmap, const BitMap* error_bitmap);
         int flush_file();
 
-        int dump_super_block(const SuperBlock&)
+        int dump_super_block(const common::SuperBlock&)
         {
           return common::TFS_SUCCESS;
         }
-        int backup_super_block(const SuperBlock&)
+        int backup_super_block(const common::SuperBlock&)
         {
           return common::TFS_SUCCESS;
         }
@@ -55,9 +54,8 @@ namespace tfs
         std::string super_block_file_; // associate super block file
         int32_t super_reserve_offset_; // super block reserved offset
         int32_t bitmap_start_offset_;  // super block bitmap offset
-        FileOperation* file_op_;
+        common::FileOperation* file_op_;
     };
-
   }
 }
 

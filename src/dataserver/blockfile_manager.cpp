@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: blockfile_manager.cpp 48 2010-11-15 07:23:59Z zongdai@taobao.com $
+ * Version: $Id: blockfile_manager.cpp 738 2011-08-30 12:28:17Z mingyan.zc@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -17,6 +17,7 @@
  */
 #include "blockfile_manager.h"
 #include "blockfile_format.h"
+#include "gc.h"
 #include "common/directory_op.h"
 #include <string.h>
 #include <Memory.hpp>
@@ -26,6 +27,7 @@ namespace tfs
   namespace dataserver
   {
     using namespace common;
+    using namespace std;
 
     BlockFileManager::~BlockFileManager()
     {
@@ -58,13 +60,13 @@ namespace tfs
 
     void BlockFileManager::destruct_physic_blocks()
     {
-      for (PhysicalBlockMapIter mit = physcial_blocks_.begin(); mit != physcial_blocks_.end(); ++mit)
+      for (PhysicalBlockMapIter mit = physical_blocks_.begin(); mit != physical_blocks_.end(); ++mit)
       {
         tbsys::gDelete(mit->second);
       }
     }
 
-    int BlockFileManager::format_block_file_system(const SysParam::FileSystemParam& fs_param)
+    int BlockFileManager::format_block_file_system(const FileSystemParameter& fs_param)
     {
       // 1. initialize super block parameter
       int ret = init_super_blk_param(fs_param);
@@ -94,14 +96,14 @@ namespace tfs
       return TFS_SUCCESS;
     }
 
-    int BlockFileManager::clear_block_file_system(const SysParam::FileSystemParam& fs_param)
+    int BlockFileManager::clear_block_file_system(const FileSystemParameter& fs_param)
     {
       bool ret = DirectoryOp::delete_directory_recursively(fs_param.mount_name_.c_str());
       TBSYS_LOG(INFO, "clear block file system end. mount_point: %s, ret: %d", fs_param.mount_name_.c_str(), ret);
       return ret ? TFS_SUCCESS : TFS_ERROR;
     }
 
-    int BlockFileManager::bootstrap(const SysParam::FileSystemParam& fs_param)
+    int BlockFileManager::bootstrap(const FileSystemParameter& fs_param)
     {
       // 1. load super block
       int ret = load_super_blk(fs_param);
@@ -141,11 +143,11 @@ namespace tfs
       if (TFS_SUCCESS != ret)
         return ret;
 
-      PhysicalBlockMapIter pmit = physcial_blocks_.find(physical_block_id);
+      PhysicalBlockMapIter pmit = physical_blocks_.find(physical_block_id);
       // oops, same physical block id found
-      if (pmit != physcial_blocks_.end())
+      if (pmit != physical_blocks_.end())
       {
-        TBSYS_LOG(ERROR, "bitmap and physical blocks conflict. fatal error! physical block id: %u", physical_block_id);
+        TBSYS_LOG(ERROR, "bitmap and physical blocks conflict. fatal error! physical blockid: %u", physical_block_id);
         assert(false);
       }
 
@@ -199,7 +201,7 @@ namespace tfs
           break;
 
         // 11. insert to associate map
-        physcial_blocks_.insert(PhysicalBlockMap::value_type(physical_block_id, t_physical_block));
+        physical_blocks_.insert(PhysicalBlockMap::value_type(physical_block_id, t_physical_block));
         selected_logic_blocks->insert(LogicBlockMapIter::value_type(logic_block_id, t_logic_block));
 
         TBSYS_LOG(INFO, "new block success! logic blockid: %u, physical blockid: %u.", logic_block_id,
@@ -212,7 +214,6 @@ namespace tfs
       if (ret)
       {
         TBSYS_LOG(ERROR, "new block fail. logic blockid: %u. ret: %d", logic_block_id, ret);
-
         rollback_superblock(physical_block_id, block_count_modify_flag);
         t_logic_block->delete_block_file();
 
@@ -259,8 +260,8 @@ namespace tfs
         uint32_t physic_id = (*lit)->get_physic_block_id();
         TBSYS_LOG(INFO, "blockid: %u, del physical block! physic blockid: %u.", logic_block_id, physic_id);
 
-        PhysicalBlockMapIter mpit = physcial_blocks_.find(physic_id);
-        if (mpit == physcial_blocks_.end())
+        PhysicalBlockMapIter mpit = physical_blocks_.find(physic_id);
+        if (mpit == physical_blocks_.end())
         {
           TBSYS_LOG(ERROR, "can not find physical block! physic blockid: %u.", physic_id);
           assert(false);
@@ -271,7 +272,7 @@ namespace tfs
           {
             tmp_physic_block.push_back(mpit->second);
           }
-          physcial_blocks_.erase(mpit);
+          physical_blocks_.erase(mpit);
         }
         // normal bitmap clear reset
         normal_bit_map_->reset(physic_id);
@@ -302,19 +303,32 @@ namespace tfs
       TBSYS_LOG(INFO, "logicblock delete %s! logic blockid: %u. physical block size: %d, blocktype: %d, ret: %d",
                 ret ? "fail" : "success", logic_block_id, size, tmp_block_type, ret);
 
-      // 11. clean logic block associate stuff(index handle, physic block) & unlock
+      // 11. clean logic block associate stuff(index handle, physic block) & unlock 
       if (delete_block)
       {
         delete_block->delete_block_file();
         delete_block->unlock();
       }
-      tbsys::gDelete(delete_block);
-
-      // 12. clean physic block
-      for (list<PhysicalBlock*>::iterator lit = tmp_physic_block.begin(); lit != tmp_physic_block.end(); ++lit)
+      // 12. if gc init, delay delete pointer, unlock & add logic block into gcobject manager
+      if (GCObjectManager::instance().is_init())
       {
-        tbsys::gDelete(*lit);
+        if (delete_block)
+        {
+          delete_block->set_dead_time();
+          GCObjectManager::instance().add(delete_block);
+        }
       }
+      // else, delete pointer
+      else
+      {
+        tbsys::gDelete(delete_block);
+
+        for (list<PhysicalBlock*>::iterator lit = tmp_physic_block.begin(); lit != tmp_physic_block.end(); ++lit)
+        {
+          tbsys::gDelete(*lit);
+        }
+      }
+
       return ret;
     }
 
@@ -346,16 +360,16 @@ namespace tfs
       if (TFS_SUCCESS != ret)
         return ret;
 
-      PhysicalBlockMapIter pmit = physcial_blocks_.find(ext_physical_block_id);
-      if (pmit != physcial_blocks_.end())
+      PhysicalBlockMapIter pmit = physical_blocks_.find(ext_physical_block_id);
+      if (pmit != physical_blocks_.end())
       {
         TBSYS_LOG(ERROR, "physical block conflict. fatal error! ext physical blockid: %u", ext_physical_block_id);
         assert(false);
       }
 
       // 4. make sure physical_block_id exist
-      pmit = physcial_blocks_.find(physical_block_id);
-      if (pmit == physcial_blocks_.end())
+      pmit = physical_blocks_.find(physical_block_id);
+      if (pmit == physical_blocks_.end())
       {
         TBSYS_LOG(ERROR, "can not find physical blockid: %u", physical_block_id);
         assert(false);
@@ -413,7 +427,7 @@ namespace tfs
           break;
 
         // 12. insert to physic block map
-        physcial_blocks_.insert(PhysicalBlockMap::value_type(ext_physical_block_id, tmp_physical_block));
+        physical_blocks_.insert(PhysicalBlockMap::value_type(ext_physical_block_id, tmp_physical_block));
         (*physic_block) = tmp_physical_block;
       }
       while (0);
@@ -551,6 +565,12 @@ namespace tfs
       return TFS_SUCCESS;
     }
 
+    int64_t BlockFileManager::get_all_logic_block_size(const BlockType block_type)
+    {
+      ScopedRWLock scoped_lock(rw_lock_, READ_LOCKER);
+      return C_MAIN_BLOCK == block_type ? logic_blocks_.size() : compact_logic_blocks_.size();
+    }
+
     int BlockFileManager::get_logic_block_ids(VUINT& logic_block_ids, const BlockType block_type)
     {
       ScopedRWLock scoped_lock(rw_lock_, READ_LOCKER);
@@ -576,7 +596,7 @@ namespace tfs
     {
       ScopedRWLock scoped_lock(rw_lock_, READ_LOCKER);
       physic_block_list.clear();
-      for (PhysicalBlockMapIter mit = physcial_blocks_.begin(); mit != physcial_blocks_.end(); ++mit)
+      for (PhysicalBlockMapIter mit = physical_blocks_.begin(); mit != physical_blocks_.end(); ++mit)
       {
         physic_block_list.push_back(mit->second);
       }
@@ -664,7 +684,7 @@ namespace tfs
       return TFS_SUCCESS;
     }
 
-    int BlockFileManager::load_super_blk(const SysParam::FileSystemParam& fs_param)
+    int BlockFileManager::load_super_blk(const FileSystemParameter& fs_param)
     {
       bool fs_init_status = true;
 
@@ -769,6 +789,7 @@ namespace tfs
           ret = t_physical_block->load_block_prefix();
           if (TFS_SUCCESS != ret)
           {
+            tbsys::gDelete(t_physical_block);
             TBSYS_LOG(ERROR, "init physical block fail. fatal error! pos: %d, file: %s", pos, super_block_.mount_point_);
             break;
           }
@@ -801,14 +822,16 @@ namespace tfs
           uint32_t logic_block_id = block_prefix.logic_blockid_;
           TBSYS_LOG(
             INFO,
-            "load logic block. logic block id: %u, physic prev blockid: %u, physic next blockid: %u, physical blockid: %u.",
+            "load logic block. logic blockid: %u, physic prev blockid: %u, physic next blockid: %u, physical blockid: %u.",
             logic_block_id, block_prefix.prev_physic_blockid_,
             block_prefix.next_physic_blockid_, pos);
 
           // 5. make sure this physical block hasn't been loaded
-          pit = physcial_blocks_.find(pos);
-          if (pit != physcial_blocks_.end())
+          pit = physical_blocks_.find(pos);
+          if (pit != physical_blocks_.end())
           {
+            tbsys::gDelete(t_physical_block);
+            tbsys::gDelete(t_logic_block);
             ret = EXIT_PHYSIC_UNEXPECT_FOUND_ERROR;
             TBSYS_LOG(ERROR, "logic blockid: %u, physical blockid: %u is repetitive. fatal error! ret: %d",
                       logic_block_id, pos, EXIT_PHYSIC_UNEXPECT_FOUND_ERROR);
@@ -828,6 +851,8 @@ namespace tfs
               ret = del_block(logic_block_id, C_COMPACT_BLOCK);
               if (TFS_SUCCESS != ret)
               {
+                tbsys::gDelete(t_physical_block);
+                tbsys::gDelete(t_logic_block);
                 break;
               }
             }
@@ -839,7 +864,7 @@ namespace tfs
           }
 
           // 7. insert physic block to physic map
-          physcial_blocks_.insert(PhysicalBlockMap::value_type(pos, t_physical_block));
+          physical_blocks_.insert(PhysicalBlockMap::value_type(pos, t_physical_block));
 
           uint32_t ext_pos = pos;
           // 8. add extend physical block
@@ -864,6 +889,7 @@ namespace tfs
             ret = ext_physical_block->load_block_prefix();
             if (TFS_SUCCESS != ret)
             {
+              tbsys::gDelete(ext_physical_block);
               TBSYS_LOG(ERROR, "init physical block fail. fatal error! pos: %u, mount point: %s", pos,
                         super_block_.mount_point_);
               break;
@@ -886,6 +912,7 @@ namespace tfs
               if ((tmp_ret = super_block_impl_->flush_file()) != TFS_SUCCESS)
                 TBSYS_LOG(ERROR, "flush super block fail %d", tmp_ret);
               conflict_flag = true;
+              tbsys::gDelete(ext_physical_block);
               break;
             }
 
@@ -894,17 +921,19 @@ namespace tfs
               "read blockprefix! ext physical blockid pos: %u. prev blockid: %u. blockprefix's physic prev blockid: %u, next physic blockid: %u, logic blockid :%u",
               ext_pos, prev_block_id, block_prefix.prev_physic_blockid_, block_prefix.next_physic_blockid_,
               block_prefix.logic_blockid_);
-            pit = physcial_blocks_.find(ext_pos);
-            if (pit != physcial_blocks_.end())
+            pit = physical_blocks_.find(ext_pos);
+            if (pit != physical_blocks_.end())
             {
+              tbsys::gDelete(ext_physical_block);
               ret = EXIT_PHYSIC_UNEXPECT_FOUND_ERROR;
               TBSYS_LOG(ERROR, "logic blockid: %u, physical blockid: %u is repetitive. fatal error!", logic_block_id,
                         ext_pos);
+              tbsys::gDelete(ext_physical_block);
               break;
             }
 
             t_logic_block->add_physic_block(ext_physical_block);
-            physcial_blocks_.insert(PhysicalBlockMap::value_type(ext_pos, ext_physical_block));
+            physical_blocks_.insert(PhysicalBlockMap::value_type(ext_pos, ext_physical_block));
           }
 
           if (TFS_SUCCESS != ret)
@@ -983,7 +1012,7 @@ namespace tfs
       return TFS_SUCCESS;
     }
 
-    int BlockFileManager::init_super_blk_param(const SysParam::FileSystemParam& fs_param)
+    int BlockFileManager::init_super_blk_param(const FileSystemParameter& fs_param)
     {
       memset((void *) &super_block_, 0, sizeof(SuperBlock));
       memcpy(super_block_.mount_tag_, DEV_TAG, sizeof(super_block_.mount_tag_));
@@ -1132,13 +1161,12 @@ namespace tfs
       if (TFS_SUCCESS != ret)
       {
         TBSYS_LOG(ERROR, "write super block file error. ret: %d.", ret);
-        return ret;
       }
 
       tbsys::gDelete(super_file_op);
       tbsys::gDeleteA(tmp_buffer);
 
-      return TFS_SUCCESS;
+      return ret;
     }
 
     int BlockFileManager::create_block(const BlockType block_type)
@@ -1163,6 +1191,7 @@ namespace tfs
       else
       {
         TBSYS_LOG(ERROR, "base fs type is not supported. base fs type: %d", super_block_.base_fs_type_);
+        tbsys::gDeleteA(block_prefix);
         return TFS_ERROR;
       }
 
@@ -1180,6 +1209,8 @@ namespace tfs
       }
       else
       {
+        tbsys::gDeleteA(block_prefix);
+        tbsys::gDelete(file_formater);
         return TFS_ERROR;
       }
 
@@ -1201,26 +1232,45 @@ namespace tfs
         int ret = file_op->open_file();
         if (ret < 0)
         {
+          tbsys::gDelete(file_op);
+          tbsys::gDeleteA(block_prefix);
+          tbsys::gDelete(file_formater);
           TBSYS_LOG(ERROR, "allocate space error. ret: %d, error: %d, error desc: %s\n", ret, errno, strerror(errno));
+          tbsys::gDelete(file_op);
+          tbsys::gDeleteA(block_prefix);
+          tbsys::gDelete(file_formater);
           return ret;
         }
 
         ret = file_formater->block_file_format(file_op->get_fd(), block_size);
         if (TFS_SUCCESS != ret)
         {
+          tbsys::gDelete(file_op);
+          tbsys::gDeleteA(block_prefix);
+          tbsys::gDelete(file_formater);
           TBSYS_LOG(ERROR, "allocate space error. ret: %d, error: %d, error desc: %s\n", ret, errno, strerror(errno));
+          tbsys::gDelete(file_op);
+          tbsys::gDeleteA(block_prefix);
+          tbsys::gDelete(file_formater);
           return ret;
         }
         ret = file_op->pwrite_file(block_prefix, prefix_size, 0);
         if (TFS_SUCCESS != ret)
         {
-          TBSYS_LOG(ERROR, "write block file error. physcial block id: %d, block type: %d, ret: %d.", i, block_type,
+          tbsys::gDelete(file_op);
+          tbsys::gDeleteA(block_prefix);
+          tbsys::gDelete(file_formater);
+          TBSYS_LOG(ERROR, "write block file error. physcial blockid: %d, block type: %d, ret: %d.", i, block_type,
               ret);
+          tbsys::gDelete(file_op);
+          tbsys::gDeleteA(block_prefix);
+          tbsys::gDelete(file_formater);
           return ret;
         }
         tbsys::gDelete(file_op);
       }
 
+      tbsys::gDeleteA(block_prefix);
       tbsys::gDelete(file_formater);
       return TFS_SUCCESS;
     }
@@ -1293,7 +1343,7 @@ namespace tfs
         normal_bit_map_->reset(physical_block_id);
         int ret = super_block_impl_->write_bit_map(normal_bit_map_, error_bit_map_);
         if (TFS_SUCCESS != ret)
-          TBSYS_LOG(ERROR, "write bit map fail. ret: %d, physical block id: %u", ret, physical_block_id);
+          TBSYS_LOG(ERROR, "write bit map fail. ret: %d, physical blockid: %u", ret, physical_block_id);
 
         if (modify_flag)
         {

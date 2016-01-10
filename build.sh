@@ -28,4 +28,3 @@ case "x$1" in
 	echo "Usage: $0 [ clean | init ]"
 	;;
 esac
-
