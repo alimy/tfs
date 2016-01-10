@@ -466,7 +466,7 @@ namespace nameserver
     tbutil::Monitor<tbutil::Mutex> build_plan_monitor_;
     tbutil::Monitor<tbutil::Mutex> run_plan_monitor_;
     tbutil::Monitor<tbutil::Mutex> check_server_monitor_;
-    common::RWLock maping_mutex_;
+    mutable common::RWLock maping_mutex_;
     common::RWLock server_mutex_;
     static const std::string dynamic_parameter_str[];
     tbutil::Mutex elect_index_mutex_;
