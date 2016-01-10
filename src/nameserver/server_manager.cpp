@@ -53,7 +53,7 @@ namespace tfs
       isnew = false;
       bool reset = false;
       int32_t ret = TFS_SUCCESS;
-      ServerCollect query(info.id_);
+      ServerCollect query(manager_, info.id_);
 
       rwmutex_.rdlock();
       SERVER_TABLE_ITER iter = servers_.find(&query);
@@ -73,7 +73,7 @@ namespace tfs
           if (reset)
             dead_servers_.erase(&query);
           else
-            server = new (std::nothrow)ServerCollect(info, now);
+            server = new (std::nothrow)ServerCollect(manager_,info, now);
         }
         assert(NULL != server);
         if (isnew)
@@ -100,7 +100,8 @@ namespace tfs
 
     int ServerManager::remove(const uint64_t server, const time_t now)
     {
-      ServerCollect query(server);
+      TBSYS_LOG(INFO, "dataserver: %s exit", tbsys::CNetUtil::addrToString(server).c_str());
+      ServerCollect query(manager_, server);
       ServerCollect* object = NULL;
       rwmutex_.wrlock();
       SERVER_TABLE_ITER iter = servers_.find(&query);
@@ -114,15 +115,13 @@ namespace tfs
 
       if (NULL != object)
       {
-        TBSYS_LOG(INFO, "dataserver: %s exit, now: %"PRI64_PREFIX"d, last_update_time: %"PRI64_PREFIX"d",
-            tbsys::CNetUtil::addrToString(server).c_str(), now, object->get_last_update_time());
+        del_report_block_server(object);
+
         object->update_status();
         object->set_in_dead_queue_timeout(now);
 
         //release all relations of blocks belongs to it
         relieve_relation_(object, now);
-
-        del_report_block_server(object);
       }
       return TFS_SUCCESS;
     }
@@ -147,26 +146,21 @@ namespace tfs
       results.clear();
       ServerCollect* servers[MAX_POP_SERVER_FROM_DEAD_QUEUE_LIMIT];
       ArrayHelper<ServerCollect*> helper(MAX_POP_SERVER_FROM_DEAD_QUEUE_LIMIT, servers);
-      rwmutex_.rdlock();
+      RWLock::Lock lock(rwmutex_, WRITE_LOCKER);
       SERVER_TABLE_ITER iter = dead_servers_.begin();
       for (; iter != dead_servers_.end() && helper.get_array_index() < MAX_POP_SERVER_FROM_DEAD_QUEUE_LIMIT; ++iter)
       {
         if ((*iter)->is_in_dead_queue_timeout(now))
           helper.push_back((*iter));
       }
-      rwmutex_.unlock();
 
-      ServerCollect* server = NULL;
-      ServerCollect* ret = NULL;
-      for (int32_t i = 0; i < helper.get_array_index(); ++i)
+      for (int64_t index = 0; index < helper.get_array_index(); ++index)
       {
-        server = *helper.at(i);
+        ServerCollect* server = *helper.at(index);
         assert(NULL != server);
-        rwmutex_.wrlock();
-        ret = dead_servers_.erase(server);
-        if (NULL != ret)
-          results.push_back(server);
-        rwmutex_.unlock();
+        ServerCollect* result = dead_servers_.erase(server);
+        assert(NULL != result);
+        results.push_back(server);
       }
       return results.get_array_index();
     }
@@ -204,9 +198,10 @@ namespace tfs
         if (insert)
         {
           result = NULL;
-          int insert_ret = wait_report_block_servers_.insert_unique(result, server);
+          int32_t insert_ret = wait_report_block_servers_.insert_unique(result, server);
           assert(TFS_SUCCESS == insert_ret);
           assert(result);
+          server->set_report_block_status(REPORT_BLOCK_STATUS_IN_REPORT_QUEUE);
         }
       }
       return ret;
@@ -225,14 +220,10 @@ namespace tfs
       {
         SERVER_TABLE_ITER iter = current_reporting_block_servers_.find(server);
         if (iter != current_reporting_block_servers_.end())
-        {
           current_reporting_block_servers_.erase((*iter));
-        }
         iter = wait_report_block_servers_.find(server);
         if (iter != wait_report_block_servers_.end())
-        {
           wait_report_block_servers_.erase((*iter));
-        }
       }
       return ret;
     }
@@ -252,6 +243,8 @@ namespace tfs
           wait_report_block_servers_.erase(server);
           current_reporting_block_servers_.insert_unique(result, server);
           helper.push_back(server);
+          int64_t now = Func::get_monotonic_time();
+          server->set_report_block_info(now, REPORT_BLOCK_STATUS_WAIT_REPORT);
         }
       }
       return helper.get_array_index();
@@ -264,7 +257,7 @@ namespace tfs
 
     bool ServerManager::has_report_block_server() const
     {
-      return !wait_report_block_servers_.empty() || !current_reporting_block_servers_.empty();
+      return (!wait_report_block_servers_.empty() || !current_reporting_block_servers_.empty());
     }
 
     void ServerManager::clear_report_block_server_table()
@@ -274,14 +267,9 @@ namespace tfs
       current_reporting_block_servers_.clear();
     }
 
-    int64_t ServerManager::get_report_block_server_queue_size() const
-    {
-      return current_reporting_block_servers_.size() + wait_report_block_servers_.size();
-    }
-
     ServerCollect* ServerManager::get_(const uint64_t server) const
     {
-      ServerCollect query(server);
+      ServerCollect query(manager_, server);
       SERVER_TABLE_ITER iter = servers_.find(&query);
       return (servers_.end() != iter && (*iter)->is_alive()) ? (*iter) : NULL;
     }
@@ -304,20 +292,6 @@ namespace tfs
       return servers.get_array_index();
     }
 
-    int ServerManager::get_alive_servers(std::vector<uint64_t>& servers) const
-    {
-      servers.clear();
-      RWLock::Lock lock(rwmutex_, READ_LOCKER);
-      SERVER_TABLE_ITER iter = servers_.begin();
-      for (; iter != servers_.end(); ++iter)
-      {
-        assert(NULL != (*iter));
-        if ((*iter)->is_alive())
-          servers.push_back((*iter)->id());
-      }
-      return servers.size();
-    }
-
     bool ServerManager::get_range_servers(ArrayHelper<ServerCollect*>& result, const uint64_t begin, const int32_t count) const
     {
       RWLock::Lock lock(rwmutex_, READ_LOCKER);
@@ -326,22 +300,17 @@ namespace tfs
 
     bool ServerManager::get_range_servers_(ArrayHelper<ServerCollect*>& result, const uint64_t begin, const int32_t count) const
     {
-      bool ret = count > 0;
-      if (ret)
+      result.clear();
+      int32_t actual = 0;
+      ServerCollect query(manager_, begin);
+      SERVER_TABLE_ITER iter = 0 == begin ? servers_.begin() : servers_.upper_bound(&query);
+      while(iter != servers_.end() && actual < count)
       {
-        int32_t actual = 0;
-        result.clear();
-        ServerCollect query(begin);
-        SERVER_TABLE_ITER iter = 0 == begin ? servers_.begin() : servers_.upper_bound(&query);
-        while(iter != servers_.end() && actual < count)
-        {
-          result.push_back((*iter));
-          actual++;
-          iter++;
-        }
-        ret = actual < count;
+        result.push_back((*iter));
+        ++actual;
+        iter++;
       }
-      return ret;
+      return actual < count;
     }
 
     //statistic all dataserver 's information(capactiy, user_capacity, alive server nums)
@@ -367,7 +336,6 @@ namespace tfs
     {
       bool complete = false;
       bool has_move = false;
-      int32_t  size  = 0;
       uint64_t server = 0;
       const int32_t MAX_SLOT_NUMS = 32;
       ServerCollect* pserver = NULL;
@@ -379,22 +347,18 @@ namespace tfs
       {
         helper.clear();
         complete = get_range_servers(helper, server, MAX_SLOT_NUMS);
-        size = helper.get_array_index();
-        if (size > 0)
+        for (int64_t index = 0; index < helper.get_array_index(); ++index)
         {
-          for (int32_t i = 0; i < size; i++)
-          {
-            pserver = *helper.at(i);
-            assert(NULL != pserver);
-            has_move = pserver->is_alive()
-              && !manager_.get_task_manager().exist(pserver->id())
-              && manager_.get_task_manager().has_space_do_task_in_machine(pserver->id());
-            if (has_move)
-            {
-              move_split_servers_(source, outside, targets, pserver, percent);
-            }
-          }
+          pserver = *helper.at(index);
+          assert(NULL != pserver);
           server = pserver->id();
+          has_move = pserver->is_alive()
+            && !manager_.get_task_manager().exist_server(pserver->id())
+            && manager_.get_task_manager().has_space_do_task_in_machine(pserver->id());
+          if (has_move)
+          {
+              move_split_servers_(source, outside,targets, pserver, percent);
+          }
         }
       }
       while (!complete);
@@ -425,7 +389,7 @@ namespace tfs
         {
           source.insert(std::multimap<int64_t, ServerCollect*>::value_type(
                 static_cast<int64_t>(current_percent * PERCENTAGE_MAGIC), const_cast<ServerCollect*>(server)));
-          TBSYS_LOG(DEBUG, "move_split_server: %s, %ld",
+        TBSYS_LOG(DEBUG, "move_split_server: %s, %ld",
            tbsys::CNetUtil::addrToString(server->id()).c_str(), static_cast<int64_t>(current_percent * PERCENTAGE_MAGIC));
         }
         else
@@ -452,8 +416,8 @@ namespace tfs
       {
         ServerCollect* pserver = NULL;
         uint64_t start_server = tbsys::CNetUtil::ipToAddr(param.addition_param1_, param.addition_param2_);
-        ServerCollect query(start_server);
-        SERVER_TABLE_ITER iter = 0 == start_server ? servers_.begin() : servers_.upper_bound(&query);
+        ServerCollect query(manager_, start_server);
+        SERVER_TABLE_ITER iter = 0 == start_server ? servers_.begin() : servers_.lower_bound(&query);// include this ds
         while (servers_.end() != iter && actual < should)
         {
           pserver = (*iter);
@@ -466,6 +430,7 @@ namespace tfs
         all_over = servers_.end() == iter;
         if (!all_over)
         {
+          pserver = (*iter);// next ds
           assert(NULL != pserver);
           uint64_t host = pserver->id();
           IpAddr* addr = reinterpret_cast<IpAddr*>(&host);
@@ -481,36 +446,46 @@ namespace tfs
       return actual;
     }
 
-    void ServerManager::set_all_server_next_report_time(const time_t now)
+    void ServerManager::set_all_server_next_report_time(const int32_t flag , const time_t now)
     {
       RWLock::Lock lock(rwmutex_, READ_LOCKER);
       SERVER_TABLE_ITER iter = servers_.begin();
       for (; iter != servers_.end(); ++iter)
       {
         assert(NULL != (*iter));
-        (*iter)->set_next_report_block_time(now, random() % 0xFFFFFFF, true);
+        (*iter)->set_next_report_block_time(now, random() % 0xFFFFFFF, flag);
       }
     }
 
-    int ServerManager::build_relation(ServerCollect* server, const BlockCollect* block,
+    int ServerManager::build_relation(ServerCollect* server, const uint64_t block,
         const bool writable, const bool master)
     {
-      int32_t ret = ((NULL != server) && (NULL != block)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
+      int32_t ret = ((NULL != server) && (INVALID_BLOCK_ID != block)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
       if (TFS_SUCCESS == ret)
       {
         //build relation between dataserver and block
         //add to dataserver's all kind of list
-        server->add(block, master, writable);
+        ret = server->add(block, master, writable);
+        if (EXIT_ELEMENT_EXIST == ret)
+          ret = TFS_SUCCESS;
       }
       return ret;
     }
 
-    bool ServerManager::relieve_relation(ServerCollect* server, const BlockCollect* block)
+    int ServerManager::relieve_relation(ServerCollect* server, const uint64_t block)
     {
-      bool ret = ((NULL != server) && (NULL != block));
-      if (ret)
+      return ((NULL != server) && (INVALID_SERVER_ID != block)) ? server->remove(block) : EXIT_PARAMETER_ERROR;
+    }
+
+    int ServerManager::relieve_relation(const uint64_t server, const uint64_t block)
+    {
+      int32_t ret = ((INVALID_SERVER_ID != server) && (INVALID_BLOCK_ID != block)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
+      if (TFS_SUCCESS == ret)
       {
-        ret = server->remove(const_cast<BlockCollect*>(block));
+        ServerCollect* pserver = get(server);
+        ret = (NULL != pserver) ? TFS_SUCCESS : EIXT_SERVER_OBJECT_NOT_FOUND;
+        if (TFS_SUCCESS == ret)
+          ret = relieve_relation(pserver, block);
       }
       return ret;
     }
@@ -518,32 +493,29 @@ namespace tfs
     int ServerManager::choose_writable_block(BlockCollect*& result)
     {
       result = NULL;
-      int32_t i = 0;
       rwmutex_.rdlock();
-      int32_t count = servers_.size();
+      int64_t index = 0, count = servers_.size();
       rwmutex_.unlock();
       int32_t ret = TFS_SUCCESS;
       ServerCollect* server = NULL;
-      for (i= 0; i < count && NULL == result; ++i)
+      for (index= 0; index < count && NULL == result; ++index)
       {
+        result = NULL;
         ret = choose_writable_server_lock_(server);
         if (TFS_SUCCESS != ret || NULL == server)
           continue;
         ret = server->choose_writable_block(result);
-        if (TFS_SUCCESS != ret)
-          continue;
       }
 
       if (NULL == result)
       {
-        for (i= 0; i < count && NULL == result; ++i)
+        for (index = 0; index < count && NULL == result; ++index)
         {
+          result = NULL;
           ret = choose_writable_server_random_lock_(server);
           if (TFS_SUCCESS != ret || NULL == server)
             continue;
           ret = server->choose_writable_block(result);
-          if (TFS_SUCCESS != ret)
-            continue;
         }
       }
       return NULL == result ? TFS_SUCCESS : EXIT_BLOCK_NOT_FOUND;
@@ -578,62 +550,60 @@ namespace tfs
         result = servers_.at(random() % servers_.size());
         assert(NULL != result);
       }
-      return NULL == result ? TFS_SUCCESS : EXIT_NO_DATASERVER;
+      return NULL != result ? TFS_SUCCESS : EXIT_NO_DATASERVER;
     }
 
     //choose one or more servers to create new block
-    int ServerManager::choose_create_block_target_server(common::ArrayHelper<ServerCollect*>& result,
-        common::ArrayHelper<ServerCollect*>& news, const int32_t count) const
+    int ServerManager::choose_create_block_target_server(common::ArrayHelper<uint64_t>& result,
+        common::ArrayHelper<uint64_t>& news, const int32_t count) const
     {
       news.clear();
       std::set<uint32_t> lans;
       get_lans_(lans, result);
       ServerCollect* pserver = NULL;
-      int32_t ret = TFS_SUCCESS;
       int32_t index = count;
       while (index-- > 0)
       {
         pserver = NULL;
-        ret = choose_replciate_random_choose_server_base_lock_(pserver, result, lans);
-        if (TFS_SUCCESS == ret)
+        if (TFS_SUCCESS == choose_replciate_random_choose_server_base_lock_(pserver, result, lans))
         {
           assert(NULL != pserver);
-          news.push_back(pserver);
-          result.push_back(pserver);
+          news.push_back(pserver->id());
+          result.push_back(pserver->id());
           uint32_t lan =  Func::get_lan(pserver->id(), SYSPARAM_NAMESERVER.group_mask_);
           lans.insert(lan);
         }
       }
-      return news.get_array_index() - count;
+      return count - news.get_array_index();
     }
 
     //replicate method
     //choose a server to replicate or move
-    int ServerManager::choose_replicate_source_server(ServerCollect*& result, const ArrayHelper<ServerCollect*>& source) const
+    int ServerManager::choose_replicate_source_server(ServerCollect*& result, const ArrayHelper<uint64_t>& source) const
     {
       result = NULL;
       int32_t ret = !source.empty() ? TFS_SUCCESS : EXIT_NO_DATASERVER;
       if (TFS_SUCCESS == ret)
       {
-        int32_t size = source.get_array_index();
-        int32_t index = size;
+        int64_t size = source.get_array_index(), index = source.get_array_index();
         while (index-- > 0 && NULL == result)
         {
           int32_t random_index = random() % size;
-          ServerCollect* server = *source.at(random_index);
-          assert(NULL != server);
-          if (manager_.get_task_manager().has_space_do_task_in_machine(server->id(), false)
-              && !manager_.get_task_manager().exist(server->id()))
+          uint64_t server = *source.at(random_index);
+          assert(INVALID_SERVER_ID != server);
+          ServerCollect* pserver = get(server);
+          if ((NULL != pserver) && !manager_.get_task_manager().exist_server(server)
+              && (manager_.get_task_manager().has_space_do_task_in_machine(server, false)))
           {
-            result = server;
+            result = pserver;
           }
         }
       }
-      return NULL == result ? EXIT_NO_DATASERVER : TFS_SUCCESS;
+      return NULL != result ? TFS_SUCCESS : EXIT_NO_DATASERVER;
     }
 
     int ServerManager::choose_replicate_target_server(ServerCollect*& result,
-        const ArrayHelper<ServerCollect*>& except) const
+        const ArrayHelper<uint64_t>& except) const
     {
       result = NULL;
       std::set<uint32_t> lans;
@@ -644,14 +614,13 @@ namespace tfs
 
     //move method
     int ServerManager::choose_move_target_server(ServerCollect*& result, SERVER_TABLE& sources,
-        common::ArrayHelper<ServerCollect*>& except) const
+        common::ArrayHelper<uint64_t>& except) const
     {
       result = NULL;
       std::set<uint32_t> lans;
       get_lans_(lans, except);
       ServerCollect* pserver = NULL;
-      int32_t size = sources.size();
-      int32_t index = size, random_index = 0;
+      int64_t size = sources.size(), index = sources.size(), random_index = 0;
       while (index--> 0 && NULL == result)
       {
         random_index = random() % size;
@@ -660,7 +629,7 @@ namespace tfs
         uint32_t lan =  Func::get_lan(pserver->id(), SYSPARAM_NAMESERVER.group_mask_);
         TBSYS_LOG(DEBUG, "==============addr: %s, lans : %u", tbsys::CNetUtil::addrToString(pserver->id()).c_str(), lan);
         if (manager_.get_task_manager().has_space_do_task_in_machine(pserver->id(), true)
-            && !manager_.get_task_manager().exist(pserver->id())
+            && !manager_.get_task_manager().exist_server(pserver->id())
             && lans.find(lan) == lans.end())
         {
           lans.insert(lan);
@@ -668,37 +637,32 @@ namespace tfs
           result = pserver;
         }
       }
-      return NULL == result ? EXIT_NO_DATASERVER : TFS_SUCCESS;
+      return (NULL != result) ? TFS_SUCCESS : EXIT_NO_DATASERVER;
     }
 
-    int ServerManager::choose_excess_backup_server(ServerCollect*& result, const common::ArrayHelper<ServerCollect*>& sources) const
+    int ServerManager::choose_excess_backup_server(ServerCollect*& result, const common::ArrayHelper<uint64_t>& sources) const
     {
       result = NULL;
       SORT_MAP sorts;
       GROUP_MAP group, servers;
-      ServerCollect* server = NULL;
-      for (int32_t i = 0; i < sources.get_array_index(); ++i)
+      for (int64_t index = 0; index < sources.get_array_index(); ++index)
       {
-        server = *sources.at(i);
-        assert(NULL != server);
-        if (server->total_capacity() > 0)
+        uint64_t id = *sources.at(index);
+        assert(INVALID_SERVER_ID != id);
+        ServerCollect* server = get(id);
+        if ((NULL != server) && server->total_capacity() > 0)
         {
           int64_t use = static_cast<int64_t>(calc_capacity_percentage(server->use_capacity(),
                 server->total_capacity()) *  PERCENTAGE_MAGIC);
           sorts.insert(SORT_MAP::value_type(use, server));
-          uint32_t id  = server->id() & 0xFFFFFFFF;
           uint32_t lan = Func::get_lan(server->id(), SYSPARAM_NAMESERVER.group_mask_);
-          GROUP_MAP_ITER it   = servers.find(id);
-          if (servers.end() == it)
-          {
-            it = servers.insert(GROUP_MAP::value_type(id, SORT_MAP())).first;
-          }
-          it->second.insert(SORT_MAP::value_type(use, server));
-          GROUP_MAP_ITER iter = group.find(lan);
+          GROUP_MAP_ITER iter = servers.find(server->id());
+          if (servers.end() == iter)
+           iter = servers.insert(GROUP_MAP::value_type(server->id(), SORT_MAP())).first;
+          iter->second.insert(SORT_MAP::value_type(use, server));
+          iter = group.find(lan);
           if (group.end() == iter)
-          {
             iter = group.insert(GROUP_MAP::value_type(lan, SORT_MAP())).first;
-          }
           iter->second.insert(SORT_MAP::value_type(use, server));
         }
       }
@@ -710,7 +674,7 @@ namespace tfs
       else
       {
         GROUP_MAP_ITER iter = servers.begin();
-        for (; servers.end() != iter && NULL == result; ++iter)
+        for (; iter != servers.end() && NULL == result; ++iter)
         {
           if (iter->second.size() > 1u)
             result = iter->second.rbegin()->second;
@@ -718,7 +682,7 @@ namespace tfs
         if (NULL == result)
         {
           uint32_t nums = 0;
-          iter = group.begin();
+          GROUP_MAP_ITER iter = group.begin();
           for (; iter != group.end(); ++iter)
           {
             if (iter->second.size() > nums)
@@ -733,39 +697,82 @@ namespace tfs
           result = sorts.empty() ? NULL : sorts.rbegin()->second;
         }
       }
-      return NULL == result ? TFS_SUCCESS : EXIT_NO_DATASERVER;
+      return NULL != result ? TFS_SUCCESS : EXIT_NO_DATASERVER;
     }
 
     int ServerManager::expand_ratio(int32_t& index, const float expand_ratio)
     {
-      rwmutex_.rdlock();
-      if (index >= servers_.size())
-        index = 0;
       ServerCollect* server = NULL;
+      rwmutex_.rdlock();
       if (!servers_.empty())
       {
+        if (index >= servers_.size())
+          index = 0;
         server = servers_.at(index);
         ++index;
       }
       rwmutex_.unlock();
-      return NULL != server ? server->expand_ratio(expand_ratio) : TFS_SUCCESS;
+      return (NULL != server) ? server->expand_ratio(expand_ratio) : TFS_SUCCESS;
+    }
+
+    int ServerManager::calc_single_process_max_network_bandwidth(int32_t& max_mr_network_bandwith,
+        int32_t& max_rw_network_bandwith, const DataServerStatInfo& info) const
+    {
+      UNUSED(info);
+      /*if (info.total_network_bandwith_ > 0)
+      {
+        int32_t capacity = info.total_network_bandwith_ / 12;
+        max_mr_network_bandwith = capacity * SYSPARAM_NAMESERVER.max_mr_network_bandwith_ratio_ / 100;
+        max_rw_network_bandwith = capacity * SYSPARAM_NAMESERVER.max_rw_network_bandwith_ratio_ / 100;
+      }*/
+
+      int32_t capacity = SYSPARAM_NAMESERVER.max_single_machine_network_bandwith_ / 12;
+      max_mr_network_bandwith = capacity * SYSPARAM_NAMESERVER.max_mr_network_bandwith_ratio_ / 100;
+      max_rw_network_bandwith = capacity * SYSPARAM_NAMESERVER.max_rw_network_bandwith_ratio_ / 100;
+      max_mr_network_bandwith = std::max(max_mr_network_bandwith, 2);
+      max_rw_network_bandwith = std::max(max_rw_network_bandwith, 4);
+      return TFS_SUCCESS;
+    }
+
+    int ServerManager::timeout(const int64_t now)
+    {
+      const int32_t MAX_QUERY_COUNT = 32;
+      ServerCollect* server = NULL;
+      ServerCollect* servers[MAX_QUERY_COUNT];
+      ArrayHelper<ServerCollect*> helper(MAX_QUERY_COUNT, servers);
+      tbutil::Mutex::Lock lock(wait_report_block_server_mutex_);
+      SERVER_TABLE_ITER iter = current_reporting_block_servers_.begin();
+      for (; iter != current_reporting_block_servers_.end() && helper.get_array_index() <MAX_QUERY_COUNT; ++iter)
+      {
+        server = (*iter);
+        assert(NULL != server);
+        if (server->is_report_block_expired(now))
+        {
+          helper.push_back(server);
+        }
+      }
+      for (int64_t index = 0; index < helper.get_array_index(); ++index)
+      {
+        server = *helper.at(index);
+        current_reporting_block_servers_.erase(server);
+      }
+
+      return helper.get_array_index();
     }
 
     int ServerManager::choose_replciate_random_choose_server_base_lock_(ServerCollect*& result,
-        const common::ArrayHelper<ServerCollect*>& except, const std::set<uint32_t>& lans) const
+        const common::ArrayHelper<uint64_t>& except, const std::set<uint32_t>& lans) const
     {
-      RWLock::Lock lock(rwmutex_, READ_LOCKER);
-      bool valid = false;
       result = NULL;
-      ServerCollect* pserver = NULL;
-      int32_t size = std::min(servers_.size(), SYSPARAM_NAMESERVER.choose_target_server_random_max_nums_);
-      int32_t index = size, random_index = 0;
+      RWLock::Lock lock(rwmutex_, READ_LOCKER);
+      int64_t size = std::min(servers_.size(), SYSPARAM_NAMESERVER.choose_target_server_random_max_nums_);
+      int64_t index = size, random_index = 0;
       while (index-- > 0 && NULL == result)
       {
         random_index = random() % servers_.size();
-        pserver = servers_.at(random_index);
+        ServerCollect* pserver = servers_.at(random_index);
         assert(NULL != pserver);
-        valid  = ((!pserver->is_full()) && (!except.exist(pserver)));
+        bool valid  = ((!pserver->is_full()) && (!except.exist(pserver->id())));
         if (valid && !lans.empty())
         {
           uint32_t lan =  Func::get_lan(pserver->id(), SYSPARAM_NAMESERVER.group_mask_);
@@ -777,18 +784,17 @@ namespace tfs
           result = pserver;
         }
       }
-      return NULL == result ? EXIT_NO_DATASERVER : TFS_SUCCESS;
+      return (NULL != result) ? TFS_SUCCESS : EXIT_NO_DATASERVER;
     }
 
     int ServerManager::choose_replciate_random_choose_server_extend_lock_(ServerCollect*& result,
-        const common::ArrayHelper<ServerCollect*>& except, const std::set<uint32_t>& lans) const
+        const common::ArrayHelper<uint64_t>& except, const std::set<uint32_t>& lans) const
     {
       rwmutex_.rdlock();
-      int32_t size = servers_.size();
+      int64_t index = std::min(servers_.size(), SYSPARAM_NAMESERVER.choose_target_server_retry_max_nums_);
       rwmutex_.unlock();
-      ServerCollect* server = NULL;
-      int32_t index = size;
       int32_t ret = TFS_SUCCESS;
+      ServerCollect* server = NULL;
       while (index--> 0 && NULL == result)
       {
         ret = choose_replciate_random_choose_server_base_lock_(server, except, lans);
@@ -796,57 +802,46 @@ namespace tfs
           continue;
 
         assert(NULL != server);
-        if (!manager_.get_task_manager().exist(server->id())
+        if (!manager_.get_task_manager().exist_server(server->id())
             && manager_.get_task_manager().has_space_do_task_in_machine(server->id(), true))
         {
           result = server;
         }
       }
-      return NULL == result ? EXIT_NO_DATASERVER : TFS_SUCCESS;
+      return (NULL != result) ? TFS_SUCCESS : EXIT_NO_DATASERVER;
     }
 
-    void ServerManager::get_lans_(std::set<uint32_t>& lans, const common::ArrayHelper<ServerCollect*>& source) const
+    void ServerManager::get_lans_(std::set<uint32_t>& lans, const common::ArrayHelper<uint64_t>& source) const
     {
-      ServerCollect* server = NULL;
-      if (!source.empty())
+      uint64_t server = INVALID_SERVER_ID;
+      for (int64_t index = 0; index < source.get_array_index(); ++index)
       {
-        for (int32_t i = 0; i < source.get_array_index(); ++i)
-        {
-          server = *source.at(i);
-          assert(NULL != server);
-          uint32_t lan =  Func::get_lan(server->id(), SYSPARAM_NAMESERVER.group_mask_);
-          TBSYS_LOG(DEBUG, "addr: %s, lans : %u", tbsys::CNetUtil::addrToString(server->id()).c_str(), lan);
-          lans.insert(lan);
-        }
+        server = *source.at(index);
+        assert(INVALID_SERVER_ID != server);
+        uint32_t lan =  Func::get_lan(server, SYSPARAM_NAMESERVER.group_mask_);
+        TBSYS_LOG(DEBUG, "addr: %s, lans : %u", tbsys::CNetUtil::addrToString(server).c_str(), lan);
+        lans.insert(lan);
       }
     }
 
     bool ServerManager::relieve_relation_(ServerCollect* server, const time_t now)
     {
-      bool ret = NULL != server;
+      bool ret = (NULL != server);
       if (ret)
       {
-        uint32_t begin = 0;
+        uint64_t begin = 0;
         const int32_t MAX_SLOT_NUMS = 1024;
-        BlockCollect* blocks[MAX_SLOT_NUMS];
-        common::ArrayHelper<BlockCollect*> helper(MAX_SLOT_NUMS, blocks);
+        uint64_t blocks[MAX_SLOT_NUMS];
+        common::ArrayHelper<uint64_t> helper(MAX_SLOT_NUMS, blocks);
         bool complete = false;
-        BlockCollect* pblock = NULL;
         do
         {
+          helper.clear();
           complete = server->get_range_blocks(helper, begin, MAX_SLOT_NUMS);
-          for (int32_t i = 0; i < helper.get_array_index(); ++i)
+          for (int64_t index = 0; index < helper.get_array_index(); ++index)
           {
-            pblock = *helper.at(i);
-            assert(NULL != pblock);
-            manager_.get_block_manager().relieve_relation(pblock, server, now,BLOCK_COMPARE_SERVER_BY_POINTER);//pointer
-            //manager_.get_server_manager().relieve_relation(server, pblock);
-          }
-          if (!helper.empty())
-          {
-            pblock = *helper.at(helper.get_array_index() - 1);
-            assert(NULL != pblock);
-            begin = pblock->id();
+            begin = *helper.at(index);
+            manager_.get_block_manager().relieve_relation(begin, server->id(), now);
           }
         }
         while (!complete);

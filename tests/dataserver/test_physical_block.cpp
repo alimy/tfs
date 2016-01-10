@@ -1,240 +1,101 @@
 /*
- * (C) 2007-2010 Alibaba Group Holding Limited.
+ * (C) 2007-2013 Alibaba Group Holding Limited.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: test_physical_block.cpp 5 2010-09-29 07:44:56Z duanfei@taobao.com $
+ * Version: $Id
  *
  * Authors:
- *   daozong
+ *   duafnei@taobao.com
  *      - initial release
  *
  */
 #include <gtest/gtest.h>
-#include "physical_block.h"
+#include "ds_define.h"
+#include "physical_blockv2.h"
 #include "common/error_msg.h"
-#include <tbsys.h>
 
-using namespace tfs::dataserver;
 using namespace tfs::common;
-const std::string MOUNT_PATH = "./mount";
-
-class PhysicalBlockTest: public ::testing::Test
+namespace tfs
 {
-  protected:
-    static void SetUpTestCase()
-    {
-      TBSYS_LOGGER.setLogLevel("error");
-    }
-
-    static void TearDownTestCase()
-    {
-      TBSYS_LOGGER.setLogLevel("debug");
-    }
- 
-  public:
-    PhysicalBlockTest()
-    {
-    }
-    ~PhysicalBlockTest()
-    {
-    }
-    virtual void SetUp()
-    {
-      strcpy(path, MOUNT_PATH.c_str());
-      mkdir(path, 0775);
-    }
-    virtual void TearDown()
-    {
-      rmdir(path);
-    }
-  protected:
-    char path[100];
-};
-
-TEST_F(PhysicalBlockTest, testWriteReadOffset)
-{
-  uint32_t physical_block_id = 1;
-  int32_t block_length = 1024;
-  char file_name[100];
-  int64_t offset = 0;
-  
-  chdir(path);
-  sprintf(file_name, "%d", physical_block_id);
-  int32_t fd = open(file_name, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
-  chdir("..");
-
-  BlockType block_type = C_MAIN_BLOCK;
-  PhysicalBlock* physical_block = new PhysicalBlock(physical_block_id, MOUNT_PATH, block_length, block_type);
-  
-  char* buf = "hello world!";
-  char* read_buf = new char[strlen(buf) + 1];
-
-  for (offset = 0; offset < 1024; ++offset)
+  namespace dataserver
   {
-    int64_t len = static_cast<int64_t>(physical_block->get_total_data_len());
-    if (offset + static_cast<int64_t>(strlen(buf) + 1) > len)
+    class TestPhysicalBlock: public ::testing::Test
     {
-      EXPECT_EQ(physical_block->pwrite_data(buf, strlen(buf) + 1, offset), EXIT_PHYSIC_BLOCK_OFFSET_ERROR);
-      EXPECT_EQ(physical_block->pread_data(read_buf, strlen(buf) + 1, offset), EXIT_PHYSIC_BLOCK_OFFSET_ERROR);
-    }
-    else
+      public:
+        TestPhysicalBlock()
+        {
+        }
+        virtual ~TestPhysicalBlock()
+        {
+        }
+        virtual void SetUp()
+        {
+        }
+        virtual void TearDown()
+        {
+
+        }
+    };
+
+    TEST_F(TestPhysicalBlock, alloc_free)
     {
-      EXPECT_EQ(physical_block->pwrite_data(buf, strlen(buf) + 1, offset), 0);
-      EXPECT_EQ(physical_block->pread_data(read_buf, strlen(buf) + 1, offset), 0);
-      EXPECT_STREQ(buf, read_buf);
+      const int32_t MAX_MAIN_BLOCK_SIZE = 72 * 1024 * 1024;
+      const int32_t MAX_EXT_BLOCK_SIZE = 4 * 1024 * 1024;
+      const int32_t physical_block_id = 0xff;
+      const int32_t start = BLOCK_RESERVER_LENGTH;
+      const int32_t end   = 72 * 1024 * 1024;
+      std::string path("./physical_block.data");
+      FileOperation file_op(path, O_RDWR | O_CREAT);
+      int32_t fd = file_op.open();
+      EXPECT_TRUE(fd >= 0);
+      if (fd >= 0)
+      {
+        char data[1024];
+        memset(data, 0, 1024);
+        file_op.write(data, 1024);
+        file_op.close();
+        srandom(time(NULL));
+        AllocPhysicalBlock physical_block(physical_block_id, path, start, end);;
+        EXPECT_EQ(TFS_SUCCESS, physical_block.load_alloc_bit_map_());
+        EXPECT_EQ(0U, physical_block.alloc_bit_map_);
+        EXPECT_TRUE(physical_block.empty(MAX_MAIN_BLOCK_SIZE, MAX_EXT_BLOCK_SIZE));
+        int8_t index = 0;
+        int32_t ext_start = 0, ext_end = 0, COUNT = MAX_MAIN_BLOCK_SIZE / MAX_EXT_BLOCK_SIZE;
+
+        for (int8_t i = 0; i < COUNT; ++i)
+        {
+          index = 0;
+          ext_start = 0, ext_end = 0;
+          EXPECT_FALSE(physical_block.full(MAX_MAIN_BLOCK_SIZE, MAX_EXT_BLOCK_SIZE));
+          EXPECT_EQ(TFS_SUCCESS, physical_block.alloc(index, ext_start, ext_end, MAX_MAIN_BLOCK_SIZE, MAX_EXT_BLOCK_SIZE));
+          EXPECT_FALSE(physical_block.empty(MAX_MAIN_BLOCK_SIZE, MAX_EXT_BLOCK_SIZE));
+          EXPECT_EQ(i + 1, index);
+        }
+
+        index = 10;
+        EXPECT_EQ(TFS_SUCCESS, physical_block.free(index, MAX_MAIN_BLOCK_SIZE, MAX_EXT_BLOCK_SIZE));
+        EXPECT_FALSE(physical_block.full(MAX_MAIN_BLOCK_SIZE, MAX_EXT_BLOCK_SIZE));
+        ext_start = 0, ext_end = 0;
+        int8_t tmp_index = 0;
+        EXPECT_EQ(TFS_SUCCESS, physical_block.alloc(tmp_index, ext_start, ext_end, MAX_MAIN_BLOCK_SIZE, MAX_EXT_BLOCK_SIZE));
+        EXPECT_EQ(index, tmp_index);
+
+        EXPECT_TRUE(physical_block.full(MAX_MAIN_BLOCK_SIZE, MAX_EXT_BLOCK_SIZE));
+        for (int8_t j = 1; j <=  COUNT; ++j)
+        {
+          EXPECT_EQ(TFS_SUCCESS, physical_block.free(j, MAX_MAIN_BLOCK_SIZE, MAX_EXT_BLOCK_SIZE));
+        }
+        EXPECT_FALSE(physical_block.full(MAX_MAIN_BLOCK_SIZE, MAX_EXT_BLOCK_SIZE));
+        EXPECT_TRUE(physical_block.empty(MAX_MAIN_BLOCK_SIZE, MAX_EXT_BLOCK_SIZE));
+        EXPECT_EQ(0U, physical_block.alloc_bit_map_);
+      }
+      file_op.unlink();
     }
   }
-
-  chdir(path);
-  unlink(file_name);
-  chdir("..");
-
-  close(fd);
-  buf = NULL;
-  delete []read_buf;
-  read_buf = NULL;
-  delete physical_block;
-  physical_block = NULL;
-}
-
-TEST_F(PhysicalBlockTest, testGetDataLen)
-{
-  uint32_t physical_block_id = 1;
-  int32_t block_length = 0;
-  char file_name[100];
-  int32_t len = 0;
-
-  chdir(path);
-  sprintf(file_name, "%d", physical_block_id);
-  int32_t fd = open(file_name, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
-  chdir("..");
-  BlockType block_type = C_MAIN_BLOCK;
-
-  for (block_length = BLOCK_RESERVER_LENGTH + 1; block_length < 1000 ; ++block_length)
-  {
-    PhysicalBlock* physical_block = new PhysicalBlock(physical_block_id, MOUNT_PATH, block_length, block_type);
-    len = block_length - BLOCK_RESERVER_LENGTH;
-    EXPECT_EQ(len, physical_block->get_total_data_len());
-    delete physical_block;
-    physical_block = NULL;
-  }
-  
-  chdir(path);
-  unlink(file_name);
-  chdir("..");
-  close(fd);
-}
-
-TEST_F(PhysicalBlockTest, testGetBlockId)
-{
-  uint32_t physical_block_id = 1;
-  int32_t block_length = 1024;
-  char file_name[100];
-
-  chdir(path);
-  sprintf(file_name, "%d", physical_block_id);
-  int32_t fd = open(file_name, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
-  chdir("..");
-  BlockType block_type = C_MAIN_BLOCK;
-
-  for (physical_block_id = 1; physical_block_id < 1000 ; ++physical_block_id)
-  {
-    PhysicalBlock* physical_block = new PhysicalBlock(physical_block_id, MOUNT_PATH, block_length, block_type);
-    EXPECT_EQ(physical_block_id, static_cast<uint32_t>(physical_block->get_physic_block_id()));
-    delete physical_block;
-    physical_block = NULL;
-  }
-
-  chdir(path);
-  unlink(file_name);
-  chdir("..");
-  close(fd);
-}
-
-TEST_F(PhysicalBlockTest, testBlockPrefix)
-{
-  uint32_t physical_block_id = 1;
-  int32_t block_length = 1024;
-  char file_name[100];
-  BlockPrefix block_prefix;
-
-  chdir(path);
-  sprintf(file_name, "%d", physical_block_id);
-  int32_t fd = open(file_name, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
-  chdir("..");
-  BlockType block_type = C_MAIN_BLOCK;
-  
-  PhysicalBlock* physical_block = new PhysicalBlock(physical_block_id, MOUNT_PATH, block_length, block_type); 
-  physical_block->set_block_prefix(1, 2, 3);
-  EXPECT_EQ(physical_block->dump_block_prefix(), 0);
-  EXPECT_EQ(physical_block->load_block_prefix(), 0);
-  physical_block->get_block_prefix(block_prefix);
-
-  EXPECT_EQ(static_cast<int32_t>(block_prefix.logic_blockid_), 1);
-  EXPECT_EQ(static_cast<int32_t>(block_prefix.prev_physic_blockid_), 2);
-  EXPECT_EQ(static_cast<int32_t>(block_prefix.next_physic_blockid_), 3);
-
-  EXPECT_EQ(physical_block->clear_block_prefix(), 0);
-  physical_block->get_block_prefix(block_prefix);
-  EXPECT_EQ(static_cast<int32_t>(block_prefix.logic_blockid_), 0);
-  EXPECT_EQ(static_cast<int32_t>(block_prefix.prev_physic_blockid_), 0);
-  EXPECT_EQ(static_cast<int32_t>(block_prefix.next_physic_blockid_), 0);
-
-  delete physical_block;
-  physical_block = NULL;
-
-  chdir(path);
-  unlink(file_name);
-  chdir("..");
-  close(fd);
-}
-
-TEST_F(PhysicalBlockTest, testBlockPrefix1)
-{
-  uint32_t physical_block_id = 1;
-  int32_t block_length = 1024;
-  char file_name[100];
-  BlockPrefix block_prefix;
-
-  chdir(path);
-  sprintf(file_name, "%d", physical_block_id);
-  int32_t fd = open(file_name, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
-  chdir("..");
-  BlockType block_type = C_MAIN_BLOCK;
-  
-  PhysicalBlock* physical_block = new PhysicalBlock(physical_block_id, MOUNT_PATH, block_length, block_type); 
-  
-  EXPECT_EQ(physical_block->clear_block_prefix(), 0);
-  physical_block->get_block_prefix(block_prefix);
-  EXPECT_EQ(static_cast<int32_t>(block_prefix.logic_blockid_), 0);
-  EXPECT_EQ(static_cast<int32_t>(block_prefix.prev_physic_blockid_), 0);
-  EXPECT_EQ(static_cast<int32_t>(block_prefix.next_physic_blockid_), 0);
- 
-  physical_block->set_block_prefix(5, 10, 13);
-  EXPECT_EQ(physical_block->dump_block_prefix(), 0);
-  EXPECT_EQ(physical_block->load_block_prefix(), 0);
-  physical_block->get_block_prefix(block_prefix);
-
-  EXPECT_EQ(static_cast<int32_t>(block_prefix.logic_blockid_), 5);
-  EXPECT_EQ(static_cast<int32_t>(block_prefix.prev_physic_blockid_), 10);
-  EXPECT_EQ(static_cast<int32_t>(block_prefix.next_physic_blockid_), 13);
-
-  physical_block->set_next_block(105);
-  physical_block->get_block_prefix(block_prefix);
-
-  EXPECT_EQ(static_cast<int32_t>(block_prefix.next_physic_blockid_), 105);
-  
-  delete physical_block;
-  physical_block = NULL;
-
-  chdir(path);
-  unlink(file_name);
-  chdir("..");
-  close(fd);
 }
 
 int main(int argc, char* argv[])

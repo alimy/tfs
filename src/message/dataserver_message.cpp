@@ -18,12 +18,10 @@ namespace tfs
 {
   namespace message
   {
-    SetDataserverMessage::SetDataserverMessage() :
-      has_block_(common::HAS_BLOCK_FLAG_NO)
+    SetDataserverMessage::SetDataserverMessage()
     {
       _packetHeader._pcode = common::SET_DATASERVER_MESSAGE;
-      memset(&ds_, 0, sizeof(ds_));
-      blocks_.clear();
+      memset(&information_, 0, sizeof(information_));
     }
 
     SetDataserverMessage::~SetDataserverMessage()
@@ -34,103 +32,36 @@ namespace tfs
     int SetDataserverMessage::deserialize(common::Stream& input)
     {
       int64_t pos = 0;
-      int32_t iret = ds_.deserialize(input.get_data(), input.get_data_length(), pos);
-      if (common::TFS_SUCCESS == iret)
+      int32_t ret = information_.deserialize(input.get_data(), input.get_data_length(), pos);
+      if (common::TFS_SUCCESS == ret)
       {
-        input.drain(ds_.length());
-        iret = input.get_int32(reinterpret_cast<int32_t*> (&has_block_));
-        if (common::TFS_SUCCESS == iret)
-        {
-          if (has_block_  == common::HAS_BLOCK_FLAG_YES)
-          {
-            int32_t size = 0;
-            iret = input.get_int32(&size);
-            if (common::TFS_SUCCESS == iret)
-            {
-              common::BlockInfo info;
-              for (int32_t i = 0; i < size; ++i)
-              {
-                pos  = 0;
-                iret = info.deserialize(input.get_data(), input.get_data_length(), pos);
-                if (common::TFS_SUCCESS == iret)
-                {
-                  input.drain(info.length());
-                  blocks_.push_back(info);
-                }
-                else
-                {
-                  break;
-                }
-              }
-            }
-          }
-        }
+        input.drain(information_.length());
       }
-      return iret;
+      return ret;
     }
 
     int64_t SetDataserverMessage::length() const
     {
-      int64_t len = ds_.length() + common::INT_SIZE;
-      if (has_block_ > 0)
-      {
-        len += common::INT_SIZE;
-        common::BlockInfo info;
-        len += blocks_.size() * info.length();
-      }
-      return len;
+      return information_.length();
     }
 
     int SetDataserverMessage::serialize(common::Stream& output) const
     {
       int64_t pos = 0;
-      int32_t iret = ds_.id_ <= 0 ? common::TFS_ERROR : common::TFS_SUCCESS;
-      if (common::TFS_SUCCESS == iret)
+      int32_t ret = information_.id_ <= 0 ? common::TFS_ERROR : common::TFS_SUCCESS;
+      if (common::TFS_SUCCESS == ret)
       {
-        iret = ds_.serialize(output.get_free(), output.get_free_length(), pos);
-        if (common::TFS_SUCCESS == iret)
+        ret = information_.serialize(output.get_free(), output.get_free_length(), pos);
+        if (common::TFS_SUCCESS == ret)
         {
-          output.pour(ds_.length());
-          iret = output.set_int32(has_block_);
+          output.pour(information_.length());
         }
       }
-      if (common::TFS_SUCCESS == iret)
-      {
-        if (has_block_ == common::HAS_BLOCK_FLAG_YES)
-        {
-          iret = output.set_int32(blocks_.size());
-          if (common::TFS_SUCCESS == iret)
-          {
-            std::vector<common::BlockInfo>::const_iterator iter = blocks_.begin();
-            for (; iter != blocks_.end(); ++iter)
-            {
-              pos = 0;
-              iret = const_cast<common::BlockInfo*>((&(*iter)))->serialize(output.get_free(), output.get_free_length(), pos);
-              if (common::TFS_SUCCESS == iret)
-                output.pour((*iter).length());
-              else
-                break;
-            }
-          }
-        }
-      }
-      return iret;
-    }
-
-    void SetDataserverMessage::set_ds(common::DataServerStatInfo* ds)
-    {
-      if (NULL != ds)
-        ds_ = *ds;
-    }
-
-    void SetDataserverMessage::add_block(common::BlockInfo* block_info)
-    {
-      if (NULL != block_info)
-        blocks_.push_back(*block_info);
+      return ret;
     }
 
     CallDsReportBlockRequestMessage::CallDsReportBlockRequestMessage():
-      server_(0)
+      server_(0), flag_(0)
     {
       _packetHeader._pcode = common::REQ_CALL_DS_REPORT_BLOCK_MESSAGE;
     }
@@ -142,93 +73,93 @@ namespace tfs
 
     int CallDsReportBlockRequestMessage::deserialize(common::Stream& input)
     {
-      return input.get_int64(reinterpret_cast<int64_t*>(&server_));
+      int ret = input.get_int64(reinterpret_cast<int64_t*>(&server_));
+      if (common::TFS_SUCCESS == ret)
+      {
+        // don't care return value for compaitable
+        input.get_int32(&flag_);
+      }
+      return ret;
     }
 
     int64_t CallDsReportBlockRequestMessage::length() const
     {
-      return common::INT64_SIZE;
+      return common::INT64_SIZE + common::INT_SIZE;
     }
 
     int CallDsReportBlockRequestMessage::serialize(common::Stream& output) const
     {
-      return output.set_int64(server_);
+      int ret = output.set_int64(server_);
+      if (common::TFS_SUCCESS == ret)
+      {
+        ret = output.set_int32(flag_);
+      }
+      return ret;
     }
 
     ReportBlocksToNsRequestMessage::ReportBlocksToNsRequestMessage():
-      server_(0)
+      blocks_ext_(NULL),
+      server_(common::INVALID_SERVER_ID),
+      block_count_(0)
     {
       _packetHeader._pcode = common::REQ_REPORT_BLOCKS_TO_NS_MESSAGE;
-      blocks_.clear();
     }
 
     ReportBlocksToNsRequestMessage::~ReportBlocksToNsRequestMessage()
     {
-
+      tbsys::gDeleteA(blocks_ext_);
     }
 
     int ReportBlocksToNsRequestMessage::deserialize(common::Stream& input)
     {
-      int32_t iret =input.get_int64(reinterpret_cast<int64_t*>(&server_));
-      if (common::TFS_SUCCESS == iret)
+      int32_t ret =input.get_int64(reinterpret_cast<int64_t*>(&server_));
+      if (common::TFS_SUCCESS == ret)
       {
-        int32_t size = 0;
+        ret = input.get_int32(&block_count_);
+      }
+      if (common::TFS_SUCCESS == ret)
+      {
         int64_t pos = 0;
-        iret = input.get_int32(&size);
-        if (common::TFS_SUCCESS == iret)
+        blocks_ext_ = new (std::nothrow)common::BlockInfoV2[block_count_];
+        for (int32_t index = 0; index < block_count_ && common::TFS_SUCCESS == ret; ++index)
         {
-          common::BlockInfo info;
-          for (int32_t i = 0; i < size; ++i)
-          {
-            pos  = 0;
-            iret = info.deserialize(input.get_data(), input.get_data_length(), pos);
-            if (common::TFS_SUCCESS == iret)
-            {
-              input.drain(info.length());
-              blocks_.insert(info);
-            }
-            else
-            {
-              break;
-            }
-          }
+          pos = 0;
+          blocks_ext_[index].deserialize(input.get_data(), input.get_data_length(), pos);
+          if (common::TFS_SUCCESS == ret)
+            input.drain(blocks_ext_[index].length());
         }
       }
-      return iret;
+      return ret;
     }
 
     int64_t ReportBlocksToNsRequestMessage::length() const
     {
-      common::BlockInfo info;
-      return common::INT64_SIZE + common::INT_SIZE + blocks_.size() * info.length();
+      common::BlockInfoV2 info;
+      return common::INT64_SIZE + common::INT_SIZE + block_count_ * info.length();
     }
 
     int ReportBlocksToNsRequestMessage::serialize(common::Stream& output) const
     {
-      int64_t pos = 0;
-      int32_t iret = server_ <= 0 ? common::TFS_ERROR : common::TFS_SUCCESS;
-      if (common::TFS_SUCCESS == iret)
+      int32_t ret = server_ <= 0 ? common::TFS_ERROR : common::TFS_SUCCESS;
+      if (common::TFS_SUCCESS == ret)
       {
-        iret = output.set_int64(server_);
-        if (common::TFS_SUCCESS == iret)
+        ret = output.set_int64(server_);
+      }
+      if (common::TFS_SUCCESS == ret)
+      {
+        ret = output.set_int32(block_count_);
+      }
+      if (common::TFS_SUCCESS == ret)
+      {
+        for (int32_t index = 0; index < block_count_ && common::TFS_SUCCESS == ret; ++index)
         {
-          iret = output.set_int32(blocks_.size());
+          int64_t pos = 0;
+          ret = blocks_ext_[index].serialize(output.get_free(),output.get_free_length(), pos);
+          if (common::TFS_SUCCESS == ret)
+            output.pour(blocks_ext_[index].length());
         }
       }
-      if (common::TFS_SUCCESS == iret)
-      {
-        std::set<common::BlockInfo>::const_iterator iter = blocks_.begin();
-        for (; iter != blocks_.end(); ++iter)
-        {
-          pos = 0;
-          iret = const_cast<common::BlockInfo*>((&(*iter)))->serialize(output.get_free(), output.get_free_length(), pos);
-          if (common::TFS_SUCCESS == iret)
-            output.pour((*iter).length());
-          else
-            break;
-        }
-      }
-      return iret;
+      return ret;
     }
 
     ReportBlocksToNsResponseMessage::ReportBlocksToNsResponseMessage():
@@ -245,61 +176,39 @@ namespace tfs
 
     int ReportBlocksToNsResponseMessage::deserialize(common::Stream& input)
     {
-      int32_t iret =input.get_int64(reinterpret_cast<int64_t*>(&server_));
-      if (common::TFS_SUCCESS == iret)
+      int32_t ret =input.get_int64(reinterpret_cast<int64_t*>(&server_));
+      if (common::TFS_SUCCESS == ret)
       {
-        iret = input.get_int8(&status_);
+        ret = input.get_int8(&status_);
       }
-
-      if (common::TFS_SUCCESS == iret)
+      if (common::TFS_SUCCESS == ret)
       {
-        int32_t size = 0;
-        iret = input.get_int32(&size);
-        if (common::TFS_SUCCESS == iret)
-        {
-          uint32_t id = 0;
-          for (int32_t i = 0; i < size; ++i)
-          {
-            iret = input.get_int32(reinterpret_cast<int32_t*>(&id));
-            if (common::TFS_SUCCESS != iret)
-              break;
-          }
-        }
+        ret = input.get_vint64(expire_blocks_);
       }
-      return iret;
+      return ret;
     }
 
     int64_t ReportBlocksToNsResponseMessage::length() const
     {
-      return common::INT64_SIZE + common::INT8_SIZE + common::Serialization::get_vint32_length(expire_blocks_);
+      return common::INT64_SIZE + common::INT8_SIZE + common::Serialization::get_vint64_length(expire_blocks_);
     }
 
     int ReportBlocksToNsResponseMessage::serialize(common::Stream& output) const
     {
-      int32_t iret = server_ == 0 ? common::TFS_ERROR : common::TFS_SUCCESS;
-      if (common::TFS_SUCCESS == iret)
+      int32_t ret = server_ == 0 ? common::TFS_ERROR : common::TFS_SUCCESS;
+      if (common::TFS_SUCCESS == ret)
       {
-        iret = output.set_int64(server_);
-        if (common::TFS_SUCCESS == iret)
+        ret = output.set_int64(server_);
+        if (common::TFS_SUCCESS == ret)
         {
-          iret = output.set_int8(status_);
+          ret = output.set_int8(status_);
         }
       }
-      if (common::TFS_SUCCESS == iret)
+      if (common::TFS_SUCCESS == ret)
       {
-        iret = output.set_int32(expire_blocks_.size());
-        if (common::TFS_SUCCESS == iret)
-        {
-          std::vector<uint32_t>::const_iterator iter = expire_blocks_.begin();
-          for (; iter != expire_blocks_.end(); ++iter)
-          {
-            iret = output.set_int32((*iter));
-            if (common::TFS_SUCCESS != iret)
-              break;
-          }
-        }
+        ret = output.set_vint64(expire_blocks_);
       }
-      return iret;
+      return ret;
     }
   }/** end namespace message **/
 }/** end namespace tfs **/

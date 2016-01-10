@@ -96,6 +96,66 @@ namespace tfs
       return iret;
     }
 
+    WriteDataResponseMessage::WriteDataResponseMessage():
+      server_(common::INVALID_SERVER_ID),
+      offset_(-1),
+      status_(common::TFS_ERROR)
+    {
+      _packetHeader._pcode = common::RSP_WRITE_DATA_MESSAGE;
+    }
+
+    WriteDataResponseMessage::~WriteDataResponseMessage()
+    {
+
+    }
+
+    int WriteDataResponseMessage::serialize(common::Stream& output) const
+    {
+      int32_t ret = output.set_int64(server_);
+      if (common::TFS_SUCCESS == ret)
+      {
+        ret = output.set_int64(offset_);
+      }
+      if (common::TFS_SUCCESS == ret)
+      {
+        ret = output.set_int32(status_);
+      }
+      if (common::TFS_SUCCESS == ret)
+      {
+        int64_t pos = 0;
+        ret = info_.serialize(output.get_free(), output.get_free_length(), pos);
+        if (common::TFS_SUCCESS == ret)
+          output.pour(info_.length());
+      }
+      return ret;
+    }
+
+    int WriteDataResponseMessage::deserialize(common::Stream& input)
+    {
+      int32_t ret = input.get_int64(reinterpret_cast<int64_t*>(&server_));
+      if (common::TFS_SUCCESS == ret)
+      {
+        ret = input.get_int64(&offset_);
+      }
+      if (common::TFS_SUCCESS == ret)
+      {
+        ret = input.get_int32(&status_);
+      }
+      if (common::TFS_SUCCESS == ret)
+      {
+        int64_t pos = 0;
+        ret = info_.deserialize(input.get_data(), input.get_data_length(), pos);
+        if (common::TFS_SUCCESS == ret)
+          input.drain(info_.length());
+      }
+      return ret;
+    }
+
+    int64_t WriteDataResponseMessage::length() const
+    {
+      return common::INT64_SIZE * 2 + common::INT_SIZE  + info_.length();
+    }
+
 #ifdef _DEL_001_
     RespWriteDataMessage::RespWriteDataMessage():
       length_(0)
@@ -187,7 +247,7 @@ namespace tfs
       return iret;
     }
 
-    WriteInfoBatchMessage::WriteInfoBatchMessage() :
+    /*WriteInfoBatchMessage::WriteInfoBatchMessage() :
       cluster_(0)
     {
       _packetHeader._pcode = common::WRITE_INFO_BATCH_MESSAGE;
@@ -255,6 +315,11 @@ namespace tfs
       {
         iret = input.get_int32(&cluster_);
       }
+
+      if (common::TFS_SUCCESS == iret && input.get_data_length() > 0)
+      {
+        iret = input.get_int32(&remove_flag_);
+      }
       return iret;
     }
 
@@ -265,7 +330,7 @@ namespace tfs
       {
         len += block_info_.length();
       }
-      len += common::INT_SIZE;
+      len += common::INT_SIZE * 2;
       common::RawMeta raw_data;
       len += meta_list_.size() * raw_data.length();
       return len;
@@ -318,7 +383,120 @@ namespace tfs
       {
         iret = output.set_int32(cluster_);
       }
+
+      if (common::TFS_SUCCESS == iret)
+      {
+        iret = output.set_int32(remove_flag_);
+      }
+      return iret;
+    }*/
+
+    /*WriteRawIndexMessage::WriteRawIndexMessage():
+      block_id_(0), index_op_(common::OP_NOT_INIT)
+    {
+      _packetHeader._pcode = common::WRITE_RAW_INDEX_MESSAGE;
+      index_vec_.clear();
+    }
+
+    WriteRawIndexMessage::~WriteRawIndexMessage()
+    {
+
+    }
+
+    int WriteRawIndexMessage::serialize(common::Stream& output) const
+    {
+      int32_t iret = output.set_int32(block_id_);
+
+      if (common::TFS_SUCCESS == iret)
+      {
+        iret = output.set_int64(family_id_);
+      }
+
+      if (common::TFS_SUCCESS == iret)
+      {
+        iret = output.set_int32(index_op_);
+      }
+
+      if (common::TFS_SUCCESS == iret)
+      {
+        iret = output.set_int32(index_vec_.size());
+      }
+
+      for (uint32_t i = 0; i < index_vec_.size() && common::TFS_SUCCESS == iret; i++)
+      {
+        if (common::TFS_SUCCESS == iret)
+        {
+          iret = output.set_int32(index_vec_[i].block_id_);
+        }
+
+        if (common::TFS_SUCCESS == iret)
+        {
+          iret = output.set_int32(index_vec_[i].size_);
+        }
+
+        if (common::TFS_SUCCESS == iret && index_vec_[i].size_ > 0)
+        {
+          iret = output.set_bytes(index_vec_[i].data_, index_vec_[i].size_);
+        }
+      }
+
       return iret;
     }
+
+    int WriteRawIndexMessage::deserialize(common::Stream& input)
+    {
+      uint32_t index_count = 0;
+      int32_t iret = input.get_int32((int32_t*)&block_id_);
+      if (common::TFS_SUCCESS == iret)
+      {
+        iret = input.get_int64(&family_id_);
+      }
+
+      if (common::TFS_SUCCESS == iret)
+      {
+        iret = input.get_int32(reinterpret_cast<int32_t*>(&index_op_));
+      }
+
+      if (common::TFS_SUCCESS == iret)
+      {
+        iret = input.get_int32((int32_t*)&index_count);
+      }
+
+      index_vec_.clear();
+      for (uint32_t i = 0; i < index_count && common::TFS_SUCCESS == iret; i++)
+      {
+        common::RawIndex index;
+        if (common::TFS_SUCCESS == iret)
+        {
+          iret = input.get_int32((int32_t*)&index.block_id_);
+        }
+
+        if (common::TFS_SUCCESS == iret)
+        {
+          iret = input.get_int32((int32_t*)&index.size_);
+        }
+
+        if (index.size_ > 0)
+        {
+          index.data_ = input.get_data();
+          input.drain(index.size_);
+        }
+        index_vec_.push_back(index);
+      }
+
+      return iret;
+    }
+
+    int64_t WriteRawIndexMessage::length() const
+    {
+      int64_t len = common::INT_SIZE * 3 + common::INT64_SIZE;
+      for (uint32_t i = 0; i < index_vec_.size(); i++)
+      {
+        len += common::INT_SIZE * 2;
+        len += index_vec_[i].size_;
+      }
+      return len;
+    }*/
+
   }
 }

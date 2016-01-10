@@ -24,6 +24,7 @@
 #include "message/message_factory.h"
 
 #include "meta_info_helper.h"
+#include "life_cycle_helper.h"
 #include "kv_meta_heart_manager.h"
 namespace tfs
 {
@@ -48,13 +49,19 @@ namespace tfs
       virtual int destroy_service();
 
       int put_object(message::ReqKvMetaPutObjectMessage* put_object_msg);
+      int put_object_user_metadata(message::ReqKvMetaPutObjectMetaDataMessage *req_put_object_metadata_msg);
       int get_object(message::ReqKvMetaGetObjectMessage* get_object_msg);
+      int get_object_user_metadata(message::ReqKvMetaGetObjectMetaDataMessage* req_get_object_metadata_msg);
       int put_bucket(message::ReqKvMetaPutBucketMessage* put_bucket_msg);
       int get_bucket(message::ReqKvMetaGetBucketMessage* get_bucket_msg);
       int del_bucket(message::ReqKvMetaDelBucketMessage* del_bucket_msg);
       int del_object(message::ReqKvMetaDelObjectMessage* del_object_msg);
+      int del_object_user_metadata(message::ReqKvMetaDelObjectMetaDataMessage* req_del_object_metadata_msg);
       int head_object(message::ReqKvMetaHeadObjectMessage *head_object_msg);
       int head_bucket(message::ReqKvMetaHeadBucketMessage *head_bucket_msg);
+      int set_file_lifecycle(message::ReqKvMetaSetLifeCycleMessage *set_lifecycle_msg);
+      int get_file_lifecycle(message::ReqKvMetaGetLifeCycleMessage *get_lifecycle_msg);
+      int rm_file_lifecycle(message::ReqKvMetaRmLifeCycleMessage *rm_lifecycle_msg);
 
     private:
       DISALLOW_COPY_AND_ASSIGN(KvMetaService);
@@ -63,6 +70,8 @@ namespace tfs
       uint64_t local_ipport_id_;
       int64_t server_start_time_;
       MetaInfoHelper meta_info_helper_;
+      LifeCycleHelper life_cycle_helper_;
+      common::KvEngineHelper* kv_engine_helper_;
 
       //global stat
       tbutil::TimerPtr timer_;

@@ -177,7 +177,7 @@ int TfsSession::query_remote_block_cache(const uint32_t block_id, VUINT64& rds)
       ret = remote_cache_helper_->get(block_cache_key, block_cache_value);
       if (TFS_SUCCESS == ret)
       {
-        if (block_cache_value.ds_.size() > 0)
+        if (block_cache_value.ds_.size() > 0 )
         {
           rds = block_cache_value.ds_;
           TBSYS_LOG(DEBUG, "query remote cache, blockid: %u", block_id);
@@ -915,7 +915,7 @@ void TfsSession::insert_local_block_cache(const uint32_t block_id, const VUINT64
   {
     TBSYS_LOG(DEBUG, "local cache insert, blockid: %u", block_id);
     BlockCache block_cache;
-    block_cache.last_time_ = time(NULL);
+    block_cache.last_time_ =  Func::get_monotonic_time();
     block_cache.ds_ = rds;
     tbutil::Mutex::Lock lock(mutex_);
     block_cache_map_.insert(block_id, block_cache);
@@ -941,7 +941,7 @@ bool TfsSession::is_hit_local_cache(const uint32_t block_id)
     tbutil::Mutex::Lock lock(mutex_);
     BlockCache* block_cache = block_cache_map_.find(block_id);
     if (block_cache
-       && (block_cache->last_time_ >= time(NULL) - block_cache_time_)
+       && (block_cache->last_time_ >= Func::get_monotonic_time() - block_cache_time_)
        && (block_cache->ds_.size() > 0))
     {
       TBSYS_LOG(DEBUG, "local cache hit, blockid: %u", block_id);
@@ -950,3 +950,8 @@ bool TfsSession::is_hit_local_cache(const uint32_t block_id)
   }
   return ret;
 }
+
+/*bool TfsSession::is_expired(const BlockCache& block_cache) const
+{
+  return block_cache.last_time_ < Func::get_monotonic_time() - expire_time;
+}*/

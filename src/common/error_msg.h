@@ -21,6 +21,9 @@ namespace tfs
 {
   namespace common
   {
+    //http error code
+    const int32_t HTTP_RESPONSE_OK = 200;
+
     const int32_t EXIT_GENERAL_ERROR = -1000;
     const int32_t EXIT_CONFIG_ERROR = -1001;
     const int32_t EXIT_UNKNOWN_MSGTYPE = -1002;
@@ -47,6 +50,21 @@ namespace tfs
     const int32_t EXIT_LRU_BUCKET_NOT_EXIST = -1022;//lru bucket not found by key
     const int32_t EXIT_SERVICE_SHUTDOWN = -1023;
     const int32_t EXIT_ELEMENT_EXIST = -1024;
+    const int32_t EXIT_CONNECT_MYSQL_ERROR = -1025;
+    const int32_t EXIT_PREPARE_SQL_ERROR = -1026;
+    const int32_t EXIT_BIND_PARAMETER_ERROR = -1027;
+    const int32_t EXIT_EXECUTE_SQL_ERROR = -1028;
+    const int32_t EXIT_MYSQL_NO_DATA= -1029;
+    const int32_t EXIT_MYSQL_DATA_TRUNCATED = -1030;
+    const int32_t EXIT_MYSQL_FETCH_DATA_ERROR = -1031;
+    const int32_t EXIT_OUT_OF_RANGE = -1032;
+    const int32_t EXIT_MMAP_DATA_INVALID = -1033;
+    const int32_t EXIT_CREATE_DIR_ERROR = -1034;
+    const int32_t EXIT_RM_DIR_ERROR = -1035;
+    const int32_t EXIT_ALREADY_MMAPPED_ERROR = -1036;
+    const int32_t EXIT_ALREADY_MMAPPED_MAX_SIZE_ERROR = -1037;
+    const int32_t EXIT_OP_TAIR_ERROR = -1038;
+    const int32_t EXIT_WORK_QUEUE_FULL = -1039;
 
     const int32_t EXIT_FILE_OP_ERROR = -2000;
     const int32_t EXIT_OPEN_FILE_ERROR = -2001;
@@ -58,6 +76,9 @@ namespace tfs
     const int32_t EXIT_FILE_FORMAT_ERROR = -2007;
     const int32_t EXIT_SLOTS_OFFSET_SIZE_ERROR = -2008;
     const int32_t EXIT_FILE_BUSY_ERROR = -2009;
+    const int32_t EXIT_UNLINK_FILE_ERROR = -2010;
+    const int32_t EXIT_CLOSE_FILE_ERROR = -2011;
+    const int32_t EXIT_DS_TABLE_EMPTY = -2012;
 
     const int32_t EXIT_NETWORK_ERROR = -3000;
     const int32_t EXIT_IOCTL_ERROR = -3001;
@@ -85,7 +106,7 @@ namespace tfs
     const int32_t EXIT_ACCESS_MODE_ERROR = -5012;//access mode error
     const int32_t EXIT_PLAY_LOG_ERROR = -5013;//play log error
     const int32_t EXIT_NAMESERVER_ONLY_READ = -5014;//current nameserver only read
-    const int32_t EXIT_BLOCK_ALREADY_EXIST = -5015;//current block already exist
+    const int32_t EXIT_BLOCK_ALREADY_EXIST = -5015;//block lack of replica
     const int32_t EXIT_CREATE_BLOCK_BY_ID_ERROR = -5016;//create block by block id failed
     const int32_t EIXT_SERVER_OBJECT_NOT_FOUND = -5017;//server object not found in XXX
     const int32_t EXIT_UPDATE_RELATION_ERROR = -5018;//update relation error
@@ -106,7 +127,28 @@ namespace tfs
     const int32_t EXIT_BLOCK_WRITING_ERROR = -5033;
     const int32_t EXIT_MOVE_OR_REPLICATE_ERROR = -5034;
     const int32_t EXIT_BUILD_RELATION_ERROR = -5035;//build relation error
-    const int32_t EXIT_BLOCK_NO_WRITABLE = -5043;//
+    const int32_t EXIT_NO_FAMILY = -5036;
+    const int32_t EXIT_MARSHALLING_ITEM_QUEUE_EMPTY = -5037;
+    const int32_t EXIT_CHOOSE_TARGET_SERVER_INSUFFICIENT_ERROR = -5038;
+    const int32_t EXIT_BLOCK_IN_FAMILY_NOT_FOUND = -5039;
+    const int32_t EXIT_FAMILY_EXISTED = -5040;
+    const int32_t EXIT_TASK_TYPE_NOT_DEFINED = -5041;
+    const int32_t EXIT_CREATE_FAMILY_ID_ERROR = -5042;
+    const int32_t EXIT_BLOCK_NO_WRITABLE = -5043;
+    const int32_t EXIT_FAMILY_MEMBER_INFO_ERROR = -5044;
+    const int32_t EXIT_RELIEVE_RELATION_ERROR = -5045;
+    const int32_t EXIT_FAMILY_EXISTED_IN_TASK_QUEUE_ERROR = -5046;
+    const int32_t EXIT_SERVER_ID_INVALID_ERROR = -5047;
+    const int32_t EXIT_SERVER_EXISTED = -5048;
+    const int32_t EXIT_INSERT_SERVER_ERROR = -5049;
+    const int32_t EXIT_BLOCK_FULL = -5050;
+    const int32_t EXIT_BLOCK_VERSION_ERROR = -5051;
+    const int32_t EXIT_EXPIRE_SELF_ERROR = -5052;
+    const int32_t EXIT_FAMILY_MEMBER_NUM_ERROR = -5053;
+    const int32_t EXIT_BLOCK_CANNOT_REINSTATE = -5054;
+    const int32_t EXIT_COMMIT_BLOCK_UPDATE_ERROR = -5055;
+    const int32_t EXIT_INITIALIZE_TAIR_ERROR = -5056;
+    const int32_t EXIT_REPORT_BLOCK_ERROR = -5057;
 
     const int32_t EXIT_WRITE_OFFSET_ERROR = -8001; // write offset error
     const int32_t EXIT_READ_OFFSET_ERROR = -8002; // read offset error
@@ -132,8 +174,8 @@ namespace tfs
     const int32_t EXIT_PHYSIC_UNEXPECT_FOUND_ERROR = -8022; // physical block is already exist in file system
     const int32_t EXIT_BLOCK_SETED_ERROR = -8023;
     const int32_t EXIT_INDEX_ALREADY_LOADED_ERROR = -8024; // index is loaded when create or load
-    const int32_t EXIT_META_NOT_FOUND_ERROR = -8025; // meta not found in index
-    const int32_t EXIT_META_UNEXPECT_FOUND_ERROR = -8026; // meta found in index when insert
+    const int32_t EXIT_META_NOT_FOUND_ERROR = -8025; // file meta not found in index
+    const int32_t EXIT_META_UNEXPECT_FOUND_ERROR = -8026; // file meta found in index when insert
     const int32_t EXIT_META_OFFSET_ERROR = -8027; // require offset is out of index size
     const int32_t EXIT_BUCKET_CONFIGURE_ERROR = -8028; // bucket size is conflict with before
     const int32_t EXIT_INDEX_UNEXPECT_EXIST_ERROR = -8029; // index already exist when create index
@@ -147,6 +189,46 @@ namespace tfs
     const int32_t EXIT_FALLOCATE_NOT_IMPLEMENT = -8037; // fallocate is not implement
     const int32_t EXIT_SYNC_FILE_ERROR = -8038;//sync file failed
     const int32_t EXIT_HALF_BLOCK_ERROR = -8039;  // half state block
+    const int32_t EXIT_INVALID_WRITE_LEASE = -8040;
+    const int32_t EXIT_RESOLVE_BLOCK_VERSION_CONFLICT_ERROR = -8041;
+    const int32_t EXIT_NOT_DATA_INDEX = -8042;
+    const int32_t EXIT_NOT_PARITY_INDEX = -8043;
+    const int32_t EXIT_PHYSICAL_ID_INVALID = -8044;
+    const int32_t EXIT_FS_TYPE_ERROR = -8045;
+    const int32_t EXIT_BLOCK_SIZE_INVALID = -8046;
+    const int32_t EXIT_ARG_SEGMENT_SIZE_INVALID = -8047;
+    const int32_t EXIT_MOUNT_POINT_ERROR = -8048;
+    const int32_t EXIT_ADD_LOGIC_BLOCK_ERROR = -8049;
+    const int32_t EXIT_ADD_PHYSICAL_BLOCK_ERROR = -8050;
+    const int32_t EXIT_SUPERBLOCK_INVALID_ERROR = -8051;
+    const int32_t EXIT_BLOCK_NO_DATA = -8052;
+    const int32_t EXIT_FILE_EMPTY = -8053;
+    const int32_t EXIT_PHYSICAL_BLOCK_NOT_FOUND = -8054;
+    const int32_t EXIT_READ_ALLOC_BIT_MAP_ERROR = -8055;
+    const int32_t EXIT_BIT_MAP_OUT_OF_RANGE = -8056;
+    const int32_t EXIT_ALLOC_PHYSICAL_BLOCK_ERROR = -8057;
+    const int32_t EXIT_INDEX_NOT_LOAD_ERROR = -8058;
+    const int32_t EXIT_INDEX_HEADER_NOT_FOUND = -8059;
+    const int32_t EXIT_INSERT_INDEX_SLOT_NOT_FOUND_ERROR   = -8060;
+    const int32_t EXIT_INVALID_FILE_ID_ERROR = -8061;
+    const int32_t EXIT_WRITE_ALLOC_BIT_MAP_ERROR = -8062;
+    const int32_t EXIT_LOGIC_BLOCK_NOT_EXIST_ERROR = -8063;
+    const int32_t EXIT_MAX_BLOCK_INDEX_COUNT_INVALID = -8064;
+    const int32_t EXIT_MOUNT_SPACE_SIZE_ERROR = -8065;
+    const int32_t EXIT_PHYSICAL_BLOCK_EXIST_ERROR = -8066;
+    const int32_t EXIT_VERIFY_INDEX_BLOCK_NOT_FOUND_ERROR = -8067;
+    const int32_t EXIT_INDEX_DATA_INVALID_ERROR = -8068;
+    const int32_t EXIT_ALLOC_PHYSICAL_BLOCK_USE_ERROR = -8069;//当前物理BLOCK正在使用
+    const int32_t EXIT_NOT_SUPPORT_ERROR = -8070; // a clue to old clients
+    const int32_t EXIT_BLOCK_LEASE_OVERLOAD_ERROR = -8071;
+    const int32_t EXIT_BLOCK_LEASE_INVALID_ERROR = -8072;
+    const int32_t EXIT_NETWORK_BUSY_ERROR = -8073;
+    const int32_t EXIT_NOT_ALL_SUCCESS = -8074;
+    const int32_t EXIT_BLOCK_SIZE_OUT_OF_RANGE = -8075;
+    const int32_t EXIT_BLOCK_VERSION_CONFLICT_ERROR = -8076;
+    const int32_t EXIT_BLOCK_IN_TASK_QUEUE = -8077;
+    const int32_t EXIT_CHECK_QUEUE_FULL = -8078;
+    const int32_t EXIT_BG_TASK_QUEUE_FULL = -8079;
 
     const int32_t EXIT_SESSION_EXIST_ERROR = -9001;
     const int32_t EXIT_SESSIONID_INVALID_ERROR = -9002;
@@ -182,19 +264,49 @@ namespace tfs
     const int32_t EXIT_NEW_TABLE_NOT_EXIST= -15006;//new table not exist
     const int32_t EXIT_NEW_TABLE_INVALID = -15007;//new table invalid
 
-    const int32_t EXIT_INVALID_OBJECT = -16000;// no meta info or something
-    const int32_t EXIT_KV_RETURN_DATA_NOT_EXIST = -16001;//no data in kv
-    const int32_t EXIT_KV_RETURN_ERROR = -16002;//kv error
-    const int32_t EXIT_KV_RETURN_VERSION_ERROR = -16003;
-    const int32_t EXIT_KV_SCAN_ERROR = -16004;
+    // erasure code related
+    const int32_t EXIT_NO_MEMORY = -16000;
+    const int32_t EXIT_DATA_INVALID = -16001;
+    const int32_t EXIT_SIZE_INVALID = -16002;
+    const int32_t EXIT_MATRIX_INVALID = -16003;
+    const int32_t EXIT_NO_ENOUGH_DATA = -16004;
+    const int32_t EXIT_ENCODE_FAIL = -16005;
+    const int32_t EXIT_DECODE_FAIL = -16006;
+    const int32_t EXIT_NO_NEED_REINSTATE = -16007;
+    const int32_t EXIT_BLOCK_NOT_PRESENT = -16008;
 
-    const int32_t EXIT_OBJECT_OVERLAP = -16005;// pwrite object overlap
-    const int32_t EXIT_OBJECT_NOT_EXIST = -16006; //get_key(key not exist, object type)
-    const int32_t EXIT_BUCKET_EXIST = -16007;// bucket already exist
-    const int32_t EXIT_INVALID_KV_META_SERVER = -16008;// no kv meta server
+    // kv meta related
+    const int32_t EXIT_INVALID_OBJECT = -17000;// no meta info or something
+    const int32_t EXIT_KV_RETURN_DATA_NOT_EXIST = -17001;//no data in kv
+    const int32_t EXIT_KV_RETURN_ERROR = -17002;//kv error
+    const int32_t EXIT_KV_RETURN_VERSION_ERROR = -17003;
+    const int32_t EXIT_KV_SCAN_ERROR = -17004;
 
-    const int32_t EXIT_KV_RETURN_HAS_MORE_DATA = -17000; //tair return over 1M of get range once
+    const int32_t EXIT_OBJECT_OVERLAP = -17005;// pwrite object overlap
+    const int32_t EXIT_OBJECT_NOT_EXIST = -17006; //get_key(key not exist, object type)
+    const int32_t EXIT_BUCKET_EXIST = -17007;// bucket already exist
+    const int32_t EXIT_INVALID_KV_META_SERVER = -17008;// no kv meta server
+    const int32_t EXIT_KV_RETURN_HAS_MORE_DATA = -17009; //tair return over 1M of get range once
+    const int32_t EXIT_REQ_OFFSET_NOT_FIND = -17100;//do direct scan offset but reqoffset not in scan
+    const int32_t EXIT_KV_METADATA_LENNTH_EXCEED = -17101;//do direct scan offset but reqoffset not in scan
+    const int32_t EXIT_KV_STORE_CAN_NOT_CONNECT = -17102;
 
+    // life cycle manager related
+    const int32_t EXIT_LIFE_CYCLE_INFO_EXIST = -18000;
+    const int32_t EXIT_INVALID_LIFECYCLE_ROOT_SERVER = -18001;
+
+
+    //sync file
+    const int32_t EXIT_SYNC_FILE_PART_SUCCESSFUL = -20000;
+    const int32_t EXIT_FILE_COUNT_CONFLICT_ERROR = -20001;
+    const int32_t EXIT_SYNC_FILE_NOTHING = -20002;
+
+    //http packet
+    const int32_t EXIT_NO_HTTP_HEADER = -21000;
+    const int32_t EXIT_NO_HTTP_REQUEST_LINE = -21001;
+    const int32_t EXIT_NO_HTTP_REQUEST_HEADER = -21002;
+    const int32_t EXIT_WRONG_HTTP_PROTOCOL = -21003;
+    const int32_t EXIT_SEND_HTTP_ERROR = -21004;
   }
 }
 #endif //TFS_COMMON_ERRMSG_H_

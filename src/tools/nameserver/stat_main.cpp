@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: stat_main.cpp 1737 2012-11-28 06:50:01Z chuyu $
+ * Version: $Id: stat_main.cpp 3124 2014-08-12 09:42:42Z shiqing $
  *
  * Authors:
  *   chuyu <chuyu@taobao.com>
@@ -15,6 +15,7 @@
  */
 
 #include "stat_tool.h"
+#include "common/version.h"
 
 using namespace std;
 using namespace tfs::common;
@@ -42,7 +43,7 @@ int32_t do_stat(const int32_t size, T& v_value_range)
 }
 
 int block_process(const uint64_t ns_id, StatInfo& file_stat_info,
-    V_BLOCK_SIZE_RANGE& v_block_size_range, V_DEL_BLOCK_RANGE& v_del_block_range, BLOCK_SIZE_SET& s_bigid_block, BLOCK_SIZE_SET& s_big_block, const int32_t top_num, BLOCK_SIZE_SET& s_topn_block)
+    V_BLOCK_SIZE_RANGE& v_block_size_range, V_DEL_BLOCK_RANGE& v_del_block_range, BLOCK_SIZE_SET& s_big_block, const int32_t top_num, BLOCK_SIZE_SET& s_topn_block)
 {
   const int32_t num = 1000;
   int32_t ret  = TFS_ERROR;
@@ -92,17 +93,11 @@ int block_process(const uint64_t ns_id, StatInfo& file_stat_info,
         // add to file stat
         file_stat_info.add(block);
 
-        // get block with big id
-        if (block.info_.block_id_ >= MAGIC_BLOCK_ID)
-        {
-          s_bigid_block.insert(BlockSize(block.info_.block_id_, block.info_.size_));
-        }
-
         // do range stat
         ret = do_stat(block.info_.size_ / M_UNITS, v_block_size_range);
         if (ret != TFS_SUCCESS)
         {
-          TBSYS_LOG(ERROR, "some error occurs, blockid: %u, size: %d", block.info_.block_id_, block.info_.size_);
+          TBSYS_LOG(ERROR, "some error occurs, blockid: %"PRI64_PREFIX"u, size: %d", block.info_.block_id_, block.info_.size_);
         }
 
         // get big block info
@@ -114,7 +109,7 @@ int block_process(const uint64_t ns_id, StatInfo& file_stat_info,
         // count del block range
         if (block.info_.del_size_ < 0)
         {
-          TBSYS_LOG(ERROR, "some error occurs, blockid: %u, del size: %d, size: %d", block.info_.block_id_, block.info_.del_size_, block.info_.size_);
+          TBSYS_LOG(ERROR, "some error occurs, blockid: %"PRI64_PREFIX"u, del size: %d, size: %d", block.info_.block_id_, block.info_.del_size_, block.info_.size_);
         }
         else
         {
@@ -122,7 +117,7 @@ int block_process(const uint64_t ns_id, StatInfo& file_stat_info,
           ret = do_stat(percent, v_del_block_range);
           if (ret != TFS_SUCCESS)
           {
-            TBSYS_LOG(ERROR, "some error occurs, blockid: %u, del size: %d, size: %d", block.info_.block_id_, block.info_.del_size_, block.info_.size_);
+            TBSYS_LOG(ERROR, "some error occurs, blockid: %"PRI64_PREFIX"u, del size: %d, size: %d", block.info_.block_id_, block.info_.del_size_, block.info_.size_);
           }
         }
 
@@ -156,16 +151,23 @@ void usage(const char *name)
   fprintf(stderr, "\n****************************************************************************** \n");
   fprintf(stderr, "use this tool to get cluster file and block stat info.\n");
   fprintf(stderr, "Usage: \n");
-  fprintf(stderr, "  %s -s ns_addr [-f log_file] [-m top_num] [-n]\n", name);
+  fprintf(stderr, "  %s -s ns_addr [-f log_file] [-m top_num] [-n][-h][-v]\n", name);
   fprintf(stderr, "     -s ns_addr.   cluster ns addr\n");
   fprintf(stderr, "     -f log_file.  log file for recoding stat info, default is stat_log\n");
   fprintf(stderr, "     -m top_num.   one stat info param, to get top n most biggest blocks, default is 20\n");
   fprintf(stderr, "     -n.           set log level to info, default is debug\n");
+  fprintf(stderr, "     -h.           show this info\n");
+  fprintf(stderr, "     -v.           version\n");
   fprintf(stderr, "\n");
   fprintf(stderr, "\n");
   exit(TFS_ERROR);
 }
 
+void version(const char* app_name)
+{
+  fprintf(stderr, "%s %s\n", app_name, Version::get_build_description());
+  exit(0);
+}
 
 int main(int argc,char** argv)
 {
@@ -174,7 +176,7 @@ int main(int argc,char** argv)
   string log_file("stat_log");
   int32_t top_num = 20;
   bool is_debug = true;
-  while ((i = getopt(argc, argv, "s:f:m:nh")) != EOF)
+  while ((i = getopt(argc, argv, "s:f:m:nhv")) != EOF)
   {
     switch (i)
     {
@@ -189,6 +191,9 @@ int main(int argc,char** argv)
         break;
       case 'n':
         is_debug = false;
+        break;
+      case 'v':
+        version(argv[0]);
         break;
       case 'h':
       default:
@@ -211,16 +216,20 @@ int main(int argc,char** argv)
 
   if (! is_debug)
   {
-    TBSYS_LOGGER.setLogLevel("info");
+    TBSYS_LOGGER.setLogLevel("warn");
   }
 
   gstreamer.set_packet_factory(&gfactory);
-  NewClientManager::get_instance().initialize(&gfactory, &gstreamer);
+  int ret = NewClientManager::get_instance().initialize(&gfactory, &gstreamer);
+  if (TFS_SUCCESS != ret)
+  {
+    TBSYS_LOG(ERROR, "initialize NewClientManager fail, ret: %d", ret);
+    return ret;
+  }
 
   StatInfo stat_info;
   V_BLOCK_SIZE_RANGE v_block_size_range;
   V_DEL_BLOCK_RANGE v_del_block_range;
-  set<BlockSize> s_bigid_block;
   set<BlockSize> s_big_block;
   set<BlockSize> s_topn_block;
 
@@ -239,7 +248,12 @@ int main(int argc,char** argv)
   }
 
   // do stat
-  block_process(ns_id, stat_info, v_block_size_range, v_del_block_range, s_bigid_block, s_big_block, top_num, s_topn_block);
+  ret = block_process(ns_id, stat_info, v_block_size_range, v_del_block_range, s_big_block, top_num, s_topn_block);
+  if (TFS_SUCCESS != ret)
+  {
+    TBSYS_LOG(ERROR, "scan all blocks from ns fail, ret: %d", ret);
+    return ret;
+  }
 
   // print info to log file
   fprintf(fp, "--------------------------block file info-------------------------------\n");
@@ -256,23 +270,17 @@ int main(int argc,char** argv)
   {
     diter->dump(fp);
   }
-  fprintf(fp, "--------------------------big blockid list whose id is bigger than %d. num: %zd -------------------------------\n", MAGIC_BLOCK_ID, s_bigid_block.size());
-  set<BlockSize>::iterator biditer = s_bigid_block.begin();
-  for (; biditer != s_bigid_block.end(); biditer++)
-  {
-    fprintf(fp, "block_id: %u, size: %d\n", biditer->block_id_, biditer->file_size_);
-  }
   fprintf(fp, "--------------------------block list whose size bigger is than %d. num: %zd -------------------------------\n", THRESHOLD, s_big_block.size());
   set<BlockSize>::reverse_iterator rbiter = s_big_block.rbegin();
   for (; rbiter != s_big_block.rend(); rbiter++)
   {
-    fprintf(fp, "block_id: %u, size: %d\n", rbiter->block_id_, rbiter->file_size_);
+    fprintf(fp, "block_id: %"PRI64_PREFIX"u, size: %d\n", rbiter->block_id_, rbiter->file_size_);
   }
   fprintf(fp, "--------------------------top %d block list-------------------------------\n", top_num);
   set<BlockSize>::reverse_iterator rtiter = s_topn_block.rbegin();
   for (; rtiter != s_topn_block.rend(); rtiter++)
   {
-    fprintf(fp, "block_id: %u, size: %d\n", rtiter->block_id_, rtiter->file_size_);
+    fprintf(fp, "block_id: %"PRI64_PREFIX"u, size: %d\n", rtiter->block_id_, rtiter->file_size_);
   }
   fclose(fp);
 }

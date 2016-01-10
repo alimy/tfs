@@ -34,7 +34,8 @@ namespace tfs
       int32_t replicate_ratio_;
       int32_t replicate_wait_time_;
       int32_t compact_delete_ratio_;
-      int32_t compact_max_load_;
+      int32_t compact_update_ratio_;
+      int32_t compact_task_ratio_;
       int32_t compact_time_lower_;
       int32_t compact_time_upper_;
       int32_t cluster_index_;
@@ -58,7 +59,33 @@ namespace tfs
       int32_t max_write_timeout_;
       int32_t cleanup_write_timeout_threshold_;
       int32_t choose_target_server_random_max_nums_;
+      int32_t choose_target_server_retry_max_nums_;
       int32_t keepalive_queue_size_;
+      int32_t marshalling_delete_ratio_;
+      int32_t marshalling_time_lower_;
+      int32_t marshalling_time_upper_;
+      int32_t marshalling_type_;
+      int32_t marshalling_visit_time_;
+      int32_t max_data_member_num_;
+      int32_t max_check_member_num_;
+      int32_t max_marshalling_queue_timeout_;
+      int32_t max_marshalling_num_;
+      int32_t move_task_expired_time_;
+      int32_t compact_task_expired_time_;
+      int32_t marshalling_task_expired_time_;
+      int32_t reinstate_task_expired_time_;
+      int32_t dissolve_task_expired_time_;
+      int32_t max_mr_network_bandwith_ratio_;
+      int32_t max_rw_network_bandwith_ratio_;
+      int32_t compact_family_member_ratio_;
+      int32_t max_single_machine_network_bandwith_;
+      int32_t adjust_copies_location_time_lower_;
+      int32_t adjust_copies_location_time_upper_;
+      int32_t write_file_check_copies_complete_;
+      int32_t enable_old_interface_;
+      int32_t enable_version_check_;
+      int32_t verify_index_reserved_space_ratio_;
+      int32_t check_integrity_interval_days_;
       double  balance_percent_;
 
       static NameServerParameter ns_parameter_;
@@ -81,6 +108,8 @@ namespace tfs
       float block_type_ratio_;
       int32_t file_system_version_;
       float hash_slot_ratio_; // 0.5
+      int32_t max_init_index_element_nums_;
+      int32_t max_extend_index_element_nums_;
       static FileSystemParameter fs_parameter_;
       static std::string get_real_mount_name(const std::string& mount_name, const std::string& index);
       static FileSystemParameter& instance()
@@ -117,6 +146,9 @@ namespace tfs
       int32_t dump_stat_info_interval_;
       int32_t max_sync_retry_count_;
       int32_t max_sync_retry_interval_;
+      int32_t sync_fail_retry_interval_;
+      int32_t max_bg_task_queue_size_;
+      std::map<uint64_t, int32_t> cluster_version_list_;
       static std::string get_real_file_name(const std::string& src_file,
           const std::string& index, const std::string& suffix);
       static int get_real_ds_port(const int ds_port, const std::string& index);
@@ -134,9 +166,12 @@ namespace tfs
       std::string db_info_;
       std::string db_user_;
       std::string db_pwd_;
+      std::vector<std::string> ops_db_info_;
       int64_t monitor_interval_;
       int64_t stat_interval_;
       int64_t update_interval_;
+      int64_t count_interval_;
+      int64_t monitor_key_interval_;
 
       static RcServerParameter rc_parameter_;
       static RcServerParameter& instance()
@@ -195,13 +230,21 @@ namespace tfs
 
     struct CheckServerParameter
     {
-      int32_t block_stable_time_;
-      int32_t check_interval_;
-      int32_t overlap_check_time_;
-      int32_t thread_count_;
+      uint64_t self_id_;
+      uint64_t ns_id_;
+      uint64_t peer_ns_id_;
       int32_t cluster_id_;
-      uint64_t master_ns_id_;
-      uint64_t slave_ns_id_;
+      int32_t check_interval_;
+      int32_t check_span_;
+      int32_t thread_count_;
+      int32_t check_retry_turns_;
+      int32_t block_check_interval_;            // mill seconds
+      int32_t block_check_cost_;                // mill seoncds
+      int32_t check_flag_;
+      int32_t check_reserve_time_;
+      int32_t force_check_all_;
+      int32_t start_time_hour_;
+      int32_t start_time_min_;
 
       int initialize(const std::string& config_file);
 
@@ -214,10 +257,11 @@ namespace tfs
 
     struct KvMetaParameter
     {
-      std::string tair_master_;
-      std::string tair_slave_;
-      std::string tair_group_;
-      int tair_object_area_;
+      std::string conn_str_;
+      std::string user_name_;
+      std::string pass_wd_;
+      int object_area_;
+      int lifecycle_area_;
       int32_t dump_stat_info_interval_;
       uint64_t rs_ip_port_;
       uint64_t ms_ip_port_;
@@ -247,6 +291,51 @@ namespace tfs
       }
     };
 
+    struct ExpireServerParameter
+    {
+      std::string conn_str_;
+      std::string user_name_;
+      std::string pass_wd_;
+      int lifecycle_area_;
+      uint64_t ers_ip_port_;
+      uint64_t es_ip_port_;
+      std::string nginx_root_;
+      int re_clean_days_;
+      std::string es_appkey_;
+      std::string log_level_;
+
+      int initialize(const std::string& config_file);
+
+      static ExpireServerParameter expire_server_parameter_;
+      static ExpireServerParameter& instance()
+      {
+        return expire_server_parameter_;
+      }
+    };
+
+    struct ExpireRootServerParameter
+    {
+      std::string conn_str_;
+      std::string user_name_;
+      std::string pass_wd_;
+      int lifecycle_area_;
+
+      int32_t es_rts_lease_expired_time_;  //4s
+      int32_t es_rts_check_lease_interval_;  //1s
+      int32_t es_rts_heart_interval_;       //2s
+      int32_t safe_mode_time_;
+      int32_t task_period_;
+      int32_t note_interval_;
+
+      int initialize(const std::string &config_file);
+
+      static ExpireRootServerParameter expire_root_server_parameter_;
+      static ExpireRootServerParameter& instance()
+      {
+        return expire_root_server_parameter_;
+      }
+    };
+
 #define SYSPARAM_NAMESERVER NameServerParameter::instance()
 #define SYSPARAM_DATASERVER DataServerParameter::instance()
 #define SYSPARAM_FILESYSPARAM FileSystemParameter::instance()
@@ -256,6 +345,8 @@ namespace tfs
 #define SYSPARAM_CHECKSERVER CheckServerParameter::instance()
 #define SYSPARAM_KVMETA KvMetaParameter::instance()
 #define SYSPARAM_KVRTSERVER KvRtServerParameter::instance()
+#define SYSPARAM_EXPIRESERVER ExpireServerParameter::instance()
+#define SYSPARAM_EXPIREROOTSERVER ExpireRootServerParameter::instance()
   }/** common **/
 }/** tfs **/
 #endif //TFS_COMMON_SYSPARAM_H_

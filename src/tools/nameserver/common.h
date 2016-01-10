@@ -36,7 +36,11 @@ namespace tfs
     {
       SERVER_TYPE = 1,
       BLOCK_TYPE = 2,
-      MACHINE_TYPE = 4
+      MACHINE_TYPE = 4,
+      BLOCK_DISTRIBUTION_TYPE = 8,
+      RACK_BLOCK_TYPE = 16,
+      FAMILY_TYPE = 32,
+      CHECK_BLOCK_TYPE = 64,
     };
 
     enum ComCmd
@@ -45,7 +49,7 @@ namespace tfs
       CMD_UNKNOWN,
       CMD_NUM = 2,
       CMD_BLOCK_INFO,
-      CMD_BLOCK_ID,
+      CMD_BLOCK_ID,//CMD_BLOCK_ID, CMD_FAMILY_ID
       CMD_SERVER_LIST,
       CMD_SERVER_INFO,
       CMD_SERVER_ID,
@@ -57,7 +61,10 @@ namespace tfs
       CMD_FOR_MONITOR,
       CMD_COUNT,
       CMD_INTERVAL,
-      CMD_REDIRECT
+      CMD_REDIRECT,
+      CMD_IP_ID,
+      CMD_IP_MASK_ID,
+      CMD_IP_GROUP_ID
     };
     enum SubCmdBlockType
     {
@@ -78,6 +85,18 @@ namespace tfs
       MACHINE_TYPE_PART = 2,
       MACHINE_TYPE_FOR_MONITOR = 4
     };
+    enum SubCmdBlockDistribution
+    {
+      BLOCK_IP_DISTRIBUTION_TYPE = 1,
+      BLOCK_RACK_DISTRIBUTION_TYPE = 2
+    };
+
+    enum SubCmdRackBlockType//RACK_BLOCK_TYPE
+    {
+      RACK_BLOCK_TYPE_RACK_LIST = 1,
+      RACK_BLOCK_TYPE_BLOCK_LIST = 2
+    };
+
     enum CmpBlockType
     {
       BLOCK_CMP_ALL_INFO = 1,
@@ -112,20 +131,25 @@ namespace tfs
     struct ParamInfo
     {
       ParamInfo() :
-        type_(CMD_NOP), num_(MAX_READ_NUM), count_(1), interval_(2), filename_(""), block_id_(0), block_chunk_num_(nameserver::MAX_BLOCK_CHUNK_NUMS), server_ip_port_("")
+        type_(CMD_NOP), num_(MAX_READ_NUM), count_(1), interval_(2), filename_(""), id_(0), server_ip_port_(""), rack_ip_mask_("")
       {}
       ParamInfo(const int8_t type) :
-        type_(type), num_(MAX_READ_NUM), count_(1), interval_(2), filename_(""), block_id_(0), block_chunk_num_(nameserver::MAX_BLOCK_CHUNK_NUMS), server_ip_port_("")
+        type_(type), num_(MAX_READ_NUM), count_(1), interval_(2), filename_(""), id_(0), server_ip_port_(""), rack_ip_mask_("")
       {}
       ~ParamInfo(){}
       int8_t type_;
-      int32_t num_;
-      int32_t count_;
-      int32_t interval_;
+      uint64_t num_;
+      uint64_t count_;
+      uint64_t interval_;
       std::string filename_;
-      uint32_t block_id_;
-      int32_t block_chunk_num_;
+      union
+      {
+        uint64_t block_id_;
+        int64_t family_id_;
+        int64_t id_;
+      };
       std::string server_ip_port_;
+      std::string rack_ip_mask_;
     };
 
     class ServerBase
@@ -150,9 +174,9 @@ namespace tfs
         time_t startup_time_;
         time_t current_time_;
         common::DataServerLiveStatus status_;
-        std::set<uint32_t> hold_;
-        std::set<uint32_t> writable_;
-        std::set<uint32_t> master_;
+        std::set<uint64_t> hold_;
+        std::set<uint64_t> writable_;
+        std::set<uint64_t> master_;
     };
 
     struct ServerInfo
@@ -177,7 +201,7 @@ namespace tfs
     class BlockBase
     {
       public:
-        common::BlockInfo info_;
+        common::BlockInfoV2 info_;
         std::vector<ServerInfo> server_list_;
 
         BlockBase();
@@ -201,7 +225,7 @@ namespace tfs
       std::string tmp = ns_ip_port.substr(0, pos);
       return common::Func::str_to_addr(tmp.c_str(), atoi(ns_ip_port.substr(pos + 1).c_str()));
     }
-    static inline int get_addr(const std::string& ns_ip_port, uint32_t& ip, uint32_t& port)
+    static inline int get_addr(const std::string& ns_ip_port, int64_t& ip, int64_t& port)
     {
       int ret = common::TFS_ERROR;
       std::string::size_type pos = ns_ip_port.find_first_of(":");

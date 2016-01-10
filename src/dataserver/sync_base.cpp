@@ -13,13 +13,15 @@
  *      - initial release
  *   zongdai <zongdai@taobao.com>
  *      - modify 2010-04-23
+ *   linqing <linqing.zyd@taobao.com>
+ *      - modify 2013-06-03
  *
  */
 #include <Memory.hpp>
 
 #include "common/parameter.h"
 #include "common/directory_op.h"
-#include "new_client/fsname.h"
+#include "clientv2/fsname.h"
 #include "sync_base.h"
 #include "dataservice.h"
 
@@ -28,14 +30,15 @@ namespace tfs
   namespace dataserver
   {
     using namespace tfs::common;
-    using namespace tfs::client;
+    using namespace tfs::clientv2;
 
     SyncBase::SyncBase(DataService& service, const int32_t type, const int32_t index,
                        const char* src_addr, const char* dest_addr) :
       service_(service), backup_type_(type), src_addr_(src_addr), dest_addr_(dest_addr),
-      is_master_(false), stop_(0), pause_(0), need_sync_(0), need_sleep_(0),
+      stop_(0), pause_(0), need_sync_(0), need_sleep_(0),
       file_queue_(NULL), backup_(NULL)
     {
+      UNUSED(index);
       if (src_addr != NULL &&
           strlen(src_addr) > 0 &&
           dest_addr != NULL &&
@@ -44,16 +47,17 @@ namespace tfs
         mirror_dir_ = dynamic_cast<DataService*>(DataService::instance())->get_real_work_dir() + "/mirror";
         uint64_t dest_ns_id = Func::get_host_ip(dest_addr);
         char queue_name[20];
+        char fail_queue_name[32];
         sprintf(queue_name, "queue_%"PRI64_PREFIX"u", dest_ns_id);
-        // the 1st one is the master
-        if (index == 0)
-        {
-          is_master_ = true;
-        }
-        file_queue_ = new FileQueue(mirror_dir_, queue_name);
+        sprintf(fail_queue_name, "queue_%"PRI64_PREFIX"u_fail", dest_ns_id);
+        file_queue_ = new (std::nothrow) FileQueue(mirror_dir_, queue_name);
+        assert(NULL != file_queue_);
+        fail_file_queue_ = new (std::nothrow) FileQueue(mirror_dir_, fail_queue_name);
+        assert(NULL != fail_file_queue_);
         if (type == SYNC_TO_TFS_MIRROR)
         {
-          backup_ = new TfsMirrorBackup(*this, src_addr, dest_addr);
+          backup_ = new TfsMirrorBackup(*this, src_addr, dest_addr);    // sync to new version
+          // backup_ = new TfsOldMirrorBackup(*this, src_addr, dest_addr); // sync to old version
         }
         TBSYS_LOG(INFO, "backup type: %d, construct result: %d", type, backup_ ? 1 : 0);
       }
@@ -64,6 +68,7 @@ namespace tfs
     SyncBase::~SyncBase()
     {
       tbsys::gDelete(file_queue_);
+      tbsys::gDelete(fail_file_queue_);
       tbsys::gDelete(backup_);
     }
 
@@ -75,22 +80,24 @@ namespace tfs
         ret = file_queue_->load_queue_head();
         if (TFS_SUCCESS == ret)
         {
+          ret = fail_file_queue_->load_queue_head();
+        }
+
+        if (TFS_SUCCESS == ret)
+        {
           ret = file_queue_->initialize();
           if (TFS_SUCCESS == ret)
           {
-            need_sync_ = backup_ ? backup_->init() : false;
-            if (!need_sync_)
-            {
-              ret = TFS_ERROR;
-            }
-            else
-            {
-              // master need to recover second queue for compatibility
-              if (is_master_)
-              {
-                ret = recover_second_queue();
-              }
-            }
+            ret = fail_file_queue_->initialize();
+          }
+        }
+
+        if (TFS_SUCCESS == ret)
+        {
+          need_sync_ = backup_ ? backup_->init() : false;
+          if (!need_sync_)
+          {
+            ret = TFS_ERROR;
           }
         }
       }
@@ -103,9 +110,6 @@ namespace tfs
       sync_mirror_monitor_.lock();
       sync_mirror_monitor_.notifyAll();
       sync_mirror_monitor_.unlock();
-      retry_wait_monitor_.lock();
-      retry_wait_monitor_.notifyAll();
-      retry_wait_monitor_.unlock();
 
       // wait for thread join
       if (NULL != backup_)
@@ -189,6 +193,20 @@ namespace tfs
           if (TFS_SUCCESS == do_sync(&item->data_[0], item->length_))
           {
             file_queue_->finish(0);
+            SyncData* sf = reinterpret_cast<SyncData*>(&item->data_[0]);
+            LogUniqueKey key;
+            key.cmd_ = sf->cmd_;
+            key.block_id_ = sf->block_id_;
+            key.file_id_  = sf->file_id_;
+            tbutil::Monitor<tbutil::Mutex>::Lock lock(sync_mirror_monitor_);
+            unique_key_.erase(key);
+          }
+          else
+          {
+            // if fail, push it to fail queue again
+            fail_queue_mutex_.lock();
+            fail_file_queue_->push(&item->data_[0], item->length_);
+            fail_queue_mutex_.unlock();
           }
           free(item);
         }
@@ -207,31 +225,89 @@ namespace tfs
       return TFS_SUCCESS;
     }
 
-    int SyncBase::write_sync_log(const int32_t cmd, const uint32_t block_id, const uint64_t file_id, const uint64_t old_file_id)
+    int SyncBase::run_fail_sync_mirror()
     {
-      int32_t ret = block_id > 0 ? TFS_SUCCESS : TFS_ERROR;
+      while (!stop_)
+      {
+        if (!fail_file_queue_->empty())
+        {
+          // pop all the elements, and do sync once
+          const QueueInformationHeader* header = fail_file_queue_->get_queue_information_header();
+          const int32_t queue_size = header->queue_size_;
+          for (int index = 0; index < queue_size && !stop_; index++)
+          {
+            fail_queue_mutex_.lock();
+            QueueItem* item = fail_file_queue_->pop(0);
+            fail_queue_mutex_.unlock();
+
+            if (NULL != item)
+            {
+              if (TFS_SUCCESS == do_sync(&item->data_[0], item->length_))
+              {
+                fail_file_queue_->finish(0);
+                SyncData* sf = reinterpret_cast<SyncData*>(&item->data_[0]);
+                LogUniqueKey key;
+                key.cmd_ = sf->cmd_;
+                key.block_id_ = sf->block_id_;
+                key.file_id_  = sf->file_id_;
+                tbutil::Monitor<tbutil::Mutex>::Lock lock(sync_mirror_monitor_);
+                unique_key_.erase(key);
+              }
+              else
+              {
+                // if fail, push it to fail queue again
+                fail_queue_mutex_.lock();
+                fail_file_queue_->push(&item->data_[0], item->length_);
+                fail_queue_mutex_.unlock();
+              }
+              free(item);
+            }
+          }
+        }
+
+        const QueueInformationHeader* header = fail_file_queue_->get_queue_information_header();
+        TBSYS_LOG(INFO, "sync fail queue item size: %d, dest_addr: %s", header->queue_size_, dest_addr_.c_str());
+
+        // default 5 minutes
+        interruptable_usleep(SYSPARAM_DATASERVER.sync_fail_retry_interval_ * 1000000);
+      }
+
+      return TFS_SUCCESS;
+    }
+
+    int SyncBase::write_sync_log(const int32_t cmd, const uint64_t block_id, const uint64_t file_id, const uint64_t old_file_id)
+    {
+      int32_t ret = (block_id != INVALID_BLOCK_ID) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
       if (TFS_SUCCESS == ret)
       {
         if (stop_ || 0 == need_sync_)
         {
-          TBSYS_LOG(INFO, " no need write sync log, blockid: %u, fileid: %" PRI64_PREFIX "u, need sync: %d", block_id,
-              file_id, need_sync_);
-          return TFS_SUCCESS;
+          TBSYS_LOG(INFO, "process mybe stop or need_sync == 0, no need write sync log, block_id: %"PRI64_PREFIX"u,file_id: %"PRI64_PREFIX"u, need_sync: %d", block_id, file_id, need_sync_);
         }
-
-        SyncData data;
-        memset(&data, 0, sizeof(SyncData));
-        data.cmd_ = cmd;
-        data.block_id_ = block_id;
-        data.file_id_ = file_id;
-        data.old_file_id_ = old_file_id;
-        data.retry_time_ = time(NULL);
-
-        sync_mirror_monitor_.lock();
-        ret = file_queue_->push(reinterpret_cast<void*>(&data), sizeof(SyncData));
-        sync_mirror_monitor_.notify();
-        sync_mirror_monitor_.unlock();
-
+        else
+        {
+          LogUniqueKey key;
+          key.cmd_ = cmd;
+          key.block_id_ = block_id;
+          key.file_id_  = file_id;
+          tbutil::Monitor<tbutil::Mutex>::Lock lock(sync_mirror_monitor_);
+          std::set<LogUniqueKey>::const_iterator iter = unique_key_.find(key);
+          if (iter == unique_key_.end())
+          {
+            SyncData data;
+            data.cmd_ = cmd;
+            data.block_id_ = block_id;
+            data.file_id_ = file_id;
+            data.old_file_id_ = old_file_id;
+            data.retry_time_ = time(NULL);
+            ret = file_queue_->push(reinterpret_cast<void*>(&data), sizeof(SyncData));
+            if (TFS_SUCCESS == ret)
+            {
+              unique_key_.insert(key);
+            }
+            sync_mirror_monitor_.notify();
+          }
+        }
       }
       return ret;
     }
@@ -285,32 +361,18 @@ namespace tfs
 
     int SyncBase::do_sync(const char* data, const int32_t len)
     {
-      TIMER_START();
-      if (NULL == data || len != sizeof(SyncData))
-      {
-        TBSYS_LOG(WARN, "SYNC_ERROR: data null or len error, %d <> %zd", len, sizeof(SyncData));
-        return TFS_ERROR;
-      }
-      SyncData* sf = reinterpret_cast<SyncData*>(const_cast<char*>(data));
-      TBSYS_LOG(DEBUG, "sync_begin. block_id: %u, file_id: %"PRI64_PREFIX"u,action: %d",
-          sf->block_id_, sf->file_id_, sf->cmd_);
-      int ret = backup_->do_sync(sf);
-      TIMER_END();
+      int32_t ret = (NULL != data && len == sizeof(SyncData)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
+      if (TFS_SUCCESS != ret)
+        TBSYS_LOG(WARN, "sync error, data is null or len error, %d <> %zd, %d", len, sizeof(SyncData), ret);
       if (TFS_SUCCESS == ret)
       {
-        TBSYS_LOG(INFO, "sync_ok. block_id: %u, file_id: %"PRI64_PREFIX"u,action: %d, cost: %"PRI64_PREFIX"d",
-            sf->block_id_, sf->file_id_, sf->cmd_, TIMER_DURATION());
+        SyncData* sf = reinterpret_cast<SyncData*>(const_cast<char*>(data));
+        FSName fsname(sf->block_id_, sf->file_id_, 0);
+        ret = backup_->do_sync(sf);
+        TBSYS_LOG_IW(ret, "sync file %s to dest %s %s. blockid: %"PRI64_PREFIX"u, fileid: %"PRI64_PREFIX"u, action: %d, ret: %d",
+          fsname.get_name(), dest_addr_.c_str(), TFS_SUCCESS == ret ? "successful" : "fail", sf->block_id_, sf->file_id_, sf->cmd_, ret);
       }
-      else
-      {
-        // log to a file???
-        FSName fsname(sf->block_id_, sf->file_id_);
-        TBSYS_LOG(ERROR, "sync_fail. block_id: %u, file_id: %"PRI64_PREFIX"u,"
-            "action: %d, ret: %d, name:%s, cost: %"PRI64_PREFIX"d",
-            sf->block_id_, sf->file_id_, sf->cmd_, ret, fsname.get_name(), TIMER_DURATION());
-       }
-
-      return TFS_SUCCESS;
+      return ret;
     }
   }
 }

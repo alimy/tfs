@@ -1,3 +1,3 @@
 AUTOMAKE_OPTIONS=foreign
 
-SUBDIRS = util dataserver nameserver adminserver mock transfer cluster metaserver
+SUBDIRS = util dataserver nameserver adminserver rcserver cluster metaserver workers

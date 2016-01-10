@@ -24,10 +24,16 @@ namespace tfs
   {
     RespHeartMessage::RespHeartMessage() :
       status_(0),
-      heart_interval_(common::DEFAULT_HEART_INTERVAL)
+      heart_interval_(common::DEFAULT_HEART_INTERVAL),
+      max_mr_network_bandwith_mb_(common::DEFAULT_MAX_MR_NETWORK_CAPACITY_MB),
+      max_rw_network_bandwith_mb_(common::DEFAULT_MAX_RW_NETWORK_CAPACITY_MB),
+      verify_index_reserved_space_ratio_(common::VERIFY_INDEX_RESERVED_SPACKE_DEFAULT_RATIO),
+      check_integrity_interval_days_(common::CHECK_INTEGRITY_INTERVAL_DAYS_DEFAULT),
+      ns_role_(common::NS_ROLE_NONE),
+      enable_old_interface_(common::ENABLE_OLD_INTERFACE_FLAG_NO),
+      enable_version_check_(common::ENABLE_VERSION_CHECK_FLAG_NO)
     {
       _packetHeader._pcode = common::RESP_HEART_MESSAGE;
-      expire_blocks_.clear();
     }
 
     RespHeartMessage::~RespHeartMessage()
@@ -37,97 +43,135 @@ namespace tfs
 
     int RespHeartMessage::deserialize(common::Stream& input)
     {
-      int32_t iret = input.get_int32(&status_);
-      if (common::TFS_SUCCESS == iret)
+      int32_t ret = input.get_int32(&status_);
+      if (common::TFS_SUCCESS == ret)
       {
-        iret = input.get_int32(&heart_interval_);
+        ret = input.get_int32(&heart_interval_);
       }
-      if (common::TFS_SUCCESS == iret)
+      if (common::TFS_SUCCESS == ret)
       {
-        iret = input.get_vint32(expire_blocks_);
+        ret = input.get_int32(&max_mr_network_bandwith_mb_);
       }
-      if (common::TFS_SUCCESS == iret)
+      if (common::TFS_SUCCESS == ret)
       {
-        iret = input.get_vint32(new_blocks_);
+        ret = input.get_int32(&max_rw_network_bandwith_mb_);
       }
-      return iret;
+      if (common::TFS_SUCCESS == ret)
+      {
+        ret = input.get_int8(&ns_role_);
+      }
+      if (common::TFS_SUCCESS == ret)
+      {
+        ret = input.get_int8(&enable_old_interface_);
+      }
+      if (common::TFS_SUCCESS == ret)
+      {
+        ret = input.get_int8(&enable_version_check_);
+      }
+      if (common::TFS_SUCCESS == ret && input.get_data_length() > 0)
+      {
+        ret = input.get_int32(&verify_index_reserved_space_ratio_);
+      }
+      if (common::TFS_SUCCESS == ret && input.get_data_length() > 0)
+      {
+        ret = input.get_int32(&check_integrity_interval_days_);
+      }
+      return ret;
     }
 
     int64_t RespHeartMessage::length() const
     {
-      return common::INT_SIZE * 2 +
-                common::Serialization::get_vint32_length(expire_blocks_) +
-                  common::Serialization::get_vint32_length(new_blocks_);
+      return common::INT_SIZE * 6 + common::INT8_SIZE * 3;
     }
 
     int RespHeartMessage::serialize(common::Stream& output) const
     {
-      int32_t iret = output.set_int32(status_);
-      if (common::TFS_SUCCESS == iret)
+      int32_t ret = output.set_int32(status_);
+      if (common::TFS_SUCCESS == ret)
       {
-        iret = output.set_int32(heart_interval_);
+        ret = output.set_int32(heart_interval_);
       }
-      if (common::TFS_SUCCESS == iret)
+      if (common::TFS_SUCCESS == ret)
       {
-        iret = output.set_vint32(expire_blocks_);
+        ret = output.set_int32(max_mr_network_bandwith_mb_);
       }
-      if (common::TFS_SUCCESS == iret)
+      if (common::TFS_SUCCESS == ret)
       {
-        iret = output.set_vint32(new_blocks_);
+        ret = output.set_int32(max_rw_network_bandwith_mb_);
       }
-      return iret;
+      if (common::TFS_SUCCESS == ret)
+      {
+        ret = output.set_int8(ns_role_);
+      }
+      if (common::TFS_SUCCESS == ret)
+      {
+        ret = output.set_int8(enable_old_interface_);
+      }
+      if (common::TFS_SUCCESS == ret)
+      {
+        ret = output.set_int8(enable_version_check_);
+      }
+      if (common::TFS_SUCCESS == ret)
+      {
+        ret = output.set_int32(verify_index_reserved_space_ratio_);
+      }
+      if (common::TFS_SUCCESS == ret)
+      {
+        ret = output.set_int32(check_integrity_interval_days_);
+      }
+      return ret;
     }
 
     int NSIdentityNetPacket::serialize(char* data, const int64_t data_len, int64_t& pos) const
     {
-      int32_t iret = NULL != data && data_len - pos >= length() ? common::TFS_SUCCESS : common::TFS_ERROR;
-      if (common::TFS_SUCCESS  == iret)
+      int32_t ret = NULL != data && data_len - pos >= length() ? common::TFS_SUCCESS : common::TFS_ERROR;
+      if (common::TFS_SUCCESS  == ret)
       {
-        iret = common::Serialization::set_int64(data, data_len, pos, ip_port_);
+        ret = common::Serialization::set_int64(data, data_len, pos, ip_port_);
       }
-      if (common::TFS_SUCCESS  == iret)
+      if (common::TFS_SUCCESS  == ret)
       {
-        iret = common::Serialization::set_int8(data, data_len, pos, role_);
+        ret = common::Serialization::set_int8(data, data_len, pos, role_);
       }
-      if (common::TFS_SUCCESS  == iret)
+      if (common::TFS_SUCCESS  == ret)
       {
-        iret = common::Serialization::set_int8(data, data_len, pos, status_);
+        ret = common::Serialization::set_int8(data, data_len, pos, status_);
       }
-      if (common::TFS_SUCCESS  == iret)
+      if (common::TFS_SUCCESS  == ret)
       {
-        iret = common::Serialization::set_int8(data, data_len, pos, flags_);
+        ret = common::Serialization::set_int8(data, data_len, pos, flags_);
       }
-      if (common::TFS_SUCCESS  == iret)
+      if (common::TFS_SUCCESS  == ret)
       {
-        iret = common::Serialization::set_int8(data, data_len, pos, force_);
+        ret = common::Serialization::set_int8(data, data_len, pos, force_);
       }
-      return iret;
+      return ret;
     }
 
     int NSIdentityNetPacket::deserialize(const char* data, const int64_t data_len, int64_t& pos)
     {
-      int32_t iret = NULL != data && data_len - pos >= length() ? common::TFS_SUCCESS : common::TFS_ERROR;
-      if (common::TFS_SUCCESS  == iret)
+      int32_t ret = NULL != data && data_len - pos >= length() ? common::TFS_SUCCESS : common::TFS_ERROR;
+      if (common::TFS_SUCCESS  == ret)
       {
-        iret = common::Serialization::get_int64(data, data_len, pos, reinterpret_cast<int64_t*>(&ip_port_));
+        ret = common::Serialization::get_int64(data, data_len, pos, reinterpret_cast<int64_t*>(&ip_port_));
       }
-      if (common::TFS_SUCCESS  == iret)
+      if (common::TFS_SUCCESS  == ret)
       {
-        iret = common::Serialization::get_int8(data, data_len, pos, reinterpret_cast<int8_t*>(&role_));
+        ret = common::Serialization::get_int8(data, data_len, pos, reinterpret_cast<int8_t*>(&role_));
       }
-      if (common::TFS_SUCCESS  == iret)
+      if (common::TFS_SUCCESS  == ret)
       {
-        iret = common::Serialization::get_int8(data, data_len, pos, reinterpret_cast<int8_t*>(&status_));
+        ret = common::Serialization::get_int8(data, data_len, pos, reinterpret_cast<int8_t*>(&status_));
       }
-      if (common::TFS_SUCCESS  == iret)
+      if (common::TFS_SUCCESS  == ret)
       {
-        iret = common::Serialization::get_int8(data, data_len, pos, reinterpret_cast<int8_t*>(&flags_));
+        ret = common::Serialization::get_int8(data, data_len, pos, reinterpret_cast<int8_t*>(&flags_));
       }
-      if (common::TFS_SUCCESS  == iret)
+      if (common::TFS_SUCCESS  == ret)
       {
-        iret = common::Serialization::get_int8(data, data_len, pos, reinterpret_cast<int8_t*>(&force_));
+        ret = common::Serialization::get_int8(data, data_len, pos, reinterpret_cast<int8_t*>(&force_));
       }
-      return iret;
+      return ret;
     }
 
     int64_t NSIdentityNetPacket::length() const
@@ -151,41 +195,41 @@ namespace tfs
     int MasterAndSlaveHeartMessage::deserialize(common::Stream& input)
     {
       int64_t pos = 0;
-      int32_t iret = ns_identity_.deserialize(input.get_data(), input.get_data_length(), pos);
-      if (common::TFS_SUCCESS == iret)
+      int32_t ret = ns_identity_.deserialize(input.get_data(), input.get_data_length(), pos);
+      if (common::TFS_SUCCESS == ret)
       {
         input.drain(ns_identity_.length());
       }
-      if (common::TFS_SUCCESS == iret)
+      if (common::TFS_SUCCESS == ret)
       {
         if (input.get_data_length() > 0)
-          iret = input.get_int64(&lease_id_);
+          ret = input.get_int64(&lease_id_);
       }
-      if (common::TFS_SUCCESS == iret)
+      if (common::TFS_SUCCESS == ret)
       {
         if (input.get_data_length() > 0)
-          iret = input.get_int8(&keepalive_type_);
+          ret = input.get_int8(&keepalive_type_);
       }
-      return iret;
+      return ret;
     }
 
     int MasterAndSlaveHeartMessage::serialize(common::Stream& output) const
     {
       int64_t pos = 0;
-      int32_t iret = ns_identity_.serialize(output.get_free(), output.get_free_length(), pos);
-      if (common::TFS_SUCCESS == iret)
+      int32_t ret = ns_identity_.serialize(output.get_free(), output.get_free_length(), pos);
+      if (common::TFS_SUCCESS == ret)
       {
         output.pour(ns_identity_.length());
       }
-      if (common::TFS_SUCCESS == iret)
+      if (common::TFS_SUCCESS == ret)
       {
-        iret = output.set_int64(lease_id_);
+        ret = output.set_int64(lease_id_);
       }
-      if (common::TFS_SUCCESS == iret)
+      if (common::TFS_SUCCESS == ret)
       {
-        iret = output.set_int8(keepalive_type_);
+        ret = output.set_int8(keepalive_type_);
       }
-      return iret;
+      return ret;
     }
 
     int64_t MasterAndSlaveHeartMessage::length() const
@@ -210,47 +254,47 @@ namespace tfs
     int MasterAndSlaveHeartResponseMessage::deserialize(common::Stream& input)
     {
       int64_t pos = 0;
-      int32_t iret = ns_identity_.deserialize(input.get_data(), input.get_data_length(), pos);
-      if (common::TFS_SUCCESS == iret)
+      int32_t ret = ns_identity_.deserialize(input.get_data(), input.get_data_length(), pos);
+      if (common::TFS_SUCCESS == ret)
       {
         input.drain(ns_identity_.length());
       }
-      if (common::TFS_SUCCESS == iret)
+      if (common::TFS_SUCCESS == ret)
       {
-        iret = input.get_int64(&lease_id_);
+        ret = input.get_int64(&lease_id_);
       }
-      if (common::TFS_SUCCESS == iret)
+      if (common::TFS_SUCCESS == ret)
       {
-        iret = input.get_int32(&lease_expired_time_);
+        ret = input.get_int32(&lease_expired_time_);
       }
-      if (common::TFS_SUCCESS == iret)
+      if (common::TFS_SUCCESS == ret)
       {
-        iret = input.get_int32(&renew_lease_interval_time_);
+        ret = input.get_int32(&renew_lease_interval_time_);
       }
-      return iret;
+      return ret;
     }
 
     int MasterAndSlaveHeartResponseMessage::serialize(common::Stream& output) const
     {
       int64_t pos = 0;
-      int32_t iret = ns_identity_.serialize(output.get_free(), output.get_free_length(), pos);
-      if (common::TFS_SUCCESS == iret)
+      int32_t ret = ns_identity_.serialize(output.get_free(), output.get_free_length(), pos);
+      if (common::TFS_SUCCESS == ret)
       {
         output.pour(ns_identity_.length());
       }
-      if (common::TFS_SUCCESS == iret)
+      if (common::TFS_SUCCESS == ret)
       {
-        iret = output.set_int64(lease_id_);
+        ret = output.set_int64(lease_id_);
       }
-      if (common::TFS_SUCCESS == iret)
+      if (common::TFS_SUCCESS == ret)
       {
-        iret = output.set_int32(lease_expired_time_);
+        ret = output.set_int32(lease_expired_time_);
       }
-      if (common::TFS_SUCCESS == iret)
+      if (common::TFS_SUCCESS == ret)
       {
-        iret = output.set_int32(renew_lease_interval_time_);
+        ret = output.set_int32(renew_lease_interval_time_);
       }
-      return iret;
+      return ret;
     }
 
     int64_t MasterAndSlaveHeartResponseMessage::length() const

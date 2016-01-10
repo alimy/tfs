@@ -27,7 +27,7 @@ using namespace tfs::message;
 using namespace std;
 
 TfsFile::TfsFile() : flags_(-1), file_status_(TFS_FILE_OPEN_NO), eof_(TFS_FILE_EOF_FLAG_NO),
-                     offset_(0), meta_seg_(NULL), option_flag_(common::TFS_FILE_DEFAULT_OPTION),
+                     offset_(0), force_status_(-1), meta_seg_(NULL), option_flag_(common::TFS_FILE_DEFAULT_OPTION),
                      tfs_session_(NULL)
 {
 }
@@ -283,12 +283,13 @@ int64_t TfsFile::write_ex(const void* buf, const int64_t count, const int64_t of
       }
       else
       {
-        retry_count = ClientConfig::client_retry_count_;
-        do
-        {
-          ret = write_process();
-          finish_write_process(ret);
-        } while (ret != TFS_SUCCESS && ClientConfig::client_retry_flag_ && --retry_count);
+        UNUSED(retry_count);
+        // retry_count = ClientConfig::client_retry_count_;
+        // do
+        // {
+        ret = write_process();
+        finish_write_process(ret);
+        // } while (ret != TFS_SUCCESS && ClientConfig::client_retry_flag_ && --retry_count);
 
         if (ret != TFS_SUCCESS)
         {
@@ -427,7 +428,7 @@ int TfsFile::fstat_ex(FileInfo* file_info, const TfsStatType mode)
   return ret;
 }
 
-int TfsFile::close_ex()
+int TfsFile::close_ex(const int32_t force_status)
 {
   int ret = file_status_ == TFS_FILE_OPEN_NO ? EXIT_NOT_OPEN_ERROR : TFS_SUCCESS;
   if (TFS_SUCCESS != ret)//file not open
@@ -443,6 +444,7 @@ int TfsFile::close_ex()
     else// write mode
     {
 #ifndef TFS_TEST
+      force_status_ = force_status;
       if (TFS_FILE_WRITE_ERROR == file_status_ || offset_ <= 0)
       {
         option_flag_ |= TFS_FILE_CLOSE_FLAG_WRITE_DATA_FAILED;
@@ -1010,6 +1012,7 @@ int TfsFile::async_req_close_file(NewClient* client, const uint16_t index)
 
   cf_message.set_ds_list(seg_data->ds_);
   cf_message.set_crc(seg_data->seg_info_.crc_);
+  cf_message.set_status(force_status_);
 
   // no not need to estimate the ds number is zero
   uint8_t send_id;
@@ -1275,7 +1278,12 @@ int TfsFile::async_rsp_read_file(common::BasePacket* rsp, const uint16_t index)
   else
   {
     BgTask::get_stat_mgr().update_entry(StatItem::client_access_stat_, StatItem::read_success_, 1);
+    if (static_cast<uint32_t>(seg_data->get_last_read_pri_ds()) == LocalResource::get_instance()->local_ip_)
+    {
+      BgTask::get_stat_mgr().update_entry(StatItem::client_access_stat_, StatItem::local_read_, 1);
+    }
   }
+
   return ret;
 }
 
@@ -1437,6 +1445,10 @@ int TfsFile::async_rsp_read_file_v2(common::BasePacket* rsp, const uint16_t inde
   else
   {
     BgTask::get_stat_mgr().update_entry(StatItem::client_access_stat_, StatItem::read_success_, 1);
+    if (static_cast<uint32_t>(seg_data->get_last_read_pri_ds()) == LocalResource::get_instance()->local_ip_)
+    {
+      BgTask::get_stat_mgr().update_entry(StatItem::client_access_stat_, StatItem::local_read_, 1);
+    }
   }
   return ret;
 }
@@ -1623,6 +1635,10 @@ int TfsFile::async_rsp_stat_file(common::BasePacket* rsp, const uint16_t index)
   else
   {
     BgTask::get_stat_mgr().update_entry(StatItem::client_access_stat_, StatItem::stat_success_, 1);
+    if (static_cast<uint32_t>(seg_data->get_last_read_pri_ds()) == LocalResource::get_instance()->local_ip_)
+    {
+      BgTask::get_stat_mgr().update_entry(StatItem::client_access_stat_, StatItem::local_read_, 1);
+    }
   }
 
   return ret;

@@ -30,6 +30,7 @@ static const int EXIT_INVALIDFD_ERROR = -1005;
 /* block cache default config */
 static const int32_t DEFAULT_BLOCK_CACHE_TIME = 1800;
 static const int32_t DEFAULT_BLOCK_CACHE_ITEMS = 500000;
+static const int32_t DEFALUT_FAMILY_CACHE_TIME = 120;
 
 /* cluster group count and group seq default value */
 static const int32_t DEFAULT_CLUSTER_GROUP_COUNT = 1;
@@ -42,6 +43,9 @@ static const int32_t FILE_NAME_EXCEPT_SUFFIX_LEN = 12;
 static const int32_t MAX_FILE_NAME_LEN = 128;
 static const int32_t MAX_SUFFIX_LEN = MAX_FILE_NAME_LEN - TFS_FILE_LEN;
 static const int32_t STANDARD_SUFFIX_LEN = 4;
+static const int32_t FILE_NAME_LEN_V2 = 27;
+static const int32_t TFS_FILE_LEN_V2 = FILE_NAME_LEN_V2 + 1;
+static const int32_t FILE_NAME_EXCEPT_SUFFIX_LEN_V2 = 18;
 
 #else
 
@@ -89,11 +93,17 @@ typedef enum
   T_WRITE = 2,
   T_CREATE = 4,
   T_NEWBLK = 8,
-  T_NOLEASE = 16,
+  T_UPDATE = 16,  // compatible for write_to_ds version
   T_STAT = 32,
   T_LARGE = 64,
   T_UNLINK = 128,
   T_FORCE = 256
+} OpenMode;
+
+typedef enum
+{
+  F_FAMILY_INFO_NONE = 0,
+  F_FAMILY_INFO = 1
 } OpenFlag;
 
 typedef enum
@@ -123,7 +133,7 @@ typedef enum
   UNDELETE = 2,
   CONCEAL = 4,
   REVEAL = 6,
-  SYNC = 126
+  OVERRIDE = 128
 } TfsUnlinkType;
 
 typedef enum
@@ -136,7 +146,8 @@ typedef enum
 typedef enum
 {
   READ_DATA_OPTION_FLAG_NORMAL = 0,
-  READ_DATA_OPTION_FLAG_FORCE = 1
+  READ_DATA_OPTION_FLAG_FORCE = 1,
+  READ_DATA_OPTION_WITH_FINFO = 2
 } ReadDataOptionFlag;
 
 typedef enum
@@ -152,4 +163,11 @@ typedef enum
   USE_CACHE_FLAG_REMOTE = 0x02
 } UseCacheFlag;
 
+typedef enum _FileStatus
+{
+  FILE_STATUS_NOMARL = 0,
+  FILE_STATUS_DELETE = 1,
+  FILE_STATUS_INVALID= 2,
+  FILE_STATUS_CONCEAL= 4
+}FileStatus;
 #endif

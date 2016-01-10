@@ -38,7 +38,7 @@ namespace tfs
   namespace nameserver
   {
     OpLogSyncManager::OpLogSyncManager(LayoutManager& mm) :
-      manager_(mm), oplog_(NULL), file_queue_(NULL), file_queue_thread_(NULL)
+      manager_(mm), oplog_(NULL), file_queue_(NULL), file_queue_thread_(NULL),dbhelper_(NULL)
     {
 
     }
@@ -48,6 +48,7 @@ namespace tfs
       tbsys::gDelete( file_queue_);
       tbsys::gDelete( file_queue_thread_);
       tbsys::gDelete( oplog_);
+      tbsys::gDelete( dbhelper_);
     }
 
     int OpLogSyncManager::initialize()
@@ -115,6 +116,44 @@ namespace tfs
         work_thread_.setThreadParameter(queue_thread_num , this, NULL);
         work_thread_.start();
       }
+      if (TFS_SUCCESS == ret)
+      {
+        std::string tair_info = TBSYS_CONFIG.getString(CONF_SN_NAMESERVER, CONF_TAIR_ADDR, "");
+        std::vector<std::string> items;
+        common::Func::split_string(tair_info.c_str(), ',', items);
+        ret = items.size() < 5 ? EXIT_SYSTEM_PARAMETER_ERROR : TFS_SUCCESS;
+        if (TFS_SUCCESS != ret)
+        {
+          TBSYS_LOG(ERROR, "tair info: %s is invalid", tair_info.c_str());
+        }
+        if (TFS_SUCCESS == ret)
+        {
+          dbhelper_ = new TairHelper(items[0], items[1], items[2], items[3], atoi(items[4].c_str()));
+          ret = dbhelper_->initialize();
+        }
+        if (TFS_SUCCESS == ret)
+        {
+          int64_t family_id = 0;
+          do
+          {
+            ret = scan_all_family(family_id);
+          }
+          while (TAIR_RETURN_DATA_NOT_EXIST != ret
+            && TAIR_RETURN_SUCCESS != ret);
+
+          if (TAIR_RETURN_DATA_NOT_EXIST == ret || TAIR_RETURN_SUCCESS == ret)
+          {
+            do
+            {
+              ret = scan_all_family_log();
+            }
+            while (TAIR_RETURN_DATA_NOT_EXIST != ret
+                && TAIR_RETURN_SUCCESS != ret);
+          }
+          if (TAIR_RETURN_DATA_NOT_EXIST == ret || TAIR_RETURN_SUCCESS == ret)
+            ret = TFS_SUCCESS;
+        }
+      }
       return ret;
     }
 
@@ -160,7 +199,7 @@ namespace tfs
       int32_t ret = ((NULL != data) && (length > 0)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
       if (TFS_SUCCESS == ret)
       {
-        ngi.dump(TBSYS_LOG_LEVEL_DEBUG);
+        //ngi.dump(TBSYS_LOG_LEVEL(DEBUG), "write oplog");
         if (ngi.is_master()
             && !ngi.is_destroyed()
             && ngi.has_valid_lease(now))
@@ -333,7 +372,7 @@ namespace tfs
         }
         else
         {
-          CompactBlockCompleteMessage* tmp = new (std::nothrow)CompactBlockCompleteMessage();
+          DsCommitCompactBlockCompleteToNsMessage * tmp = new (std::nothrow)DsCommitCompactBlockCompleteToNsMessage();
           msg = tmp;
           ret = tmp->deserialize(data, data_len, pos);
           assert(NULL != tmp);
@@ -361,6 +400,7 @@ namespace tfs
       if (TFS_SUCCESS == ret)
       {
         BlockOpLog oplog;
+        memset(&oplog, 0, sizeof(oplog));
         ret = oplog.deserialize(data, data_len, pos);
         if (TFS_SUCCESS != ret)
         {
@@ -370,7 +410,7 @@ namespace tfs
         }
         if (TFS_SUCCESS == ret)
         {
-          if (oplog.servers_.empty() || (oplog.blocks_.empty()))
+          if (oplog.server_num_ <= 0)
           {
             TBSYS_LOG(INFO, "play log error, data: %s, length: %"PRI64_PREFIX"d, offset: %"PRI64_PREFIX"d", data, data_len, pos);
             ret = EXIT_PLAY_LOG_ERROR;
@@ -378,35 +418,30 @@ namespace tfs
         }
         if (TFS_SUCCESS == ret)
         {
-          std::vector<uint32_t>::const_iterator iter = oplog.blocks_.begin();
           if (OPLOG_UPDATE == oplog.cmd_)
           {
             bool addnew = false;
             ret = manager_.update_block_info(oplog.info_, oplog.servers_[0], now, addnew);
             if (TFS_SUCCESS != ret)
             {
-              TBSYS_LOG(INFO, "update block information error, block: %u, server: %s",
+              TBSYS_LOG(INFO, "update block information error, block: %"PRI64_PREFIX"u, server: %s",
                   oplog.info_.block_id_, CNetUtil::addrToString(oplog.servers_[0]).c_str());
             }
           }
           else if (OPLOG_INSERT == oplog.cmd_)
           {
-            for (; iter != oplog.blocks_.end(); ++iter)
-            {
-              uint32_t block_id = (*iter);
               BlockCollect* block = NULL;
-              uint32_t tmp_block_id = id_factory_.generation(block_id);
-              ret = INVALID_BLOCK_ID != tmp_block_id ? TFS_SUCCESS : TFS_ERROR;
+              ret = id_factory_.update(oplog.info_.block_id_);
               if (TFS_SUCCESS != ret)
               {
-                TBSYS_LOG(INFO, "generation block id: %u failed, ret: %d", block_id, ret);
+                TBSYS_LOG(INFO, "update block id: %"PRI64_PREFIX"u failed, ret: %d", oplog.info_.block_id_, ret);
               }
               else
               {
-                block = manager_.get_block_manager().get(block_id);
+                block = manager_.get_block_manager().get(oplog.info_.block_id_);
                 if (NULL == block)
                 {
-                  block = manager_.get_block_manager().insert(block_id, now);
+                  block = manager_.get_block_manager().insert(oplog.info_.block_id_, now);
                   ret = NULL == block ? EXIT_PLAY_LOG_ERROR : TFS_SUCCESS;
                 }
                 if (TFS_SUCCESS == ret)
@@ -418,38 +453,29 @@ namespace tfs
               if (TFS_SUCCESS == ret)
               {
                 ServerCollect* server = NULL;
-                std::vector<uint64_t>::iterator s_iter = oplog.servers_.begin();
-                for (; s_iter != oplog.servers_.end(); ++s_iter)
+                for (int8_t index = 0; index < oplog.server_num_; ++index)
                 {
-                  server = manager_.get_server_manager().get((*s_iter));
+                  server = manager_.get_server_manager().get(oplog.servers_[index]);
                   manager_.build_relation(block, server, now);
                 }
               }
-            }
           }
           else if (OPLOG_REMOVE== oplog.cmd_)
           {
             GCObject* pgcobject = NULL;
-            for (; iter != oplog.blocks_.end(); ++iter)
-            {
-              manager_.get_block_manager().remove(pgcobject, (*iter));
-              manager_.get_gc_manager().add(pgcobject);
-            }
+            manager_.get_block_manager().remove(pgcobject, oplog.info_.block_id_);
+            manager_.get_gc_manager().add(pgcobject);
           }
           else if (OPLOG_RELIEVE_RELATION == oplog.cmd_)
           {
-            for (; iter != oplog.blocks_.end(); ++iter)
+            for (int8_t index = 0; index < oplog.server_num_; ++index)
             {
-              std::vector<uint64_t>::iterator s_iter = oplog.servers_.begin();
-              for (; s_iter != oplog.servers_.end(); ++s_iter)
+              ServerCollect* server = manager_.get_server_manager().get(oplog.servers_[index]);
+              BlockCollect*  block  = manager_.get_block_manager().get(oplog.info_.block_id_);
+              if (!manager_.relieve_relation(block, server, now))//id
               {
-                ServerCollect* server = manager_.get_server_manager().get((*s_iter));
-                BlockCollect*  block  = manager_.get_block_manager().get((*iter));
-                if (!manager_.relieve_relation(block, server, now, BLOCK_COMPARE_SERVER_BY_ID))//id
-                {
-                  TBSYS_LOG(INFO, "relieve relation between block: %u and server: %s failed",
-                      (*iter), CNetUtil::addrToString((*s_iter)).c_str());
-                }
+                TBSYS_LOG(INFO, "relieve relation between block: %"PRI64_PREFIX"u and server: %s failed",
+                    oplog.info_.block_id_, CNetUtil::addrToString(oplog.servers_[index]).c_str());
               }
             }
           }
@@ -581,5 +607,116 @@ namespace tfs
       }
       return ret;
     }
+
+    int OpLogSyncManager::create_family_id(int64_t& family_id)
+    {
+      int32_t ret = NULL != dbhelper_ ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
+      if (TFS_SUCCESS == ret)
+      {
+        ret = dbhelper_->create_family_id(family_id);
+      }
+      return ret;
+    }
+
+    int OpLogSyncManager::create_family(common::FamilyInfo& family_info)
+    {
+      int32_t ret = NULL != dbhelper_ ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
+      if (TFS_SUCCESS == ret)
+      {
+        ret = dbhelper_->create_family(family_info);
+      }
+      return ret;
+    }
+
+    int OpLogSyncManager::del_family(const int64_t family_id)
+    {
+      int32_t ret = NULL != dbhelper_ ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
+      if (TFS_SUCCESS == ret)
+      {
+        ret = dbhelper_->del_family(family_id, false, true);
+      }
+      return ret;
+    }
+
+    int OpLogSyncManager::scan_all_family(int64_t& start_family_id)
+    {
+      int32_t ret = TAIR_RETURN_SUCCESS, rt = TFS_SUCCESS;
+      std::vector<common::FamilyInfo> infos;
+      std::pair<uint64_t, int32_t> members[MAX_MARSHALLING_NUM];
+      common::ArrayHelper<std::pair<uint64_t, int32_t> > helper(MAX_MARSHALLING_NUM, members);
+      do
+      {
+        infos.clear();
+        assert(NULL != dbhelper_);
+        ret = dbhelper_->scan(infos, start_family_id, false);
+        std::vector<common::FamilyInfo>::const_iterator iter = infos.begin();
+        int64_t now = Func::get_monotonic_time();
+        for (; iter != infos.end(); ++iter)
+        {
+          helper.clear();
+          const FamilyInfo& family = (*iter);
+          if (start_family_id < family.family_id_)
+            start_family_id = family.family_id_;
+          std::stringstream str;
+          str << family.family_id_ << ":" << family.family_aid_info_ << ":";
+          std::vector<std::pair<uint64_t, int32_t> >::const_iterator it = family.family_member_.begin();
+          for (; it != family.family_member_.end(); ++it)
+          {
+            helper.push_back(std::make_pair((*it).first, (*it).second));
+            BlockCollect* block =  manager_.get_block_manager().insert((*it).first, now);
+            assert(NULL != block);
+            manager_.get_block_manager().set_family_id(block,family.family_id_);
+            id_factory_.update((*it).first);
+            str << it->first << ":" << it->second << ":";
+          }
+          rt = manager_.get_family_manager().insert(family.family_id_, family.family_aid_info_, helper, now);
+          if (EXIT_ELEMENT_EXIST == rt)
+            rt = TFS_SUCCESS;
+          if (TFS_SUCCESS != rt)
+            TBSYS_LOG(WARN, "load family information error,family id: %"PRI64_PREFIX"d, ret: %d", family.family_id_, ret);
+          TBSYS_LOG(DEBUG, "FAMILY: %s, rt: %d", str.str().c_str(), rt);
+        }
+        if (!infos.empty())
+          ++start_family_id;
+      }
+      while (TAIR_HAS_MORE_DATA == ret || TAIR_RETURN_SUCCESS == ret);
+      return ret;
+   }
+
+    int OpLogSyncManager::scan_all_family_log()
+    {
+      int64_t start_family_id = 0;
+      int32_t ret = TAIR_RETURN_SUCCESS, rt = TFS_SUCCESS;
+      std::vector<common::FamilyInfo> infos;
+      do
+      {
+        infos.clear();
+        assert(NULL != dbhelper_);
+        ret = dbhelper_->scan(infos, start_family_id, true);
+        std::vector<common::FamilyInfo>::const_iterator iter = infos.begin();
+        TBSYS_LOG(DEBUG, "QUERY DEL FAMILY, size: %zd", infos.size());
+        for (; iter != infos.end(); ++iter)
+        {
+          const FamilyInfo& family = (*iter);
+          std::stringstream str;
+          str << family.family_id_ << ":" << family.family_aid_info_ << ":";
+          if (start_family_id < family.family_id_)
+            start_family_id = family.family_id_;
+          rt = manager_.get_family_manager().del_family(family.family_id_);
+          if (EXIT_NO_FAMILY == rt)
+            rt = TFS_SUCCESS;
+          if (TFS_SUCCESS != rt)
+            TBSYS_LOG(WARN, "del family information error,family id: %"PRI64_PREFIX"d, ret: %d", family.family_id_, rt);
+          else
+            rt = dbhelper_->del_family(family.family_id_, true, false);
+
+          TBSYS_LOG(DEBUG, "DEL FAMILY: %s, rt: %d", str.str().c_str(), rt);
+        }
+        if (!infos.empty())
+          ++start_family_id;
+      }
+      while (TAIR_HAS_MORE_DATA == ret || TAIR_RETURN_SUCCESS == ret);
+      return ret;
+   }
   }//end namespace nameserver
 }//end namespace tfs

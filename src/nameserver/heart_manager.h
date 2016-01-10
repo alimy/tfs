@@ -21,6 +21,9 @@
 #define TFS_NAMESERVER_HEART_MANAGEMENT_
 
 #include <Timer.h>
+
+#include "common/base_packet_factory.h"
+#include "common/base_packet_streamer.h"
 #include "message/message_factory.h"
 
 namespace tfs
@@ -28,14 +31,18 @@ namespace tfs
   namespace nameserver
   {
     class NameServer;
-    class HeartManagement
+    class HeartManagement: public tbnet::IServerAdapter
     {
     public:
       explicit HeartManagement(NameServer& manager);
       virtual ~HeartManagement();
-      int initialize(const int32_t keepalive_thread_count, const int32_t report_block_thread_count);
+      int initialize(const int32_t keepalive_thread_count, const int32_t report_block_thread_count, const int32_t port);
       void wait_for_shut_down();
       void destroy();
+
+      /** handle single packet */
+      virtual tbnet::IPacketHandler::HPRetCode handlePacket(tbnet::Connection *connection, tbnet::Packet *packet);
+
       int push(common::BasePacket* msg);
     private:
       class KeepAliveIPacketQueueHeaderHelper : public tbnet::IPacketQueueHandler
@@ -63,6 +70,9 @@ namespace tfs
       int keepalive(tbnet::Packet* packet);
       int report_block(tbnet::Packet* packet);
       NameServer& manager_;
+      common::BasePacketFactory* packet_factory_;
+      common::BasePacketStreamer* streamer_;
+      tbnet::Transport* transport_;
       tbnet::PacketQueueThread keepalive_threads_;
       tbnet::PacketQueueThread report_block_threads_;
       KeepAliveIPacketQueueHeaderHelper keepalive_queue_header_;
@@ -94,7 +104,7 @@ namespace tfs
         typedef tbutil::Handle<CheckThreadHelper> CheckThreadHelperPtr;
       private:
         int keepalive_(common::BasePacket* message);
-        int keepalive_(int32_t& sleep_time, NsKeepAliveType& type, NsRuntimeGlobalInformation& ngi);
+        int keepalive_(int32_t& sleep_time, NsKeepAliveType& type, NsRuntimeGlobalInformation& ngi, const time_t now);
         void check_();
         bool check_vip_(const NsRuntimeGlobalInformation& ngi) const;
         int ns_role_establish_(NsRuntimeGlobalInformation& ngi, const time_t now);

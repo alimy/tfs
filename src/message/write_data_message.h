@@ -16,6 +16,7 @@
 #ifndef TFS_MESSAGE_WRITEDATAMESSAGE_H_
 #define TFS_MESSAGE_WRITEDATAMESSAGE_H_
 #include "common/base_packet.h"
+#include "common/internal.h"
 
 namespace tfs
 {
@@ -110,7 +111,7 @@ namespace tfs
         {
           return lease_id_;
         }
-        inline common::WriteDataInfo get_write_info() const
+        inline common::WriteDataInfo& get_write_info()
         {
           return write_data_info_;
         }
@@ -125,6 +126,29 @@ namespace tfs
         mutable common::VUINT64 ds_;
         mutable int32_t version_;
         mutable uint32_t lease_id_;
+    };
+
+    class WriteDataResponseMessage: public common::BasePacket
+    {
+    public:
+      WriteDataResponseMessage();
+      virtual ~WriteDataResponseMessage();
+      virtual int serialize(common::Stream& output) const ;
+      virtual int deserialize(common::Stream& input);
+      virtual int64_t length() const;
+      inline void set_server(const uint64_t server) { server_ = server;}
+      inline uint64_t get_server() const { return server_;}
+      inline void set_offset(const int64_t offset) { offset_ = offset;}
+      inline int64_t get_offset() const { return offset_;}
+      inline void set_block_info(const common::BlockInfo& info)  { info_= info;}
+      inline const common::BlockInfo& get_block_info() const { return info_;}
+      inline void set_status(const int32_t status) {status_ = status;}
+      inline int32_t get_status() const { return status_;}
+    private:
+      uint64_t server_;
+      int64_t  offset_;
+      int32_t  status_;
+      common::BlockInfo info_;
     };
 
 #ifdef _DEL_001_
@@ -209,72 +233,6 @@ namespace tfs
         common::WriteDataInfo write_data_info_;
         const char* data_;
         int32_t flag_;
-    };
-
-    class WriteInfoBatchMessage:  public common::BasePacket
-    {
-      public:
-        WriteInfoBatchMessage();
-        virtual ~WriteInfoBatchMessage();
-        virtual int serialize(common::Stream& output) const ;
-        virtual int deserialize(common::Stream& input);
-        virtual int64_t length() const;
-
-        inline void set_block_id(const uint32_t block_id)
-        {
-          write_data_info_.block_id_ = block_id;
-        }
-        inline uint32_t get_block_id() const
-        {
-          return write_data_info_.block_id_;
-        }
-        inline void set_offset(const int32_t offset)
-        {
-          write_data_info_.offset_ = offset;
-        }
-        inline int32_t get_offset() const
-        {
-          return write_data_info_.offset_;
-        }
-        inline void set_length(const int32_t length)
-        {
-          write_data_info_.length_ = length;
-        }
-        inline int32_t get_length() const
-        {
-          return write_data_info_.length_;
-        }
-        inline void set_cluster(const int32_t cluster)
-        {
-          cluster_ = cluster;
-        }
-        inline int32_t get_cluster() const
-        {
-          return cluster_;
-        }
-        inline void set_raw_meta_list(const common::RawMetaVec* list)
-        {
-          if (NULL != list)
-            meta_list_ = (*list);
-        }
-        inline const common::RawMetaVec* get_raw_meta_list() const
-        {
-          return &meta_list_;
-        }
-        inline void set_block_info(common::BlockInfo* const block_info)
-        {
-          if (NULL != block_info)
-            block_info_ = *block_info;
-        }
-        inline const common::BlockInfo* get_block_info() const
-        {
-          return block_info_.block_id_ <= 0 ? NULL : &block_info_;
-        }
-      protected:
-        common::WriteDataInfo write_data_info_;
-        common::BlockInfo block_info_;
-        common::RawMetaVec meta_list_;
-        int32_t cluster_;
     };
   }
 }

@@ -73,7 +73,7 @@ namespace tfs
         {
           return read_data_info_.length_;
         }
-        int8_t get_flag() const 
+        int8_t get_flag() const
         {
           return flag_;
         }
@@ -81,9 +81,42 @@ namespace tfs
         {
           flag_ = flag;
         }
+
+        common::FamilyInfoExt& get_family_info()
+        {
+          return family_info_;
+        }
+        void set_family_info(common::FamilyInfoExt& family_info)
+        {
+          family_info_ = family_info;
+        }
       protected:
         ReadDataInfo read_data_info_;
         int8_t flag_;
+        common::FamilyInfoExt family_info_;
+    };
+
+    class DegradeReadDataMessage: public ReadDataMessage
+    {
+      public:
+        DegradeReadDataMessage();
+        virtual ~DegradeReadDataMessage();
+        virtual int serialize(common::Stream& output) const ;
+        virtual int deserialize(common::Stream& input);
+        virtual int64_t length() const;
+
+        common::FamilyInfoExt& get_family_info()
+        {
+          return family_info_;
+        }
+
+        void set_family_info(const common::FamilyInfoExt& family_info)
+        {
+          family_info_ = family_info;
+        }
+
+      protected:
+        common::FamilyInfoExt family_info_;
     };
 
     class RespReadDataMessage: public common::BasePacket
@@ -96,23 +129,32 @@ namespace tfs
         virtual int64_t length() const;
 
         char* alloc_data(const int32_t len);
-        inline void set_length(const int32_t len) { length_ = len;}
         inline char* get_data() const { return data_;}
         inline int32_t get_length() const { return length_;}
+        inline void set_length(const int32_t len)
+        {
+          if (length_ <= 0 && alloc_ && data_)
+          {
+            ::free(data_);
+            data_ = NULL;
+            alloc_ = false;
+          }
+          length_ = len;
+        }
       protected:
         char* data_;
         int32_t length_;
         bool alloc_;
     };
 
-    class ReadDataMessageV2: public ReadDataMessage 
+    class ReadDataMessageV2: public ReadDataMessage
     {
       public:
         ReadDataMessageV2();
         virtual ~ReadDataMessageV2();
     };
 
-    class RespReadDataMessageV2: public RespReadDataMessage 
+    class RespReadDataMessageV2: public RespReadDataMessage
     {
       public:
         RespReadDataMessageV2();
@@ -148,18 +190,27 @@ namespace tfs
       virtual ~RespReadDataMessageV3();
     };
 
-    class ReadRawDataMessage: public ReadDataMessage 
+    class ReadRawDataMessage: public ReadDataMessage
     {
       public:
         ReadRawDataMessage();
         virtual ~ReadRawDataMessage();
     };
 
-    class RespReadRawDataMessage: public RespReadDataMessage 
+    class RespReadRawDataMessage: public RespReadDataMessage
     {
       public:
         RespReadRawDataMessage();
         virtual ~RespReadRawDataMessage();
+        virtual int serialize(common::Stream& output) const ;
+        virtual int deserialize(common::Stream& input);
+        virtual int64_t length() const;
+
+        int32_t get_data_file_size() const { return data_file_size_; }
+        void set_data_file_size(const int32_t data_file_size) { data_file_size_ = data_file_size; }
+
+      protected:
+        int32_t data_file_size_;
     };
 
     class ReadScaleImageMessage: public ReadDataMessage
@@ -197,6 +248,59 @@ namespace tfs
       protected:
         ZoomData zoom_;
     };
-  }
+
+    /*class ReadRawIndexMessage: public common::BasePacket
+    {
+      public:
+        ReadRawIndexMessage();
+        virtual ~ReadRawIndexMessage();
+        virtual int serialize(common::Stream& output) const ;
+        virtual int deserialize(common::Stream& input);
+        virtual int64_t length() const;
+
+        void set_block_id(const uint32_t block_id)
+        {
+          block_id_ = block_id;
+        }
+
+        uint32_t get_block_id()
+        {
+          return block_id_;
+        }
+
+        void set_index_id(const uint32_t index_id)
+        {
+          index_id_ = index_id;
+        }
+
+        uint32_t get_index_id()
+        {
+          return index_id_;
+        }
+
+        void set_index_op(const common::RawIndexOp index_op)
+        {
+          index_op_ = index_op;
+        }
+
+        common::RawIndexOp get_index_op()
+        {
+          return index_op_;
+        }
+
+      private:
+        uint32_t block_id_;
+        uint32_t index_id_;
+        common::RawIndexOp index_op_;
+    };
+
+    class RespReadRawIndexMessage: public RespReadDataMessage
+    {
+      public:
+        RespReadRawIndexMessage();
+        virtual ~RespReadRawIndexMessage();
+    };*/
+
+ }
 }
 #endif

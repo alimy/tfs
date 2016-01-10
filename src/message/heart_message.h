@@ -30,44 +30,35 @@ namespace tfs
         virtual int serialize(common::Stream& output) const ;
         virtual int deserialize(common::Stream& input);
         virtual int64_t length() const;
+        inline void set_status(const int32_t status) { status_ = status;}
+        inline int32_t get_status() const { return status_;}
+        inline void set_heart_interval(const int32_t heart_interval) { heart_interval_ = heart_interval;}
+        inline int32_t get_heart_interval(void) const { return heart_interval_;}
+        inline void set_max_mr_network_bandwith_mb(const int32_t capacity) { max_mr_network_bandwith_mb_ = capacity;}
+        inline int32_t get_max_mr_network_bandwith_mb() const { return max_mr_network_bandwith_mb_;}
+        inline void set_max_rw_network_bandwith_mb(const int32_t capacity) { max_rw_network_bandwith_mb_ = capacity;}
+        inline int32_t get_max_rw_network_bandwith_mb() const { return max_rw_network_bandwith_mb_;}
+        inline int8_t get_enable_old_interface() const { return enable_old_interface_;}
+        inline void set_enable_old_interface(const int8_t flag) { enable_old_interface_ = flag;}
+        inline int8_t get_enable_version_check() const { return enable_version_check_;}
+        inline void set_enable_version_check(const int8_t flag) { enable_version_check_ = flag;}
+        inline int8_t get_ns_role() const { return ns_role_;}
+        inline void set_ns_role(const int8_t ns_role) { ns_role_ = ns_role;}
+        inline int32_t get_verify_index_reserved_space_ratio() const { return verify_index_reserved_space_ratio_;}
+        inline void set_verify_index_reserved_space_ratio(const int32_t ratio) { verify_index_reserved_space_ratio_ = ratio;}
+        inline int32_t get_check_integrity_interval_days() const { return check_integrity_interval_days_;}
+        inline void set_check_integrity_interval_days(const int32_t ratio) { check_integrity_interval_days_ = ratio;}
 
-        inline const common::VUINT32* get_expire_blocks() const
-        {
-          return &expire_blocks_;
-        }
-        inline const common::VUINT32* get_new_blocks() const
-        {
-          return &new_blocks_;
-        }
-        inline void add_expire_id(const uint32_t block_id)
-        {
-          expire_blocks_.push_back(block_id);
-        }
-        inline void set_expire_blocks(const common::VUINT32 & blocks)
-        {
-          expire_blocks_ = blocks;
-        }
-        inline void set_status(const int32_t status)
-        {
-          status_ = status;
-        }
-        inline void set_heart_interval(const int8_t heart_interval)
-        {
-          heart_interval_ = heart_interval;
-        }
-        inline int8_t get_heart_interval(void) const
-        {
-          return heart_interval_;
-        }
-        inline int32_t get_status() const
-        {
-          return status_;
-        }
       protected:
         int32_t status_;
         int32_t heart_interval_;
-        common::VUINT32 expire_blocks_;
-        common::VUINT32 new_blocks_;
+        int32_t max_mr_network_bandwith_mb_;
+        int32_t max_rw_network_bandwith_mb_;
+        int32_t verify_index_reserved_space_ratio_;
+        int32_t check_integrity_interval_days_;
+        int8_t  ns_role_;
+        int8_t  enable_old_interface_;
+        int8_t  enable_version_check_;
     };
 
 #pragma pack(4)

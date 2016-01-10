@@ -19,6 +19,7 @@
 #include "common/define.h"
 #include "common/meta_server_define.h"
 #include "common/kv_meta_define.h"
+#include "common/expire_define.h"
 
 namespace tfs
 {
@@ -97,7 +98,10 @@ namespace tfs
                        const char* file_name, const char* suffix = NULL);
         int fetch_buf(int64_t& ret_count, char* buf, const int64_t count,
                      const char* file_name, const char* suffix = NULL);
-
+        // for lifecycle root
+        void set_lifecycle_rs_addr(const char *rs_addr);
+        TfsRetType query_task(const uint64_t es_id,
+                              std::vector<common::ServerExpireTask>* p_res_task);
         // for kv meta
         void set_kv_rs_addr(const char *rs_addr); // tmp use
 
@@ -122,7 +126,7 @@ namespace tfs
         int64_t pread_object(const char *bucket_name, const char *object_name,
             void *buf, const int64_t offset, const int64_t length,
             common::ObjectMetaInfo *object_meta_info,
-            common::CustomizeInfo *customize_info,
+            common::UserMetadata *user_metadata,
             const common::UserInfo &user_info);
         TfsRetType get_object(const char *bucket_name, const char *object_name,
             const char* local_file, const common::UserInfo &user_info);
@@ -130,6 +134,12 @@ namespace tfs
             const common::UserInfo &user_info);
         TfsRetType head_object(const char *bucket_name, const char *object_name,
             common::ObjectInfo *object_info, const common::UserInfo &user_info);
+
+        TfsRetType set_life_cycle(const int32_t file_type, const char *file_name,
+                                  const int32_t invalid_time_s, const char *app_key);
+        TfsRetType get_life_cycle(const int32_t file_type, const char *file_name,
+                                        int32_t *invalid_time_s);
+        TfsRetType rm_life_cycle(const int32_t file_type, const char *file_name);
 
         // for name meta
         TfsRetType create_dir(const int64_t uid, const char* dir_path);

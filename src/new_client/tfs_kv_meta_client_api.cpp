@@ -97,11 +97,11 @@ namespace tfs
     int64_t KvMetaClient::pread_object(const char *bucket_name,
         const char *object_name, void *buf, const int64_t offset,
         const int64_t length, common::ObjectMetaInfo *object_meta_info,
-        common::CustomizeInfo *customize_info,
+        common::UserMetadata *user_metadata,
         const common::UserInfo &user_info)
     {
       return impl_->pread_object(bucket_name, object_name, buf, offset,
-          length, object_meta_info, customize_info, user_info);
+          length, object_meta_info, user_metadata, user_info);
     }
 
     TfsRetType KvMetaClient::get_object(const char *bucket_name,
@@ -123,6 +123,23 @@ namespace tfs
         const common::UserInfo &user_info)
     {
       return impl_->head_object(bucket_name, object_name, object_info, user_info);
+    }
+
+    TfsRetType KvMetaClient::set_life_cycle(const int32_t file_type, const char *file_name,
+                                            const int32_t invalid_time_s, const char *app_key)
+    {
+      return impl_->set_life_cycle(file_type, file_name, invalid_time_s, app_key);
+    }
+
+    TfsRetType KvMetaClient::get_life_cycle(const int32_t file_type, const char *file_name,
+                                            int32_t *invalid_time_s)
+    {
+      return impl_->get_life_cycle(file_type, file_name, invalid_time_s);
+    }
+
+    TfsRetType KvMetaClient::rm_life_cycle(const int32_t file_type, const char *file_name)
+    {
+      return impl_->rm_life_cycle(file_type, file_name);
     }
 
   }

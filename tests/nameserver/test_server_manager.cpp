@@ -90,12 +90,12 @@ namespace tfs
       info.last_update_time_ = now;
       info.current_time_ = now;
       info.status_ = DATASERVER_STATUS_ALIVE;
-      info.total_tp_.write_byte_ = 0xffffffff;
-      info.total_tp_.write_file_count_ = 0xfff;
-      info.total_tp_.read_byte_ = 0xffffffff;
-      info.total_tp_.read_file_count_ = 0xfffff;
+      info.write_bytes_[0] = 0xffffffff;
+      info.write_file_count_[0] = 0xfff;
+      info.read_bytes_[0] = 0xffffffff;
+      info.read_file_count_[0] = 0xffff;
 
-      ServerCollect query(info.id_);
+      ServerCollect query(layout_manager_,info.id_);
       ServerCollect* server = server_manager_.get(info.id_);
       EXPECT_TRUE(NULL == server);
 
@@ -209,11 +209,15 @@ namespace tfs
 
       int32_t actual = 0;
       now += SYSPARAM_NAMESERVER.replicate_wait_time_ + 1;
+      ServerCollect* servers[MAX_POP_SERVER_FROM_DEAD_QUEUE_LIMIT];
+      common::ArrayHelper<ServerCollect*> helper(MAX_POP_SERVER_FROM_DEAD_QUEUE_LIMIT, servers);
       TBSYS_LOG(DEBUG, "remove count : %d", REMOVE_COUNT);
-      while (NULL != server_manager_.pop_from_dead_queue(now))
+      do
       {
-        actual++;
+        server_manager_.pop_from_dead_queue(helper, now);
+        actual += helper.get_array_index();
       }
+      while (helper.get_array_index() > 0 );
       EXPECT_EQ(REMOVE_COUNT, actual);
       EXPECT_EQ(0, server_manager_.dead_servers_.size());
     }

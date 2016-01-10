@@ -16,7 +16,14 @@ HEADER=dump_plan_message.h client_cmd_message.h heart_message.h\
 			 message_factory.h get_dataserver_information_message.h\
 			 meta_nameserver_client_message.h meta_nameserver_client_message.h\
 			 rts_ms_heart_message.h get_tables_from_rts_message.h base_task_message.h\
-			 update_table_message.h rts_rts_heart_message.h checkserver_message.h kv_meta_message.h kv_rts_message.h
+			 update_table_message.h rts_rts_heart_message.h checkserver_message.h\
+			 erasure_code_message.h dataserver_task_message.h resolve_block_version_conflict_message.h\
+			 family_info_message.h  kv_meta_message.h kv_rts_message.h\
+			 block_info_message_v2.h write_file_message_v2.h close_file_message_v2.h\
+			 read_file_message_v2.h unlink_file_message_v2.h read_data_message_v2.h read_data_message_v2.h\
+			 write_data_message_v2.h read_index_message_v2.h write_index_message_v2.h ec_meta_message.h\
+			 expire_message.h client_ns_keepalive_message.h
+
 libtfsmessage_a_SOURCES = dump_plan_message.cpp client_cmd_message.cpp heart_message.cpp\
 													oplog_sync_message.cpp crc_error_message.cpp reload_message.cpp\
 													unlink_file_message.cpp file_info_message.cpp rollback_message.cpp\
@@ -27,7 +34,14 @@ libtfsmessage_a_SOURCES = dump_plan_message.cpp client_cmd_message.cpp heart_mes
 													message_factory.cpp get_dataserver_information_message.cpp \
 													meta_nameserver_client_message.cpp rts_ms_heart_message.cpp\
 													get_tables_from_rts_message.cpp update_table_message.cpp\
-													rts_rts_heart_message.cpp checkserver_message.cpp kv_meta_message.cpp kv_rts_message.cpp $(HEADER)
+													rts_rts_heart_message.cpp checkserver_message.cpp erasure_code_message.cpp \
+													dataserver_task_message.cpp resolve_block_version_conflict_message.cpp \
+													kv_meta_message.cpp kv_rts_message.cpp \
+													family_info_message.cpp block_info_message_v2.cpp write_file_message_v2.cpp \
+													close_file_message_v2.cpp read_file_message_v2.cpp unlink_file_message_v2.cpp \
+												  read_data_message_v2.cpp write_data_message_v2.cpp read_index_message_v2.cpp \
+													write_index_message_v2.cpp ec_meta_message.cpp expire_message.cpp \
+													client_ns_keepalive_message.cpp $(HEADER)
 
 libtfsmessage_a_CPPFLAGS = $(AM_CPPFLAGS)
 

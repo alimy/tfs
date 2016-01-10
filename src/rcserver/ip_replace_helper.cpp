@@ -161,8 +161,18 @@ namespace tfs
     }
     uint32_t IpReplaceHelper::calculate_distance(const std::string& ip_str, const std::string& addr)
     {
-      uint32_t ip1 = common::Func::get_addr(ip_str.c_str());
-      uint32_t ip2 = common::Func::get_addr(addr.c_str());
+      uint32_t ip1 = inet_addr(ip_str.c_str());
+      if (ip1 == INADDR_NONE)
+      {
+        ip1 = 0;
+      }
+
+      uint32_t ip2 = inet_addr(addr.c_str());
+      if (ip2 == INADDR_NONE)
+      {
+        ip2 = 0;
+      }
+
       uint32_t mask = 0xff;
       uint32_t n1 = 0;
       uint32_t n2 = 0;
@@ -185,6 +195,14 @@ namespace tfs
         result = n2 - n1;
       }
       return result;
+    }
+    std::string IpReplaceHelper::addrToStringNoPort(uint64_t ipport)
+    {
+      char str[32];
+      uint32_t ip = (uint32_t)(ipport & 0xffffffff);
+      unsigned char *bytes = (unsigned char *) &ip;
+      sprintf(str, "%d.%d.%d.%d", bytes[0], bytes[1], bytes[2], bytes[3]);
+      return str;
     }
   }
 }

@@ -28,6 +28,7 @@
 #include "metacmp.h"
 #include "message/message_factory.h"
 #include "common/base_packet_streamer.h"
+#include "common/version.h"
 
 using namespace tfs::common;
 using namespace tfs::message;
@@ -69,8 +70,12 @@ void print_help();
 int cmd_show_help(VSTRING&);
 int cmd_quit(VSTRING&);
 int cmd_show_block(VSTRING&);
+int cmd_check_block(VSTRING&);
 int cmd_show_server(VSTRING& param);
 int cmd_show_machine(VSTRING& param);
+int cmd_show_block_distribution(VSTRING&);
+int cmd_show_rack(VSTRING&);
+int cmd_show_family(VSTRING&);
 int cmd_batch(VSTRING& param);
 const char* expand_path(string& path);
 
@@ -149,19 +154,18 @@ int get_value(const char* data, string& value)
 {
   return ((value = data) != "");
 }
-int get_value(const char* data, int32_t& value)
+int get_value(const char* data, uint64_t& value)
 {
   int base = 10;
-  char *endptr;
-  long val;
+  char* endptr = NULL;
 
   errno = 0;    // To distinguish success/failure after call
-  val = (strtol(data, &endptr, base));
-  //TBSYS_LOG(DEBUG, "val: %d", val);
+  value = (strtoull(data, &endptr, base));
+  //TBSYS_LOG(DEBUG, "val: %lu, %s, %s", value, endptr, data);
 
   // Check for various possible errors
-  if ((errno == ERANGE && (val == LONG_MAX || val == LONG_MIN))
-      || (errno != 0 && val == 0)) {
+  if ((errno == ERANGE && (value == UINT64_MAX))
+      || (errno != 0 && value == 0)) {
     perror("strtol");
     return TFS_ERROR;
   }
@@ -176,7 +180,6 @@ int get_value(const char* data, int32_t& value)
     printf("Further characters after number: %s\n", endptr);
     return TFS_ERROR;
   }
-  value = static_cast<int32_t> (val);
   return TFS_SUCCESS;
 }
 int parse_param(const VSTRING& param, ComType com_type, ParamInfo& ret_param)
@@ -202,6 +205,11 @@ int parse_param(const VSTRING& param, ComType com_type, ParamInfo& ret_param)
       {
         case CMD_NUM:
           ret = get_value((*iter).c_str(), ret_param.num_);
+          if(0 == ret_param.num_ || ret_param.num_ > (uint64_t)MAX_READ_NUM)
+          {
+            TBSYS_LOG(ERROR, "please input num in [1, %d]", MAX_READ_NUM);
+            return TFS_ERROR;
+          }
           break;
         case CMD_COUNT:
           ret = get_value((*iter).c_str(), ret_param.count_);
@@ -246,21 +254,13 @@ int parse_param(const VSTRING& param, ComType com_type, ParamInfo& ret_param)
       }
       if (com_type & BLOCK_TYPE)
       {
-        int32_t tmp = -1;
+        uint64_t tmp = 0;
         switch (cmd)
         {
           case CMD_BLOCK_ID:
             if ((ret = get_value((*iter).c_str(), tmp)) == TFS_SUCCESS)
             {
-              ret_param.block_id_ = static_cast< uint32_t > (tmp);
-            }
-            if (ret == TFS_SUCCESS && ((iter + 1) != param.end()) && ((*(iter + 1)).substr(0, 1) != "-"))
-            {
-              if ((ret = get_value((*(iter + 1)).c_str(), tmp)) == TFS_SUCCESS)
-              {
-                ret_param.block_chunk_num_ = static_cast< int32_t > (tmp);
-                iter++;
-              }
+              ret_param.block_id_ = tmp;
             }
             break;
           case CMD_SERVER_LIST:
@@ -295,6 +295,89 @@ int parse_param(const VSTRING& param, ComType com_type, ParamInfo& ret_param)
             break;
         }
       }
+      if (com_type & BLOCK_DISTRIBUTION_TYPE)
+      {//这里解析子命令,并记录到ret_param里面
+        uint64_t tmp = 0;
+        switch (cmd)
+        {
+          case CMD_BLOCK_ID:
+            if ((ret = get_value((*iter).c_str(), tmp)) == TFS_SUCCESS)
+            {
+              ret_param.block_id_ = tmp;
+            }
+            break;
+          case CMD_IP_ID:
+            ret_param.type_ = BLOCK_IP_DISTRIBUTION_TYPE;
+            break;
+          case CMD_IP_MASK_ID:
+          if(!get_value((*iter).c_str(), ret_param.rack_ip_mask_))//mask
+            {
+              ret = TFS_ERROR;
+            }
+            if(0 == Func::get_addr(ret_param.rack_ip_mask_.c_str()))
+            {
+              ret = TFS_ERROR;
+            }
+            ret_param.type_ = BLOCK_RACK_DISTRIBUTION_TYPE;
+            break;
+          default:
+            ret = CMD_UNKNOWN;
+            break;
+        }
+      }
+      if (com_type & RACK_BLOCK_TYPE)
+      {
+        switch (cmd)
+        {
+          case CMD_IP_GROUP_ID:
+           if (get_value((*iter).c_str(), ret_param.server_ip_port_) )
+              {
+               string::size_type index = ret_param.server_ip_port_.find_first_of(":");//允许用户输入含端口的ip_group
+               if(string::npos != index)
+               {
+                 ret_param.server_ip_port_ = ret_param.server_ip_port_.substr(0, index);
+               }
+               ret_param.type_ = RACK_BLOCK_TYPE_BLOCK_LIST;//默认为RACK_BLOCK_TYPE_RACK_LIST
+             }
+             if(0 == Func::get_addr(ret_param.server_ip_port_.c_str()))
+            {
+              ret = TFS_ERROR;
+            }
+            break;
+         case CMD_IP_MASK_ID:
+            if(!get_value((*iter).c_str(), ret_param.rack_ip_mask_))//mask
+            {
+              ret = TFS_ERROR;
+            }
+            if(0 == Func::get_addr(ret_param.rack_ip_mask_.c_str()))
+            {
+              ret = TFS_ERROR;
+            }
+            break;
+         default:
+            ret = CMD_UNKNOWN;
+            break;
+        }
+      }
+      if (com_type & FAMILY_TYPE)
+      {
+        uint64_t tmp = 0;
+        switch (cmd)
+        {
+          case CMD_BLOCK_ID://CMD_FAMILY_ID:
+            if ((ret = get_value((*iter).c_str(), tmp)) == TFS_SUCCESS)
+            {
+              ret_param.family_id_ = tmp;
+            }
+            break;
+          case CMD_SERVER_LIST:
+            ret_param.type_ = BLOCK_TYPE_SERVER_LIST;
+            break;
+          default:
+            ret = CMD_UNKNOWN;
+            break;
+        }
+      }
     }
     else
     {
@@ -318,9 +401,13 @@ void init()
   g_cmd_map["quit"] = CmdNode(0, 0, cmd_quit);
   g_cmd_map["q"] = CmdNode(0, 0, cmd_quit);
   g_cmd_map["exit"] = CmdNode(0, 0, cmd_quit);
-  g_cmd_map["block"] = CmdNode(0, 13, cmd_show_block);
+  g_cmd_map["block"] = CmdNode(0, 11, cmd_show_block);
+  g_cmd_map["check_block"] = CmdNode(0, 0, cmd_check_block);
   g_cmd_map["server"] = CmdNode(0, 11, cmd_show_server);
-  g_cmd_map["machine"] = CmdNode(0, 9, cmd_show_machine);
+  g_cmd_map["machine"] = CmdNode(0, 7, cmd_show_machine);
+  g_cmd_map["rack"] = CmdNode(0, 12, cmd_show_rack);
+  g_cmd_map["block_dist"] = CmdNode(0, 11, cmd_show_block_distribution);
+  g_cmd_map["family"] = CmdNode(0, 10, cmd_show_family);
   g_cmd_map["batch"] = CmdNode(1, 1, cmd_batch);
 
   g_sub_cmd_map["-num"] = CmdInfo(CMD_NUM, true);
@@ -335,6 +422,10 @@ void init()
   g_sub_cmd_map["-monitor"] = CmdInfo(CMD_FOR_MONITOR, false);
   g_sub_cmd_map["-count"] = CmdInfo(CMD_COUNT, true);
   g_sub_cmd_map["-interval"] = CmdInfo(CMD_INTERVAL, true);
+
+  g_sub_cmd_map["-ip"] = CmdInfo(CMD_IP_ID, false);
+  g_sub_cmd_map["-mask"] = CmdInfo(CMD_IP_MASK_ID, true);
+  g_sub_cmd_map["-g"] = CmdInfo(CMD_IP_GROUP_ID, true);
 
   g_sub_cmd_map["-n"] = CmdInfo(CMD_NUM, true);
   g_sub_cmd_map["-d"] = CmdInfo(CMD_BLOCK_ID, true);
@@ -359,7 +450,14 @@ void print_help()
         "  -n the number of one fetch, default 1024, optional.\n"
         "  -d block id, optional.\n"
         "  -s print server list, optional.\n"
-        "  -c execute times, default 1, optional.\n"
+        "  -c execute times, default 1, it will always loop execute when it is 0, optional.\n"
+        "  -i interval time, default 2, optional.\n"
+        "  > redirect to file, optional.\n");
+    fprintf(stderr, "family [-n num] [-d family_id] [-c] [-i] [> filename]   show family info.\n"
+        "  -n the number of one fetch, default 1024, optional.\n"
+        "  -d family id, optional.\n"
+        "  -s print server list, can be used when -d specify family optional.\n"
+        "  -c execute times, default 1, it will always loop execute when it is 0, optional.\n"
         "  -i interval time, default 2, optional.\n"
         "  > redirect to file, optional.\n");
     fprintf(stderr, "server [-n num] [-r server_ip] [-b] [-w] [-m] [-c] [-i] [> filename]  show server info.\n"
@@ -368,24 +466,42 @@ void print_help()
         "  -b print block list, optional.\n"
         "  -w print writable block list, optional.\n"
         "  -m print master block list, optional.\n"
-        "  -c execute times, optional.\n"
+        "  -c execute times, default 1, it will always loop execute when it is 0, optional.\n"
         "  -i interval time, optional.\n"
         "  > redirect to file, optional.\n");
     fprintf(stderr, "machine [-a] [-p] [-f] [-c] [-i] [> filename]   show machine info.\n"
         "  -a print all info, optional.\n"
         "  -p print part of infos, optional.\n"
         "  -f print stat of certain infos, for monitor, optional.\n"
-        "  -c execute times, optional.\n"
+        "  -c execute times, default 1, it will always loop execute when it is 0, optional.\n"
         "  -i interval\n"
+        "  > redirect to file, optional.\n");
+    fprintf(stderr, "block_dist [-n num] [ [-ip [-d block_id]] | [-mask ip_mask] ] [-c] [-i] [> filename]   show unnormal block rack distribution, set rack by mask.\n"
+        "  -n the number of one fetch, default 1024, optional.\n"
+        "  -ip print unnormal block's ds list, one machine as one rack(equal with '-mask 255.255.255.255'), optional.\n"
+        "  -d block id, optional.\n"
+        "  -mask print unnormal block's ds list, set rack by ip_mask, optional.\n"
+        "  -c execute times, default 1, it will always loop execute when it is 0, optional.\n"
+        "  -i interval time, default 2, optional.\n"
+        "  > redirect to file, optional.\n");
+    fprintf(stderr, "rack [-n num] [-mask ip_mask] [-g ip_group] [-c] [-i] [> filename]   show all blocks by rack.\n"
+        "  -n the number of one fetch, default 1024, optional.\n"
+        "  -mask divide the machines into racks by ip_mask ,default 255.255.255.240, optional.\n"
+        "  -g print block_id list of the ip_group's machine rack only, optional.\n"
+        "  -c execute times, default 1, it will always loop execute when it is 0, optional.\n"
+        "  -i interval time, default 2, optional.\n"
+        "  > redirect to file, optional.\n");
+    fprintf(stderr, "check_block [-n num] [> filename]   check whether all blocks's replicates position is really the same whith ns block table.\n"
+        "  -n the number of one fetch, default 1024, optional.\n"
         "  > redirect to file, optional.\n");
   }
   else
   {
     fprintf(stderr, "block [-a] [-p] [-s]  compare block info\n"
-        "  -a compare all block info\n"
-        "  -p compare some block info\n"
+        "  -a compare block all info\n"
+        "  -p compare block all info\n"
         "  -s compare server list.\n"
-        "  default compare part of block info\n");
+        "  default compare block all info\n");
     fprintf(stderr, "server [-b] [-w] [-m]  compare server info\n"
         "  -b compare block list \n"
         "  -w compare writable block list \n"
@@ -397,6 +513,7 @@ void print_help()
   fprintf(stderr, "quit(q)      quit\n");
   fprintf(stderr, "exit      exit\n");
   fprintf(stderr, "help(h)      show help info\n");
+  fprintf(stderr, "vesion(v)      show version info\n");
 }
 
 int cmd_show_help(VSTRING&)
@@ -421,12 +538,24 @@ int cmd_show_block(VSTRING& param)
   {
     if (!g_need_cmp)
     {
-      g_show_info.show_block(ret_param.type_, ret_param.num_, ret_param.block_id_, ret_param.block_chunk_num_, ret_param.count_, ret_param.interval_, ret_param.filename_);
+      g_show_info.show_block(ret_param.type_, ret_param.num_, ret_param.block_id_, ret_param.count_, ret_param.interval_, ret_param.filename_);
     }
     else
     {
       g_cmp_info.compare(BLOCK_TYPE, ret_param.type_, ret_param.num_);
     }
+  }
+  return ret;
+}
+
+int cmd_check_block(VSTRING& param)
+{
+  int ret = TFS_ERROR;
+  int8_t type = CMD_NOP;
+  ParamInfo ret_param(type);
+  if ((ret = parse_param(param, CHECK_BLOCK_TYPE, ret_param)) != TFS_ERROR)
+  {
+    g_show_info.check_block(ret_param.type_, ret_param.num_, ret_param.filename_);
   }
   return ret;
 }
@@ -456,6 +585,51 @@ int cmd_show_machine(VSTRING& param)
   if ((ret = parse_param(param, MACHINE_TYPE, ret_param)) != TFS_ERROR)
   {
     g_show_info.show_machine(ret_param.type_, ret_param.num_, ret_param.count_, ret_param.interval_, ret_param.filename_);
+  }
+  return ret;
+}
+
+int cmd_show_block_distribution(VSTRING& param)
+{
+  int ret = TFS_ERROR;
+  int8_t type = CMD_NOP;
+  ParamInfo ret_param(type);
+  ret_param.rack_ip_mask_ = "255.255.255.240";
+  if ((ret = parse_param(param, BLOCK_DISTRIBUTION_TYPE, ret_param)) != TFS_ERROR)
+  {
+    if(CMD_NOP == ret_param.type_)// BLOCK_IP_DISTRIBUTION_TYPE 和 BLOCK_RACK_DISTRIBUTION_TYPE至少有一个参数
+    {
+      print_help();
+      fprintf(stderr, "\nnotice: [-ip] or [-mask ip_mask] must be chosen one ...\n");
+    }
+    else
+    {
+      g_show_info.show_block_distribution(ret_param.type_, ret_param.rack_ip_mask_, ret_param.num_, ret_param.block_id_, ret_param.count_, ret_param.interval_, ret_param.filename_);
+    }
+  }
+  return ret;
+}
+
+int cmd_show_rack(VSTRING& param)
+{
+  int ret = TFS_ERROR;
+  int8_t type = RACK_BLOCK_TYPE_RACK_LIST;//默认只显示rack 及block size
+  ParamInfo ret_param(type);
+  ret_param.rack_ip_mask_ = "255.255.255.240";
+  if ((ret = parse_param(param, RACK_BLOCK_TYPE, ret_param)) != TFS_ERROR)
+  {
+    g_show_info.show_rack_block(ret_param.type_, ret_param.rack_ip_mask_, ret_param.server_ip_port_, ret_param.num_, ret_param.count_, ret_param.interval_, ret_param.filename_);
+  }
+  return ret;
+}
+
+int cmd_show_family(VSTRING& param)
+{
+  int ret = TFS_ERROR;
+  ParamInfo ret_param;
+  if ((ret = parse_param(param, FAMILY_TYPE, ret_param)) != TFS_ERROR)
+  {
+    g_show_info.show_family(ret_param.type_, ret_param.num_, ret_param.family_id_, ret_param.count_, ret_param.interval_, ret_param.filename_);
   }
   return ret;
 }
@@ -522,14 +696,22 @@ int usage(const char *name)
   fprintf(stderr, "\n****************************************************************************** \n");
   fprintf(stderr, "You can both get and compare cluster info by this tool.\n");
   fprintf(stderr, "Usage: \n");
-  fprintf(stderr, "  %s -s ns_ip_port [-i exec command]    show server, block and machine info.\n", name);
-  fprintf(stderr, "  %s -m master_ip_port -s slave_ip_port [-i exec command]   compare server, block info.\n", name);
+  fprintf(stderr, "  %s -s ns_ip_port [-i exec command] [-v]   show server, block, machine and rack machine info.\n", name);
+  fprintf(stderr, "  %s -m master_ip_port -s slave_ip_port [-i exec command] [-v]  compare server, block info.\n", name);
   fprintf(stderr, "****************************************************************************** \n");
   fprintf(stderr, "\n");
   exit(TFS_ERROR);
 }
+
+void version(const char* app_name)
+{
+  fprintf(stderr, "%s %s\n", app_name, Version::get_build_description());
+  exit(0);
+}
+
 static void sign_handler(int32_t sig)
 {
+  fprintf(stderr, "showssm sig %d.\n", sig);
   switch (sig)
   {
     case SIGINT:
@@ -537,8 +719,8 @@ static void sign_handler(int32_t sig)
       {
         g_show_info.interrupt_ = true;
         g_show_info.is_loop_ = false;
-        break;
       }
+      break;
     case SIGTERM:
       fprintf(stderr, "showssm tool exit.\n");
       g_show_info.clean_last_file();
@@ -598,7 +780,7 @@ int main(int argc,char** argv)
   string ns_ip_port_1;
   string ns_ip_port_2;
   bool directly = false;
-  while ((i = getopt(argc, argv, "s:m:ih")) != EOF)
+  while ((i = getopt(argc, argv, "s:m:ihv")) != EOF)
   {
     switch (i)
     {
@@ -611,6 +793,9 @@ int main(int argc,char** argv)
         break;
       case 'i':
         directly = true;
+        break;
+      case 'v':
+        version(argv[0]);
         break;
       case 'h':
       default:
@@ -640,22 +825,23 @@ int main(int argc,char** argv)
     g_cmp_info.set_ns_ip(ns_ip_port_1, ns_ip_port_2);
   }
 
+  signal(SIGINT, sign_handler);
+  signal(SIGTERM, sign_handler);
   if (optind >= argc)
   {
-    signal(SIGINT, sign_handler);
-    signal(SIGTERM, sign_handler);
     main_loop();
   }
   else
   {
-    if (directly)
+    if (directly) // ssm ... -i "cmd"
     {
       for (i = optind; i < argc; i++)
       {
         do_cmd(argv[i]);
       }
+      g_show_info.clean_last_file();
     }
-    else
+    else// exec filename
     {
       VSTRING param;
       for (i = optind; i < argc; i++)
@@ -765,7 +951,7 @@ int32_t do_cmd(char* key)
   int32_t min_param_count = g_cmd_map[g_cur_cmd].min_param_count_;
   int32_t max_param_count = g_cmd_map[g_cur_cmd].max_param_count_;
   int32_t param_size = static_cast<int32_t>(param.size());
-  if ((param_size < min_param_count) || (param_size) > max_param_count)
+  if ((param_size < min_param_count) || param_size > max_param_count)
   {
     //fprintf(stderr, "%s\n\n", g_cmd_map[g_cur_cmd].info_);
     fprintf(stderr, "bad param...");

@@ -214,7 +214,7 @@ int TfsClientImpl::fstat(const int fd, TfsFileStat* buf, const TfsStatType mode)
   return ret;
 }
 
-int TfsClientImpl::close(const int fd, char* ret_tfs_name, const int32_t ret_tfs_name_len, const bool simple)
+int TfsClientImpl::close(const int fd, char* ret_tfs_name, const int32_t ret_tfs_name_len, const bool simple, const int force_status)
 {
   int ret = EXIT_INVALIDFD_ERROR;
   TfsFile* tfs_file = get_file(fd);
@@ -222,7 +222,7 @@ int TfsClientImpl::close(const int fd, char* ret_tfs_name, const int32_t ret_tfs
   {
     {
       ScopedRWLock scoped_lock(tfs_file->rw_lock_, WRITE_LOCKER);
-      ret = tfs_file->close();
+      ret = tfs_file->close(force_status);
       if (TFS_SUCCESS != ret)
       {
         TBSYS_LOG(ERROR, "tfs close failed. fd: %d, ret: %d", fd, ret);
@@ -676,6 +676,7 @@ bool TfsClientImpl::is_hit_local_cache(const char* ns_addr, const char* tfs_name
   return ret;
 }
 
+#ifdef WITH_TAIR_CACHE
 void TfsClientImpl::set_remote_cache_info(const char* remote_cache_master_addr, const char* remote_cache_slave_addr,
        const char* remote_cache_group_name, const int32_t remote_cache_area)
 {
@@ -685,7 +686,6 @@ void TfsClientImpl::set_remote_cache_info(const char* remote_cache_master_addr, 
   ClientConfig::remote_cache_area_ = remote_cache_area;
 }
 
-#ifdef WITH_TAIR_CACHE
 void TfsClientImpl::insert_remote_block_cache(const char* ns_addr, const uint32_t block_id,
        const common::VUINT64& ds_list)
 {
@@ -749,7 +749,6 @@ void TfsClientImpl::remove_remote_block_cache(const char* ns_addr, const uint32_
     tfs_session->remove_remote_block_cache(block_id);
   }
 }
-
 bool TfsClientImpl::is_hit_remote_cache(const char* ns_addr, const char* tfs_name) const
 {
   bool ret = false;
@@ -765,7 +764,6 @@ bool TfsClientImpl::is_hit_remote_cache(const char* ns_addr, const char* tfs_nam
   }
   return ret;
 }
-
 bool TfsClientImpl::is_hit_remote_cache(const char* ns_addr, const uint32_t block_id) const
 {
   TfsSession *tfs_session = NULL;

@@ -1,24 +1,30 @@
 AM_CPPFLAGS=-I$(top_srcdir)/src\
 	    -I$(TBLIB_ROOT)/include/tbsys\
 	    -I$(TBLIB_ROOT)/include/tbnet\
-            $(READLINE_INCLUDE)
+      $(READLINE_INCLUDE)\
+		  -I$(TREST_ROOT)/include
 
-AM_LDFLAGS=-lrt -lpthread -ldl $(READLINE_LIB)
+AM_LDFLAGS=-lrt -lpthread -ldl $(READLINE_LIB) -lsnappy -ljson -lcurl
 
-bin_PROGRAMS = sync_by_blk sync_by_log sync_by_file transfer_by_file sync_analyze_tool
+bin_PROGRAMS = transfer split_item_tool block_toolv2 transfer_from_filesystem
 LDADD = $(top_builddir)/src/tools/util/libtfstoolsutil.a\
+	$(top_builddir)/src/requester/libtfssyncutil.a\
+  $(top_builddir)/src/clientv2/.libs/libtfsclientv2.a\
 	$(top_builddir)/src/new_client/.libs/libtfsclient.a\
+  $(top_builddir)/src/requester/libtfsrequester.a\
 	$(top_builddir)/src/message/libtfsmessage.a\
 	$(top_builddir)/src/common/libtfscommon.a\
-	$(UNIQUE_STORE_LDFLAGS)\
-  $(TAIR_CACHE_LDFLAGS) \
+	$(TAIR_CACHE_LDFLAGS) \
 	$(TBLIB_ROOT)/lib/libtbnet.a\
-	$(TBLIB_ROOT)/lib/libtbsys.a
+	$(TBLIB_ROOT)/lib/libtbsys.a\
+	$(TREST_ROOT)/lib/libtfs_cpp_restful_client.a
 
+transfer_SOURCES=transfer.cpp transfer.h
 
-sync_by_blk_SOURCES =  sync_by_blk.cpp sync_file_base.cpp sync_file_base.h
-sync_by_log_SOURCES =  sync_by_log.cpp sync_file_base.cpp sync_file_base.h
-sync_by_file_SOURCES =  sync_by_file.cpp sync_file_base.cpp sync_file_base.h
+split_item_tool_SOURCES=split_item_tool.cpp
 
-transfer_by_file_SOURCES = transfer_by_file.cpp sync_file_base.h
-sync_analyze_tool_SOURCES = sync_analyze_tool.cpp
+block_toolv2_SOURCES=block_tool_v2.cpp
+
+transfer_from_filesystem_SOURCES = transfer_from_filesystem.cpp
+
+# calc_ip_addr_SOURCES=calc_ip_addr.cpp

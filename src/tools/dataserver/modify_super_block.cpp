@@ -13,12 +13,14 @@
  *      - initial release
  *   chuyu <chuyu@taobao.com>
  *      - modify 2010-03-20
+ *   linqing <linqing.zyd@taobao.com>
+ *      - modify 2012-05-09
  *
  */
 #include "common/internal.h"
 #include "dataserver/blockfile_manager.h"
 #include "common/parameter.h"
-#include "dataserver/version.h"
+#include "common/version.h"
 #include <stdio.h>
 
 using namespace tfs::common;
@@ -29,10 +31,12 @@ int main(int argc, char* argv[])
 {
   char* conf_file = NULL;
   int32_t help_info = 0;
-  int32_t i;
+  int32_t i = 0;
   string server_index;
+  int32_t main_used_count = -1;
+  int32_t ext_used_count = -1;
 
-  while ((i = getopt(argc, argv, "f:i:vh")) != EOF)
+  while ((i = getopt(argc, argv, "f:i:v:m:e:h")) != EOF)
   {
     switch (i)
     {
@@ -41,6 +45,12 @@ int main(int argc, char* argv[])
         break;
       case 'i':
         server_index = optarg;
+        break;
+      case 'm':
+        main_used_count = atoi(optarg);
+        break;
+      case 'e':
+        ext_used_count = atoi(optarg);
         break;
       case 'v':
         fprintf(stderr, "modify tfs file system super block tool, version: %s\n", Version::get_build_description());
@@ -58,6 +68,8 @@ int main(int argc, char* argv[])
     fprintf(stderr, "  -f configure file\n");
     fprintf(stderr, "  -i server_index  dataserver index number\n");
     fprintf(stderr, "  -v show version info\n");
+    fprintf(stderr, "  -m used main block count\n");
+    fprintf(stderr, "  -e used extend block count\n");
     fprintf(stderr, "  -h help info\n");
     fprintf(stderr, "\n");
     return -1;
@@ -73,6 +85,7 @@ int main(int argc, char* argv[])
     return ret;
   }
 
+  /*
   cout << "mount name: " << SYSPARAM_FILESYSPARAM.mount_name_
     << " max mount size: " << SYSPARAM_FILESYSPARAM.max_mount_size_
     << " base fs type: " << SYSPARAM_FILESYSPARAM.base_fs_type_
@@ -84,6 +97,7 @@ int main(int argc, char* argv[])
     << " avg inner file size: " << SYSPARAM_FILESYSPARAM.avg_segment_size_
     << " hash slot ratio: " << SYSPARAM_FILESYSPARAM.hash_slot_ratio_
     << endl;
+  */
 
   SuperBlock super_block;
   SuperBlockImpl* super_block_impl_ = new SuperBlockImpl(SYSPARAM_FILESYSPARAM.mount_name_
@@ -94,14 +108,33 @@ int main(int argc, char* argv[])
     TBSYS_LOG(ERROR, "read super block error. ret: %d, desc: %s\n", ret, strerror(errno));
     return ret;
   }
-  super_block.mmap_option_.first_mmap_size_ = 122880;
-  super_block.used_block_count_ = 728;
-  super_block.used_extend_block_count_ = 0;
+
+  // super_block.mmap_option_.first_mmap_size_ = 122880;
+
+  if (-1 != main_used_count)
+  {
+    super_block.used_block_count_ = main_used_count;
+    TBSYS_LOG(DEBUG, "change used_block_count to %d", main_used_count);
+  }
+
+  if (-1 != ext_used_count)
+  {
+    super_block.used_extend_block_count_ = ext_used_count;
+    TBSYS_LOG(DEBUG, "change used_extend_block_count to %d\n", ext_used_count);
+  }
+
+  super_block.used_block_count_ = main_used_count;
+  super_block.used_extend_block_count_ = ext_used_count;
   ret = super_block_impl_->write_super_blk(super_block);
   if (ret)
   {
     TBSYS_LOG(ERROR, "write super block error. ret: %d, desc: %s\n", ret, strerror(errno));
     return ret;
   }
+  else
+  {
+    super_block_impl_->flush_file();
+  }
+
   return 0;
 }

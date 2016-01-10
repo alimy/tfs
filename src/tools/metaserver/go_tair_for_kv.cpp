@@ -444,24 +444,28 @@ int cmd_get_bucket(const VSTRING& param)
   const char *bucket_name = NULL;
   const char *prefix = NULL;
   const char *start_key = NULL;
-  char delimiter = DEFAULT_CHAR;
-  int32_t limit = MAX_LIMIT;
+  char delimiter = KvDefine::DEFAULT_CHAR;
+  int32_t limit = KvDefine::MAX_LIMIT;
 
   bucket_name = param[0].c_str();
 
   if (size > 1)
   {
     prefix = canonical_param(param[1]);
+    if (prefix[0]=='.')
+      prefix = NULL;
   }
 
   if (size > 2)
   {
     start_key = canonical_param(param[2]);
+    if (start_key[0]=='.')
+      start_key = NULL;
   }
 
   if (size > 3)
   {
-    delimiter = canonical_param(param[3]) == NULL ? DEFAULT_CHAR : (param[3].size() == 1 ? param[3][0] : DEFAULT_CHAR);
+    delimiter = canonical_param(param[3]) == NULL ? KvDefine::DEFAULT_CHAR : (param[3].size() == 1 ? param[3][0] : KvDefine::DEFAULT_CHAR);
   }
 
   if (size > 4)
@@ -474,9 +478,12 @@ int cmd_get_bucket(const VSTRING& param)
   set<string> s_common_prefix;
   int8_t is_truncated = 0;
   UserInfo user_info;
+  tbutil::Time now = tbutil::Time::now(tbutil::Time::Monotonic);
+  int64_t start = now.toMicroSeconds();
   ret = tfs::client::KvMetaHelper::do_get_bucket(new_server_id, bucket_name, prefix, start_key, delimiter, limit,
                                    &v_object_meta_info, &v_object_name, &s_common_prefix, &is_truncated, user_info);
-
+  now = tbutil::Time::now(tbutil::Time::Monotonic);
+  int64_t end = now.toMicroSeconds();
   if (TFS_SUCCESS == ret)
   {
     printf("bucket: %s has %d common_prefix\n", bucket_name, static_cast<int>(s_common_prefix.size()));
@@ -497,7 +504,7 @@ int cmd_get_bucket(const VSTRING& param)
   }
 
   //todo show info of objects
-  ToolUtil::print_info(ret, "get bucket %s", bucket_name);
+  ToolUtil::print_info(ret, "get bucket %s, %"PRI64_PREFIX"d, %"PRI64_PREFIX"d, take %"PRI64_PREFIX"d MicroSeconds", bucket_name, start, end, end - start);
   return ret;
 }
 

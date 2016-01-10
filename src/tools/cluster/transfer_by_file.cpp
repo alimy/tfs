@@ -29,7 +29,7 @@
 #include "common/directory_op.h"
 #include "new_client/fsname.h"
 #include "new_client/tfs_client_impl.h"
-#include "dataserver/dataserver_define.h"
+#include "dataserver/ds_define.h"
 #include "common/internal.h"
 
 using namespace std;
@@ -425,7 +425,7 @@ int sync_file(const string& src_ns_addr, const string& dest_ns_addr, VEC_FILE_NA
       source_crc = fileInfo.crc_;
       status = fileInfo.flag_;
       // contain delete status
-      if (status & FI_DELETED)
+      if (status & FILE_STATUS_DELETE)
       {
         TBSYS_LOG(WARN, "this is deleted file, filename: %s", file_name.c_str());
         TBSYS_LOG(INFO, "sync file(%s) failed.", file_name.c_str());
@@ -606,7 +606,7 @@ int sync_file(const string& src_ns_addr, const string& dest_ns_addr, VEC_FILE_NA
     if (TFS_SUCCESS == ret)
     {
       // contain hide status
-      if (status & FI_CONCEAL)
+      if (status & FILE_STATUS_CONCEAL)
       {
         if (file_name[0] == 'L')
         {

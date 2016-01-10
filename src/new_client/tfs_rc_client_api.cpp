@@ -55,11 +55,6 @@ namespace tfs
       return impl_->get_app_id();
     }
 
-    void RcClient::set_remote_cache_info(const char * remote_cache_info)
-    {
-      impl_->set_remote_cache_info(remote_cache_info);
-    }
-
     void RcClient::set_client_retry_count(const int64_t count)
     {
       impl_->set_client_retry_count(count);
@@ -74,6 +69,13 @@ namespace tfs
     {
       impl_->set_client_retry_flag(retry_flag);
     }
+
+#ifdef WITH_TAIR_CACHE
+    void RcClient::set_remote_cache_info(const char * remote_cache_info)
+    {
+      impl_->set_remote_cache_info(remote_cache_info);
+    }
+#endif
 
     void RcClient::set_wait_timeout(const int64_t timeout_ms)
     {
@@ -169,6 +171,18 @@ namespace tfs
       return impl_->fetch_buf(ret_count, buf, count, file_name, suffix);
     }
 
+    // for lifecycle root
+    void RcClient::set_lifecycle_rs_addr(const char *rs_addr)
+    {
+      impl_->set_lifecycle_rs_addr(rs_addr);
+    }
+
+    TfsRetType RcClient::query_task(const uint64_t es_id,
+        std::vector<common::ServerExpireTask>* p_res_task)
+    {
+      return impl_->query_task(es_id, p_res_task);
+    }
+
     // for kv meta
     void RcClient::set_kv_rs_addr(const char *rs_addr)
     {
@@ -220,11 +234,11 @@ namespace tfs
 
     int64_t RcClient::pread_object(const char *bucket_name, const char *object_name,
         void *buf, const int64_t offset, const int64_t length,
-        ObjectMetaInfo *object_meta_info, CustomizeInfo *customize_info,
+        ObjectMetaInfo *object_meta_info, UserMetadata *user_metadata,
         const UserInfo &user_info)
     {
       return impl_->pread_object(bucket_name, object_name, buf, offset,
-          length, object_meta_info, customize_info, user_info);
+          length, object_meta_info, user_metadata, user_info);
     }
 
     TfsRetType RcClient::get_object(const char *bucket_name, const char *object_name,
@@ -246,6 +260,22 @@ namespace tfs
       return impl_->head_object(bucket_name, object_name, object_info, user_info);
     }
 
+    TfsRetType RcClient::set_life_cycle(const int32_t file_type, const char *file_name,
+                                        const int32_t invalid_time_s, const char *app_key)
+    {
+      return impl_->set_life_cycle(file_type, file_name, invalid_time_s, app_key);
+    }
+
+    TfsRetType RcClient::get_life_cycle(const int32_t file_type, const char *file_name,
+                                              int32_t *invalid_time_s)
+    {
+      return impl_->get_life_cycle(file_type, file_name, invalid_time_s);
+    }
+
+    TfsRetType RcClient::rm_life_cycle(const int32_t file_type, const char *file_name)
+    {
+      return impl_->rm_life_cycle(file_type, file_name);
+    }
     // for name meta
     TfsRetType RcClient::create_dir(const int64_t uid, const char* dir_path)
     {

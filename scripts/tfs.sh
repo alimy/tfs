@@ -6,34 +6,43 @@ TFS_DS_CONF=${TFS_HOME}/conf/ds.conf
 TFS_MOCK_DS_CONF=${TFS_HOME}/conf/mock_ds.conf
 TFS_ADMIN_CONF=${TFS_HOME}/conf/ads.conf
 TFS_RC_CONF=${TFS_HOME}/conf/rc.conf
+TFS_CS_CONF=${TFS_HOME}/conf/cs.conf
 TFS_RS_CONF=${TFS_HOME}/conf/rs.conf
 TFS_KV_RS_CONF=${TFS_HOME}/conf/kv_rs.conf
 TFS_META_CONF=${TFS_HOME}/conf/meta.conf
 TFS_KV_META_CONF=${TFS_HOME}/conf/kv_meta.conf
+TFS_LIFECYCLE_ROOT_CONF=${TFS_HOME}/conf/lifecycle_root.conf
+TFS_LIFECYCLE_EXPIRE_CONF=${TFS_HOME}/conf/lifecycle_expire.conf
 BIN_DIR=${TFS_HOME}/bin
 NS_BIN=${BIN_DIR}/nameserver
 DS_BIN=${BIN_DIR}/dataserver
 ADMIN_BIN=${BIN_DIR}/adminserver
 MOCK_DS_BIN=${BIN_DIR}/mock_data_server
 RC_BIN=${BIN_DIR}/rcserver
+CS_BIN=${BIN_DIR}/checkserver
 RS_BIN=${BIN_DIR}/rootserver
 KV_RS_BIN=${BIN_DIR}/kvrootserver
 META_BIN=${BIN_DIR}/metaserver
 KV_META_BIN=${BIN_DIR}/kvmetaserver
+LIFECYCLE_ROOT_BIN=${BIN_DIR}/expirerootserver
+LIFECYCLE_EXPIRE_BIN=${BIN_DIR}/expireserver
 NS_CMD="${NS_BIN} -f ${TFS_NS_CONF} -d"
 DS_CMD="${DS_BIN} -f ${TFS_DS_CONF} -d -i"
 ADMIN_CMD="${ADMIN_BIN} -f ${TFS_ADMIN_CONF} -d -s"
 MOCK_DS_CMD="${MOCK_DS_BIN} -f ${TFS_MOCK_DS_CONF} -d -i"
 RC_CMD="${RC_BIN} -f ${TFS_RC_CONF} -d"
+CS_CMD="${CS_BIN} -f ${TFS_CS_CONF} -d"
 RS_CMD="${RS_BIN} -f ${TFS_RS_CONF} -d"
 KV_RS_CMD="${KV_RS_BIN} -f ${TFS_KV_RS_CONF} -d"
 META_CMD="${META_BIN} -f ${TFS_META_CONF} -d"
 KV_META_CMD="${KV_META_BIN} -f ${TFS_KV_META_CONF} -d"
+LIFECYCLE_ROOT_CMD="${LIFECYCLE_ROOT_BIN} -f ${TFS_LIFECYCLE_ROOT_CONF} -d"
+LIFECYCLE_EXPIRE_CMD="${LIFECYCLE_EXPIRE_BIN} -f ${TFS_LIFECYCLE_EXPIRE_CONF} -d"
 UP_TIME=4
 DOWN_TIME=8
 
 #mysql related variable
-HOST="xx.xx.xx.xx"
+DB_HOST="xx.xx.xx.xx"
 DB_USER="db_user"
 DB_PASS="db_pass"
 DB_NAME="db_name"
@@ -57,15 +66,18 @@ succ_echo()
 
 print_usage()
 {
-    warn_echo "Usage: $0 [start_ns | check_ns | stop_ns | start_ds ds_index | check_ds | stop_ds ds_index | start_ds_all | stop_ds_all | admin_ns | admin_ds | check_admin | stop_admin | start_rc | check_rc | stop_rc | start_rs | check_rs | stop_rs | start_meta | check_meta | stop_meta | start_kv_rs| check_kv_rs | stop_kv_rs | start_kv_meta | check_kv_meta | stop_kv_meta]"
+    warn_echo "Usage: $0 [start_ns | check_ns | stop_ns | start_ds ds_index | check_ds | stop_ds ds_index | start_ds_all | stop_ds_all | admin_ns | admin_ds | check_admin | stop_admin | start_rc | check_rc | stop_rc | start_cs | check_cs | stop_cs | start_rs | check_rs | stop_rs | start_meta | check_meta | stop_meta | start_kv_rs| check_kv_rs | stop_kv_rs | start_kv_meta | check_kv_meta | stop_kv_meta | start_lifecycle_root | check_lifecycle_root | stop_lifecycle_root | start_lifecycle_expire | check_lifecycle_expire | stop_lifecycle_expire]"
     warn_echo "ds_index format : 2-4 OR 2,4,3 OR 2-4,6,7 OR '2-4 5,7,8'"
 }
 
 #$1: sql
 mysql_op()
 {
+  dbhost=`echo $DB_HOST | awk -F ':' 'NF == 1 { print $1":3306"; } NF != 1 {print $0;}'`
+  host=`echo $dbhost | awk -F ':' '{print $1}'`
+  port=`echo $dbhost | awk -F ':' '{print $2}'`
   sql_express=$1
-  mysql -h$HOST -u$DB_USER -p$DB_PASS << EOF
+  mysql -h$host -P$port -u$DB_USER -p$DB_PASS << EOF
   use $DB_NAME;
   $sql_express;
   QUIT
@@ -131,6 +143,14 @@ get_info()
                 echo "rcserver"
             fi
             ;;
+        cs)
+            if [ $2 -gt 0 ]
+            then
+                echo "${CS_CMD}"
+            else
+                echo "checkserver"
+            fi
+            ;;
         rs)
             if [ $2 -gt 0 ]
             then
@@ -161,6 +181,22 @@ get_info()
                 echo "${KV_META_CMD}"
             else
                 echo "kvmetaserver"
+            fi
+            ;;
+        lifecycle_root)
+            if [ $2 -gt 0 ]
+            then
+                echo "${LIFECYCLE_ROOT_CMD}"
+            else
+                echo "expirerootserver"
+            fi
+            ;;
+        lifecycle_expire)
+            if [ $2 -gt 0 ]
+            then
+                echo "${LIFECYCLE_EXPIRE_CMD}"
+            else
+                echo "expireserver"
             fi
             ;;
         *)
@@ -204,7 +240,7 @@ get_index_from_db()
 {
   host=$1
   local ds_index_list=""
-  ret=`mysql_op "select ds_index_list from tfs_machine where ip=\"$host\""`
+  ret=`mysql_op "select index_list from t_machine_info where ip=\"$host\""`
   if [ -n "$ret" ]
   then
     ds_index_list=`echo $ret | awk '{print $NF}'`
@@ -236,6 +272,9 @@ check_run()
         rs)
             grep_cmd="${RS_CMD}"
             ;;
+        cs)
+            grep_cmd="${CS_CMD}"
+            ;;
         meta)
             grep_cmd="${META_CMD}"
             ;;
@@ -244,6 +283,12 @@ check_run()
             ;;
         kv_meta)
             grep_cmd="${KV_META_CMD}"
+            ;;
+        lifecycle_root)
+            grep_cmd="${LIFECYCLE_ROOT_CMD}"
+            ;;
+        lifecycle_expire)
+            grep_cmd="${LIFECYCLE_EXPIRE_CMD}"
             ;;
         *)
             exit 1
@@ -539,6 +584,30 @@ stop_rc()
     do_stop "rc" 0
 }
 
+start_cs()
+{
+  do_start "cs" 0
+}
+
+check_cs()
+{
+    ret_pid=`check_run cs`
+    if [ $ret_pid -gt 0 ]
+    then
+        succ_echo "checkserver is running pid: $ret_pid"
+    elif [ $ret_pid -eq 0 ]
+    then
+        fail_echo "checkserver is NOT running"
+    else
+        fail_echo "more than one same checkserver is running"
+    fi
+}
+
+stop_cs()
+{
+  do_stop "cs" 0
+}
+
 start_rs()
 {
     do_start "rs" 0
@@ -634,6 +703,54 @@ stop_kv_meta()
 {
     do_stop "kv_meta" 0
 }
+
+start_lifecycle_root()
+{
+    do_start "lifecycle_root" 0
+}
+
+check_lifecycle_root()
+{
+    ret_pid=`check_run lifecycle_root`
+    if [ $ret_pid -gt 0 ]
+    then
+        succ_echo "expirerootserver is running pid: $ret_pid"
+    elif [ $ret_pid -eq 0 ]
+    then
+        fail_echo "expirerootserver is NOT running"
+    else
+        fail_echo "more than one same expirerootserver is running"
+    fi
+}
+
+stop_lifecycle_root()
+{
+    do_stop "lifecycle_root" 0
+}
+
+start_lifecycle_expire()
+{
+    do_start "lifecycle_expire" 0
+}
+
+check_lifecycle_expire()
+{
+    ret_pid=`check_run lifecycle_expire`
+    if [ $ret_pid -gt 0 ]
+    then
+        succ_echo "expireserver is running pid: $ret_pid"
+    elif [ $ret_pid -eq 0 ]
+    then
+        fail_echo "expireserver is NOT running"
+    else
+        fail_echo "more than one same expireserver is running"
+    fi
+}
+
+stop_lifecycle_expire()
+{
+    do_stop "lifecycle_expire" 0
+}
 ########################
 case "$1" in
     start_ns)
@@ -697,6 +814,15 @@ case "$1" in
     stop_rc)
         stop_rc
         ;;
+    start_cs)
+        start_cs
+        ;;
+    check_cs)
+        check_cs
+        ;;
+    stop_cs)
+        stop_cs
+        ;;
     start_rs)
         start_rs
         ;;
@@ -732,6 +858,24 @@ case "$1" in
         ;;
     stop_kv_meta)
         stop_kv_meta
+        ;;
+    start_lifecycle_root)
+        start_lifecycle_root
+        ;;
+    check_lifecycle_root)
+        check_lifecycle_root
+        ;;
+    stop_lifecycle_root)
+        stop_lifecycle_root
+        ;;
+    start_lifecycle_expire)
+        start_lifecycle_expire
+        ;;
+    check_lifecycle_expire)
+        check_lifecycle_expire
+        ;;
+    stop_lifecycle_expire)
+        stop_lifecycle_expire
         ;;
     *)
         print_usage

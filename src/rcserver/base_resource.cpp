@@ -46,6 +46,7 @@ namespace tfs
       m_app_ip_turn_table_.clear();
       m_ns_caculate_ip_.clear();
       v_ns_cache_info_.clear();
+
       int ret = TFS_SUCCESS;
       ret = database_helper_.scan(v_resource_server_info_);
       if (TFS_SUCCESS != ret)
@@ -92,6 +93,7 @@ namespace tfs
           TBSYS_LOG(ERROR, "load ip_transfer_table error ret is %d", ret);
         }
       }
+
       if (TFS_SUCCESS == ret)
       {
         ret = database_helper_.scan(m_app_ip_turn_table_);
@@ -141,29 +143,64 @@ namespace tfs
       return update_time_in_db > base_last_update_time_;
     }
 
-    int BaseResource::get_meta_root_server(const int32_t app_id, int64_t& root_server) const
+    int BaseResource::get_meta_root_server(const int32_t app_id, int64_t& root_server,
+        std::vector<int64_t>& v_root_server) const
     {
+      UNUSED(app_id);
       int ret = TFS_SUCCESS;
       root_server = 0;
+
       VMetaRootServerInfo::const_iterator it = v_meta_root_server_info_.begin();
       for (; it != v_meta_root_server_info_.end(); it++)
       {
         if (1 != it->stat_) continue;
-        if (0 == it->app_id_)
-        {
-          if (0 == root_server)
-          {
-            root_server = tbsys::CNetUtil::strToAddr(it->addr_info_, 0);
-          }
-        }
-        if (app_id == it->app_id_)
-        {
-          root_server = tbsys::CNetUtil::strToAddr(it->addr_info_, 0);
-          break;
-        }
+        root_server = tbsys::CNetUtil::strToAddr(it->addr_info_, 0);
+        v_root_server.push_back(root_server);
       }
+
       return ret;
     }
+
+    int BaseResource::sort_krs_by_distance(const std::string& app_ip,
+            common::BaseInfo& out_base_info)
+    {
+      std::string krt_ip;
+      std::string caculate_krt_ip;
+      std::string caculate_app_ip;
+      uint32_t distance = 0;
+      std::multimap<int32_t,int64_t> dist_map;
+      std::multimap<int32_t,int64_t>::iterator itk;
+
+      std::vector<int64_t>::const_iterator it = out_base_info.kvroot_server_infos_.begin();
+
+      if (TFS_SUCCESS != IpReplaceHelper::replace_ip(v_ip_transfer_table_, app_ip, caculate_app_ip))
+      {
+        TBSYS_LOG(WARN, "can not get caculate ip :%s will use the original value", app_ip.c_str());
+        caculate_app_ip = app_ip;
+      }
+      for (; it != out_base_info.kvroot_server_infos_.end(); it++)
+      {
+        krt_ip = IpReplaceHelper::addrToStringNoPort(*it);
+
+        if (TFS_SUCCESS != IpReplaceHelper::replace_ip(v_ip_transfer_table_, krt_ip, caculate_krt_ip))
+        {
+          TBSYS_LOG(WARN, "can not get caculate ip :%s will use the original value", krt_ip.c_str());
+          caculate_krt_ip = krt_ip;
+        }
+        distance = IpReplaceHelper::calculate_distance(caculate_app_ip, caculate_krt_ip);
+        dist_map.insert(std::pair<int32_t,int64_t>(distance, *it));
+        TBSYS_LOG(DEBUG, "kvip %s, app_ip %s, distance %d", caculate_krt_ip.c_str(), caculate_app_ip.c_str(), distance);
+      }
+
+      out_base_info.kvroot_server_infos_.clear();
+      for (itk = dist_map.begin(); itk != dist_map.end(); ++itk)
+      {
+          out_base_info.kvroot_server_infos_.push_back(itk->second);
+      }
+
+      return TFS_SUCCESS;
+    }
+
     int BaseResource::get_resource_servers(std::vector<uint64_t>& resource_servers) const
     {
       int ret = TFS_SUCCESS;
@@ -237,7 +274,7 @@ namespace tfs
                 read_only = false;
               }
               tmp_rack.cluster_data_.push_back(tmp_cluster);
-              if (GROUP_ACCESS_TYPE_READ_AND_WRITE == rack_group_it->cluster_rack_access_type_)
+              if (CLUSTER_ACCESS_TYPE_READ_AND_WRITE == tmp_cluster.access_type_)
               {
                 cluster_datas_for_update.push_back(tmp_cluster);
               }
@@ -319,10 +356,10 @@ namespace tfs
         out_rack_dat.cluster_data_.clear();
 
         std::vector<ClusterData>::const_iterator cluster_it = cluster_rack_it->cluster_data_.begin();
-        std::multimap<uint32_t, std::vector<ClusterData>::const_iterator> sorted_helper;
+        std::multimap<int32_t, std::vector<ClusterData>::const_iterator> sorted_helper;
         for (; cluster_it != cluster_rack_it->cluster_data_.end(); cluster_it++)
         {
-          uint32_t distance = 0;
+          int32_t distance = 0;
           std::string caculate_ns_ip;
           std::map<std::string, std::string>::const_iterator m_caculate_ip_it =
             m_ns_caculate_ip_.find(cluster_it->ns_vip_);
@@ -336,11 +373,11 @@ namespace tfs
             caculate_ns_ip = cluster_it->ns_vip_;
           }
           distance = IpReplaceHelper::calculate_distance(app_caculate_ip, caculate_ns_ip);
-          TBSYS_LOG(DEBUG, "ip %s %s distance %u",
+          TBSYS_LOG(DEBUG, "ip %s %s distance %d",
               app_caculate_ip.c_str(), caculate_ns_ip.c_str(), distance);
           sorted_helper.insert(std::make_pair(distance, cluster_it));
         }
-        std::multimap<uint32_t, std::vector<ClusterData>::const_iterator>::const_iterator sorted_it;
+        std::multimap<int32_t, std::vector<ClusterData>::const_iterator>::const_iterator sorted_it;
         for (sorted_it = sorted_helper.begin(); sorted_it != sorted_helper.end(); sorted_it++)
         {
           TBSYS_LOG(DEBUG, "cluster_data_  %s", (sorted_it->second)->ns_vip_.c_str());
@@ -349,15 +386,15 @@ namespace tfs
         out_base_info.cluster_infos_.push_back(out_rack_dat);
 
         VNsCacheInfo::const_iterator ns_cache_info_it = v_ns_cache_info_.begin();
-        uint32_t distance = 0;
-        uint32_t min_distance = 0xffffffff;  // server ip never be 255.255.255.255
+        int32_t distance = 0;
+        int32_t min_distance = -1;
         out_base_info.ns_cache_info_.clear();
         for (; ns_cache_info_it != v_ns_cache_info_.end(); ns_cache_info_it++)
         {
           distance = IpReplaceHelper::calculate_distance(app_caculate_ip, ns_cache_info_it->second);
-          TBSYS_LOG(DEBUG, "mindistance %d app_caculate_ip %s cache_caculate_ip %s distance %u",
+          TBSYS_LOG(DEBUG, "mindistance %d app_caculate_ip %s cache_caculate_ip %s distance %d",
               min_distance, app_caculate_ip.c_str(), ns_cache_info_it->second.c_str(), distance);
-          if (distance < min_distance)
+          if (-1 == min_distance || distance < min_distance)
           {
             min_distance = distance;
             out_base_info.ns_cache_info_ = ns_cache_info_it->first;
@@ -410,7 +447,6 @@ namespace tfs
         }
 
       }
-
     }
-  }
+	}
 }

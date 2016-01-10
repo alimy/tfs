@@ -70,7 +70,6 @@ namespace tfs
       int64_t length() const;
       void set_ds_list(const common::VUINT64& ds);
       void clear();
-
       int32_t version_;
       common::VUINT64 ds_;
     };

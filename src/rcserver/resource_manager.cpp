@@ -244,6 +244,18 @@ EXIT:
       return ret;
     }
 
+    int ResourceManager::sort_krs_by_distance(const std::string& app_ip,
+            common::BaseInfo& out_base_info)
+    {
+      int ret = EXIT_NOT_INIT_ERROR;
+      if (have_inited_ && NULL != base_resource_manager_)
+      {
+        tbsys::CRLockGuard guard(resorce_mutex_);
+        ret = base_resource_manager_->sort_krs_by_distance(app_ip, out_base_info);
+      }
+      return ret;
+    }
+
     int ResourceManager::get_app_name(const int32_t app_id, std::string& app_name) const
     {
       int ret = EXIT_NOT_INIT_ERROR;
@@ -272,7 +284,8 @@ EXIT:
         }
         if (TFS_SUCCESS == ret)
         {
-          ret = base_resource_manager_->get_meta_root_server(app_id, base_info.meta_root_server_);
+          ret = base_resource_manager_->get_meta_root_server(app_id, base_info.meta_root_server_,
+                base_info.kvroot_server_infos_);
         }
         if (TFS_SUCCESS == ret)
         {
@@ -290,17 +303,22 @@ EXIT:
     }
     int ResourceManager::update_session_info(const std::vector<SessionBaseInfo>& session_infos)
     {
-      return database_helper_->update_session_info(session_infos);
+      UNUSED(session_infos);
+      return TFS_SUCCESS;//return database_helper_->update_session_info(session_infos);
     }
 
     int ResourceManager::update_session_stat(const std::map<std::string, SessionStat>& session_stats)
     {
-      return database_helper_->update_session_stat(session_stats);
+      UNUSED(session_stats);
+      return TFS_SUCCESS;
+      //return database_helper_->update_session_stat(session_stats);
     }
 
     int ResourceManager::update_app_stat(const MIdAppStat& app_stats)
     {
-      return database_helper_->update_app_stat(app_stats);
+      UNUSED(app_stats);
+      return TFS_SUCCESS;
+      //return database_helper_->update_app_stat(app_stats);
     }
 
     bool ResourceManager::need_reload()

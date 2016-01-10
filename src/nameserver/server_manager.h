@@ -19,8 +19,6 @@
 
 #include <map>
 #include <stdint.h>
-#include <Shared.h>
-#include <Handle.h>
 #include "gc.h"
 #include "ns_define.h"
 #include "common/lock.h"
@@ -82,9 +80,7 @@ namespace tfs
       bool report_block_server_queue_empty() const;
       bool has_report_block_server() const;
       void clear_report_block_server_table();
-      int64_t get_report_block_server_queue_size() const;
 
-      int get_alive_servers(std::vector<uint64_t>& servers) const;
       int get_dead_servers(common::ArrayHelper<uint64_t>& servers, NsGlobalStatisticsInfo& info, const time_t now) const;
       bool get_range_servers(common::ArrayHelper<ServerCollect*>& result, const uint64_t begin, const int32_t count) const;
 
@@ -95,37 +91,44 @@ namespace tfs
 
       int scan(common::SSMScanParameter& param, int32_t& should, int32_t& start, int32_t& next, bool& all_over) const;
 
-      void set_all_server_next_report_time(const time_t now = common::Func::get_monotonic_time());
+      void set_all_server_next_report_time(const int32_t flag , const time_t now = common::Func::get_monotonic_time());
 
-      int build_relation(ServerCollect* server, const BlockCollect* block,
+      int build_relation(ServerCollect* server, const uint64_t block,
           const bool writable, const bool master);
 
-      bool relieve_relation(ServerCollect* server, const BlockCollect* block);
+      int relieve_relation(ServerCollect* server, const uint64_t block);
+      int relieve_relation(const uint64_t server, const uint64_t block);
 
       int choose_writable_block(BlockCollect*& result);
 
       //choose one or more servers to create new block
-      int choose_create_block_target_server(common::ArrayHelper<ServerCollect*>& result,
-          common::ArrayHelper<ServerCollect*>& news, const int32_t count) const;
+      int choose_create_block_target_server(common::ArrayHelper<uint64_t>& result,
+          common::ArrayHelper<uint64_t>& news, const int32_t count) const;
 
       //choose a server to replicate or move
       //replicate method
-      int choose_replicate_source_server(ServerCollect*& result, const common::ArrayHelper<ServerCollect*>& source) const;
-      int choose_replicate_target_server(ServerCollect*& result, const common::ArrayHelper<ServerCollect*>& except) const;
+      int choose_replicate_source_server(ServerCollect*& result, const common::ArrayHelper<uint64_t>& source) const;
+      int choose_replicate_target_server(ServerCollect*& result, const common::ArrayHelper<uint64_t>& except) const;
 
       //move method
       int choose_move_target_server(ServerCollect*& result,SERVER_TABLE& source,
-          common::ArrayHelper<ServerCollect*>& except) const;
+          common::ArrayHelper<uint64_t>& except) const;
 
       //delete method
-      int choose_excess_backup_server(ServerCollect*& result, const common::ArrayHelper<ServerCollect*>& sources) const;
+      int choose_excess_backup_server(ServerCollect*& result, const common::ArrayHelper<uint64_t>& sources) const;
 
       int expand_ratio(int32_t& index, const float expand_ratio = 0.1);
+
+      int calc_single_process_max_network_bandwidth(int32_t& max_mr_network_bandwith,
+            int32_t& max_rw_network_bandwith, const common::DataServerStatInfo& info) const;
+
+      int timeout(const int64_t now);
+
       private:
       DISALLOW_COPY_AND_ASSIGN(ServerManager);
       ServerCollect* get_(const uint64_t server) const;
 
-      void get_lans_(std::set<uint32_t>& lans, const common::ArrayHelper<ServerCollect*>& source) const;
+      void get_lans_(std::set<uint32_t>& lans, const common::ArrayHelper<uint64_t>& source) const;
 
       bool relieve_relation_(ServerCollect* server, const time_t now);
 
@@ -139,9 +142,9 @@ namespace tfs
       int choose_writable_server_random_lock_(ServerCollect*& result);
 
       int choose_replciate_random_choose_server_base_lock_(ServerCollect*& result,
-          const common::ArrayHelper<ServerCollect*>& except, const std::set<uint32_t>& lans) const;
+          const common::ArrayHelper<uint64_t>& except, const std::set<uint32_t>& lans) const;
       int choose_replciate_random_choose_server_extend_lock_(ServerCollect*& result,
-          const common::ArrayHelper<ServerCollect*>& except, const std::set<uint32_t>& lans) const;
+          const common::ArrayHelper<uint64_t>& except, const std::set<uint32_t>& lans) const;
 
       int del_report_block_server_(ServerCollect* server);
       private:

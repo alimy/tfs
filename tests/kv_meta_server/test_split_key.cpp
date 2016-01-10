@@ -19,7 +19,6 @@
 using namespace std;
 using namespace tfs;
 using namespace tfs::common;
-using namespace tfs::kvmetaserver;
 
 class SplitKeyTest: public ::testing::Test
 {
@@ -116,7 +115,6 @@ TEST_F(SplitKeyTest, test_only_prefix)
   EXPECT_EQ(TFS_SUCCESS ,TairEngineHelper::split_key_for_tair(key, &prefix_key, &second_key));
   EXPECT_EQ(real_prefix, prefix_key);
   EXPECT_EQ(0, second_key.get_size());
-
 
 }
 

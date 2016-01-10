@@ -11,14 +11,28 @@ Prefix:%{_prefix}
 Source:%{NAME}-%{VERSION}.tar.gz
 BuildRoot: %{_tmppath}/%{name}-root
 
-BuildRequires: t-csrd-tbnet-devel = 1.0.6
+BuildRequires: t-csrd-tbnet-devel = 1.0.8
 BuildRequires: MySQL-devel-community = 5.1.48 
-BuildRequires: tair-devel = 2.3.1.7
-BuildRequires: boost-devel >= 1.3 
+BuildRequires: tair-devel = 2.3.2.3
+BuildRequires: boost-devel = 1.33.1 
 BuildRequires: readline-devel
 BuildRequires: ncurses-devel
-BuildRequires: google-perftools >= 1.3 
+BuildRequires: google-perftools = 1.7
 BuildRequires: jemalloc-devel >= 2.2
+BuildRequires: snappy >= 1.1.2
+BuildRequires: libunwind
+BuildRequires: tfs-client-restful
+BuildRequires: json-c-devel = 0.11
+BuildRequires: json-c = 0.11
+Requires: jemalloc-devel >= 2.2
+Requires: snappy >= 1.1.2
+Requires: google-perftools = 1.7
+Requires: libunwind
+Requires: readline-devel
+Requires: ncurses-devel
+Requires: tfs-client-restful
+Requires: json-c-devel = 0.11
+Requires: json-c = 0.11
 
 %define __os_install_post %{nil}
 %define debug_package %{nil}
@@ -41,7 +55,7 @@ files for developing applications that use the %name package.
 chmod u+x build.sh
 ./build.sh init
 #./configure --prefix=%{_prefix}
-./configure --prefix=%{_prefix} --enable-uniquestore --enable-taircache --with-tair-root=/opt/csr/tair-2.3
+./configure --prefix=%{_prefix} --enable-uniquestore --enable-taircache --enable-lifecycle --with-tair-root=/opt/csr/tair-2.3 --with-restful-root=/home/admin/tfs/restful
 make %{?_smp_mflags}
 
 %install
@@ -54,11 +68,15 @@ rm -rf $RPM_BUILD_ROOT
 %post
 echo %{_prefix}/lib > /etc/ld.so.conf.d/tfs-%{VERSION}.conf
 echo /opt/csr/common/lib >> /etc/ld.so.conf.d/tfs-%{VERSION}.conf
+echo /usr/local/lib >> /etc/ld.so.conf.d/tfs-%{VERSION}.conf
+echo /usr/local/lib64 >> /etc/ld.so.conf.d/tfs-%{VERSION}.conf
 /sbin/ldconfig
 
 %post devel
 echo %{_prefix}/lib > /etc/ld.so.conf.d/tfs-%{VERSION}.conf
 echo /opt/csr/common/lib >> /etc/ld.so.conf.d/tfs-%{VERSION}.conf
+echo /usr/local/lib >> /etc/ld.so.conf.d/tfs-%{VERSION}.conf
+echo /usr/local/lib64 >> /etc/ld.so.conf.d/tfs-%{VERSION}.conf
 /sbin/ldconfig
 
 %postun

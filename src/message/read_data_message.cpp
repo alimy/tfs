@@ -89,12 +89,22 @@ namespace tfs
       {
         input.get_int8(&flag_);
       }
+      if (common::TFS_SUCCESS == iret && input.get_data_length() > 0)
+      {
+        int64_t pos = 0;
+        iret = family_info_.deserialize(input.get_data(), input.get_data_length(),  pos);
+        if (common::TFS_SUCCESS == iret)
+        {
+          input.drain(family_info_.length());
+        }
+      }
       return iret;
     }
 
     int64_t ReadDataMessage::length() const
     {
-      return read_data_info_.length() + common::INT8_SIZE;
+      const int32_t EXT_SIZE = common::INVALID_FAMILY_ID != family_info_.family_id_ ? family_info_.length(): 0;
+      return read_data_info_.length() + common::INT8_SIZE + EXT_SIZE;
     }
 
     int ReadDataMessage::serialize(common::Stream& output) const
@@ -108,6 +118,59 @@ namespace tfs
       if (common::TFS_SUCCESS == iret)
       {
         output.set_int8(flag_);
+      }
+      if (common::TFS_SUCCESS == iret && common::INVALID_FAMILY_ID != family_info_.family_id_)
+      {
+        int64_t pos = 0;
+        iret = family_info_.serialize(output.get_free(), output.get_free_length(), pos);
+        if (common::TFS_SUCCESS == iret)
+        {
+          output.pour(family_info_.length());
+        }
+      }
+      return iret;
+    }
+
+    DegradeReadDataMessage::DegradeReadDataMessage()
+    {
+      _packetHeader._pcode = common::DEGRADE_READ_DATA_MESSAGE;
+    }
+
+    DegradeReadDataMessage::~DegradeReadDataMessage()
+    {
+    }
+
+    int DegradeReadDataMessage::deserialize(common::Stream& input)
+    {
+      int32_t iret = ReadDataMessage::deserialize(input);
+      if (common::TFS_SUCCESS == iret)
+      {
+        int64_t pos = 0;
+        iret = family_info_.deserialize(input.get_data(), input.get_data_length(), pos);
+        if (common::TFS_SUCCESS == iret)
+        {
+          input.drain(family_info_.length());
+        }
+      }
+      return iret;
+    }
+
+    int64_t DegradeReadDataMessage::length() const
+    {
+      return ReadDataMessage::length() + family_info_.length();
+    }
+
+    int DegradeReadDataMessage::serialize(common::Stream& output) const
+    {
+      int iret = ReadDataMessage::serialize(output);
+      if (common::TFS_SUCCESS == iret)
+      {
+        int64_t pos = 0;
+        iret = family_info_.serialize(output.get_free(), output.get_free_length(), pos);
+        if (common::TFS_SUCCESS == iret)
+        {
+          output.pour(family_info_.length());
+        }
       }
       return iret;
     }
@@ -305,6 +368,31 @@ namespace tfs
 
     }
 
+    int RespReadRawDataMessage::serialize(common::Stream& output) const
+    {
+      int32_t iret = RespReadDataMessage::serialize(output);
+      if (common::TFS_SUCCESS == iret)
+      {
+        iret = output.set_int32(data_file_size_);
+      }
+      return iret;
+    }
+
+    int RespReadRawDataMessage::deserialize(common::Stream& input)
+    {
+      int32_t iret = RespReadDataMessage::deserialize(input);
+      if (common::TFS_SUCCESS == iret)
+      {
+        input.get_int32(&data_file_size_);
+      }
+      return iret;
+    }
+
+    int64_t RespReadRawDataMessage::length() const
+    {
+      return RespReadDataMessage::length() + common::INT_SIZE;
+    }
+
     int ReadScaleImageMessage::ZoomData::deserialize(const char* data, const int64_t data_len, int64_t& pos)
     {
       int32_t iret = NULL != data && data_len - pos >= length() ? common::TFS_SUCCESS : common::TFS_ERROR;
@@ -392,5 +480,61 @@ namespace tfs
     {
       return read_data_info_.length() + sizeof(ZoomData);
     }
+
+    /*ReadRawIndexMessage::ReadRawIndexMessage():
+      block_id_(0), index_id_(0), index_op_(common::OP_NOT_INIT)
+    {
+      _packetHeader._pcode = common::READ_RAW_INDEX_MESSAGE;
+    }
+
+    ReadRawIndexMessage::~ReadRawIndexMessage()
+    {
+
+    }
+
+    int ReadRawIndexMessage::serialize(common::Stream& output) const
+    {
+      int32_t iret = output.set_int32(block_id_);
+      if (common::TFS_SUCCESS == iret)
+      {
+        iret = output.set_int32(index_id_);
+      }
+      if (common::TFS_SUCCESS == iret)
+      {
+        iret = output.set_int32(index_op_);
+      }
+      return iret;
+    }
+
+    int ReadRawIndexMessage::deserialize(common::Stream& input)
+    {
+      int32_t iret = input.get_int32((int32_t*)&block_id_);
+      if (common::TFS_SUCCESS == iret)
+      {
+        iret = input.get_int32((int32_t*)&index_id_);
+      }
+      if (common::TFS_SUCCESS == iret)
+      {
+        iret = input.get_int32((int32_t*)&index_op_);
+      }
+      return iret;
+    }
+
+    int64_t ReadRawIndexMessage::length() const
+    {
+      return 3 * common::INT_SIZE;
+    }
+
+
+    RespReadRawIndexMessage::RespReadRawIndexMessage() :
+      RespReadDataMessage()
+    {
+      _packetHeader._pcode = common::RSP_READ_RAW_INDEX_MESSAGE;
+    }
+
+    RespReadRawIndexMessage::~RespReadRawIndexMessage()
+    {
+
+    }*/
   }
 }

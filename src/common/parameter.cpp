@@ -40,6 +40,8 @@ namespace tfs
     CheckServerParameter CheckServerParameter::cs_parameter_;
     KvMetaParameter KvMetaParameter::kv_meta_parameter_;
     KvRtServerParameter KvRtServerParameter::kv_rt_parameter_;
+    ExpireServerParameter ExpireServerParameter::expire_server_parameter_;
+    ExpireRootServerParameter ExpireRootServerParameter::expire_root_server_parameter_;
 
     static void set_hour_range(const char *str, int32_t& min, int32_t& max)
     {
@@ -60,6 +62,24 @@ namespace tfs
     int NameServerParameter::initialize(void)
     {
       discard_max_count_ = 0;
+      move_task_expired_time_ = 120;
+      compact_task_expired_time_ = 120;
+      marshalling_task_expired_time_ = 360;
+      reinstate_task_expired_time_ = 240;
+      dissolve_task_expired_time_  = 120;
+      max_mr_network_bandwith_ratio_ = 50;
+      max_rw_network_bandwith_ratio_ = 50;
+      compact_family_member_ratio_   = 30;
+      max_single_machine_network_bandwith_ = 120;//120MB
+      adjust_copies_location_time_lower_   = 6;
+      adjust_copies_location_time_upper_   = 12;
+      max_marshalling_num_ = 1;
+      marshalling_visit_time_ = 30;  //one month
+      enable_old_interface_ = ENABLE_OLD_INTERFACE_FLAG_NO;
+      enable_version_check_ = ENABLE_VERSION_CHECK_FLAG_YES;
+      verify_index_reserved_space_ratio_ = VERIFY_INDEX_RESERVED_SPACKE_DEFAULT_RATIO;
+      check_integrity_interval_days_ = CHECK_INTEGRITY_INTERVAL_DAYS_DEFAULT;
+      write_file_check_copies_complete_ = WRITE_FILE_CHECK_COPIES_COMPLETE_FLAG_NO;
       report_block_time_interval_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_REPORT_BLOCK_TIME_INTERVAL, 1);
       report_block_time_interval_min_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_REPORT_BLOCK_TIME_INTERVAL_MIN, 0);
       max_write_timeout_= TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_MAX_WRITE_TIMEOUT, 3);
@@ -89,7 +109,7 @@ namespace tfs
       // roundup to 1M
       int32_t writeBlockSize = (int32_t)(((double) max_block_size * block_use_ratio) / 100);
       max_block_size_ = (writeBlockSize & 0xFFF00000) + 1024 * 1024;
-      max_block_size_ = std::max(max_block_size_, max_block_size);
+      max_block_size_ = std::min(max_block_size_, max_block_size);
 
       max_replication_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_MAX_REPLICATION, 2);
 
@@ -124,9 +144,14 @@ namespace tfs
       if (compact_delete_ratio_ <= 0)
         compact_delete_ratio_ = 15;
       compact_delete_ratio_ = std::min(compact_delete_ratio_, 100);
+
+      compact_update_ratio_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_COMPACT_UPDATE_RATIO, 10);
+      if (compact_update_ratio_ <= 0)
+        compact_update_ratio_ = 10;
+      compact_update_ratio_  = std::min(compact_update_ratio_, 100);
       const char* compact_time_str = TBSYS_CONFIG.getString(CONF_SN_NAMESERVER, CONF_COMPACT_HOUR_RANGE, "2~6");
       set_hour_range(compact_time_str, compact_time_lower_, compact_time_upper_);
-      compact_max_load_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_COMPACT_MAX_LOAD, 100);
+      compact_task_ratio_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_COMPACT_TASK_RATIO, 1);
 
       object_dead_max_time_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_OBJECT_DEAD_MAX_TIME, 300);
       if (object_dead_max_time_ <=  300)
@@ -172,7 +197,7 @@ namespace tfs
         TBSYS_LOG(ERROR, "%s in [%s] is invalid, value: %d", CONF_GROUP_SEQ, CONF_SN_NAMESERVER, group_seq_);
         return EXIT_SYSTEM_PARAMETER_ERROR;
       }
-      report_block_expired_time_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_REPORT_BLOCK_EXPIRED_TIME, heart_interval_ * 2);
+      report_block_expired_time_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_REPORT_BLOCK_EXPIRED_TIME, heart_interval_ * 5);
       discard_newblk_safe_mode_time_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_DISCARD_NEWBLK_SAFE_MODE_TIME, safe_mode_time_ * 2);
       int32_t report_block_thread_nums = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_REPORT_BLOCK_THREAD_COUNT, 4);
       report_block_queue_size_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_REPORT_BLOCK_MAX_QUEUE_SIZE, report_block_thread_nums * 2);
@@ -182,9 +207,23 @@ namespace tfs
 
       set_hour_range(report_hour_str, report_block_time_lower_, report_block_time_upper_);
 
-      choose_target_server_random_max_nums_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER,CONF_CHOOSE_TARGET_SERVER_RANDOM_MAX_NUM, 32);
+      choose_target_server_random_max_nums_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER,CONF_CHOOSE_TARGET_SERVER_RANDOM_MAX_NUM, 8);
+
+      choose_target_server_retry_max_nums_  = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER,CONF_CHOOSE_TARGET_SERVER_RETRY_MAX_NUM, 8);
 
       keepalive_queue_size_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_HEART_MAX_QUEUE_SIZE, 1024);
+
+      marshalling_delete_ratio_  = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_MARSHALLING_DELETE_RATIO, 5);
+
+      const char* marshalling_time_str = TBSYS_CONFIG.getString(CONF_SN_NAMESERVER, CONF_MARSHALLING_HOUR_RANGE, "6~9");
+      set_hour_range(marshalling_time_str, marshalling_time_lower_, marshalling_time_upper_);
+
+      marshalling_type_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_MARSHALLING_TYPE, 1);
+
+      max_data_member_num_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_MAX_DATA_MEMBER_NUM, 3);
+      max_check_member_num_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_MAX_CHECK_MEMBER_NUM, 1);
+
+      max_marshalling_queue_timeout_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_MAX_MARSHALLING_QUEUE_TIMEOUT, 3600);
       return TFS_SUCCESS;
     }
 
@@ -248,8 +287,52 @@ namespace tfs
       object_clear_max_time_ = config.getInt(CONF_SN_DATASERVER, CONF_OBJECT_CLEAR_MAX_TIME, 300);
       if (object_clear_max_time_ <= 0)
         object_clear_max_time_ = 300;
-      max_sync_retry_count_ = config.getInt(CONF_SN_DATASERVER, CONF_MAX_SYNC_RETRY_COUNT, 5);
+      max_sync_retry_count_ = config.getInt(CONF_SN_DATASERVER, CONF_MAX_SYNC_RETRY_COUNT, 3);
       max_sync_retry_interval_ = config.getInt(CONF_SN_DATASERVER, CONF_MAX_SYNC_RETRY_INTERVAL, 30);
+      sync_fail_retry_interval_ = config.getInt(CONF_SN_DATASERVER, CONF_SYNC_FAIL_RETRY_INTERVAL, 300);
+      max_bg_task_queue_size_ = config.getInt(CONF_SN_DATASERVER, CONF_MAX_BG_TASK_QUEUE_SIZE, 5);
+
+      // example ==> 10.232.36.201:3100:1|10.232.36.202:3100:2|10.232.36.203:3100:1
+      const char* cluster_version_str = config.getString(CONF_SN_DATASERVER, CONF_CLUSTER_VERSION_LIST, NULL);
+      if (NULL != cluster_version_str)
+      {
+        std::vector<std::string> clusters;
+        Func::split_string(cluster_version_str, '|', clusters);
+        std::vector<std::string>::iterator it = clusters.begin();
+        for ( ; it != clusters.end(); it++)
+        {
+          std::vector<std::string> items;
+          Func::split_string(it->c_str(), ':', items);
+          if (items.size() != 3)
+          {
+            TBSYS_LOG(ERROR, "cluster_version %s invalid", cluster_version_str);
+            return EXIT_SYSTEM_PARAMETER_ERROR;
+          }
+          else
+          {
+            uint64_t ns_id = Func::str_to_addr(items[0].c_str(), atoi(items[1].c_str()));
+            int32_t version = atoi(items[2].c_str());
+            std::map<uint64_t, int32_t>::iterator iter = cluster_version_list_.find(ns_id);
+            if (iter == cluster_version_list_.end())
+            {
+              cluster_version_list_.insert(std::make_pair(ns_id, version));
+            }
+            else
+            {
+              TBSYS_LOG(ERROR, "cluster_version %s invalid, ns_addr duplicate", cluster_version_str);
+              return EXIT_SYSTEM_PARAMETER_ERROR;
+            }
+          }
+        }
+
+        std::map<uint64_t, int32_t>::iterator iter = cluster_version_list_.begin();
+        for ( ; iter != cluster_version_list_.end(); iter++)
+        {
+          TBSYS_LOG(INFO, "cluster nsip: %s, version: %d",
+              tbsys::CNetUtil::addrToString(iter->first).c_str(), iter->second);
+        }
+      }
+
       return SYSPARAM_FILESYSPARAM.initialize(index);
     }
 
@@ -261,7 +344,7 @@ namespace tfs
 
     int DataServerParameter::get_real_ds_port(const int ds_port, const std::string& index)
     {
-      return ds_port + ((atoi((index.c_str())) - 1) * PORT_PER_PROCESS);
+      return ds_port + ((atoi((index.c_str())) - 1));
     }
 
     int FileSystemParameter::initialize(const std::string& index)
@@ -320,6 +403,9 @@ namespace tfs
         return EXIT_SYSTEM_PARAMETER_ERROR;
       }
 
+      max_init_index_element_nums_ = TBSYS_CONFIG.getInt(CONF_SN_DATASERVER, CONF_MAX_INIT_INDEX_ELEMENT_NUMS, 2048);
+      max_extend_index_element_nums_ = TBSYS_CONFIG.getInt(CONF_SN_DATASERVER, CONF_MAX_EXTEND_INDEX_ELEMENT_NUMS, 136);
+
       return TFS_SUCCESS;
     }
     std::string FileSystemParameter::get_real_mount_name(const std::string& mount_name, const std::string& index)
@@ -332,10 +418,14 @@ namespace tfs
       db_info_ = TBSYS_CONFIG.getString(CONF_SN_RCSERVER, CONF_RC_DB_INFO, "");
       db_user_ = TBSYS_CONFIG.getString(CONF_SN_RCSERVER, CONF_RC_DB_USER, "");
       db_pwd_ = TBSYS_CONFIG.getString(CONF_SN_RCSERVER, CONF_RC_DB_PWD, "");
+      std::string ops_db_info = TBSYS_CONFIG.getString(CONF_SN_RCSERVER, CONF_RC_OPS_DB_INFO, "");
+      Func::split_string(ops_db_info.c_str(), ';', ops_db_info_);
 
       monitor_interval_ = TBSYS_CONFIG.getInt(CONF_SN_RCSERVER, CONF_RC_MONITOR_INTERVAL, 60);
       stat_interval_ = TBSYS_CONFIG.getInt(CONF_SN_RCSERVER, CONF_RC_STAT_INTERVAL, 120);
       update_interval_ = TBSYS_CONFIG.getInt(CONF_SN_RCSERVER, CONF_RC_UPDATE_INTERVAL, 30);
+      count_interval_ = TBSYS_CONFIG.getInt(CONF_SN_RCSERVER, CONF_RC_COUNT_INTERVAL, 10);
+      monitor_key_interval_ = TBSYS_CONFIG.getInt(CONF_SN_RCSERVER, CONF_RC_MONITOR_KEY_INTERVAL, 600);
       return TFS_SUCCESS;
     }
 
@@ -468,57 +558,112 @@ namespace tfs
       if (EXIT_SUCCESS != ret)
       {
         TBSYS_LOG(ERROR, "load config file erro.");
-        return TFS_ERROR;
-      }
-
-      // block stalbe time, default 5min
-      block_stable_time_ = config.getInt(CONF_SN_CHECKSERVER, CONF_BLOCK_STABLE_TIME, 5);
-
-      // default interval: 1 day
-      check_interval_ = config.getInt(CONF_SN_CHECKSERVER, CONF_CHECK_INTERVAL, 1440);
-
-      // default no overlap
-      overlap_check_time_ = config.getInt(CONF_SN_CHECKSERVER, CONF_OVERLAP_CHECK_TIME, 0);
-
-      // thread count to check dataserver
-      thread_count_ = config.getInt(CONF_SN_CHECKSERVER, CONF_THREAD_COUNT, 1);
-
-      // cluster id
-      cluster_id_ = config.getInt(CONF_SN_CHECKSERVER, CONF_CLUSTER_ID, 1);
-
-      // master and slave address info
-      const char* master_ns_ip  = config.getString(CONF_SN_CHECKSERVER, CONF_MASTER_NS_IP, NULL);
-      if (NULL == master_ns_ip)
-      {
-        TBSYS_LOG(ERROR, "master_ns_ip config item not found.");
         ret = TFS_ERROR;
       }
       else
       {
-        int master_ns_port = config.getInt(CONF_SN_CHECKSERVER, CONF_MASTER_NS_PORT, -1);
-        if (-1 == master_ns_port)
+        check_span_ = config.getInt(CONF_SN_CHECKSERVER, CONF_CHECK_SPAN, 86400); // recent day
+        if (0 == check_span_)
+          check_span_ = INT_MAX;
+        check_interval_ = config.getInt(CONF_SN_CHECKSERVER, CONF_CHECK_INTERVAL, 86400);  // check every day
+        thread_count_ = config.getInt(CONF_SN_CHECKSERVER, CONF_THREAD_COUNT, 8);
+        cluster_id_ = config.getInt(CONF_SN_CHECKSERVER, CONF_CLUSTER_ID, 1);
+        check_retry_turns_ = config.getInt(CONF_SN_CHECKSERVER, CONF_CHECK_RETRY_TURN, 3);
+        block_check_interval_ = config.getInt(CONF_SN_CHECKSERVER, CONF_BLOCK_CHECK_INTERVAL, 0);
+        block_check_cost_ = config.getInt(CONF_SN_CHECKSERVER, CONF_BLOCK_CHECK_COST, 200);
+        check_flag_ = config.getInt(CONF_SN_CHECKSERVER, CONF_CHECK_FLAG, 0);
+        check_reserve_time_ = config.getInt(CONF_SN_CHECKSERVER, CONF_CHECK_RESERVE_TIME, 180);
+        force_check_all_ = config.getInt(CONF_SN_CHECKSERVER, CONF_FORCE_CHECK_ALL, 0);
+      }
+
+      // start_time like 01:30
+      if (TFS_SUCCESS == ret)
+      {
+        start_time_hour_ = -1;
+        start_time_min_ = -1;
+        const char* start_time = config.getString(CONF_SN_CHECKSERVER, CONF_START_TIME, NULL);
+        if (NULL != start_time)
         {
-          master_ns_id_ = 0;
-          TBSYS_LOG(ERROR, "master_ns_ip config item not found.");
-          ret = TFS_ERROR;
-        }
-        else
-        {
-          master_ns_id_ = Func::str_to_addr(master_ns_ip, master_ns_port);
+          std::vector<std::string> time_parts;
+          common::Func::split_string(start_time, ':', time_parts);
+          if (2 == time_parts.size())
+          {
+            start_time_hour_ = atoi(time_parts[0].c_str());
+            start_time_min_ = atoi(time_parts[1].c_str());
+            if (start_time_hour_ >= 24 || start_time_min_ >= 59)
+            {
+              TBSYS_LOG(ERROR, "start time config invalid");
+              ret = TFS_ERROR;
+            }
+          }
+          else
+          {
+            TBSYS_LOG(ERROR, "start time config invalid");
+            ret = TFS_ERROR;
+          }
         }
       }
 
-      const char* slave_ns_ip  = config.getString(CONF_SN_CHECKSERVER, CONF_SLAVE_NS_IP, NULL);
-      if (NULL != slave_ns_ip)
+      if (TFS_SUCCESS == ret)
       {
-        int slave_ns_port = config.getInt(CONF_SN_CHECKSERVER, CONF_SLAVE_NS_PORT, -1);
-        if (-1 != slave_ns_port)
+        const char* self_ip = config.getString(CONF_SN_PUBLIC, CONF_IP_ADDR);
+        int32_t self_port = config.getInt(CONF_SN_PUBLIC, CONF_PORT);
+        if ((NULL != self_ip) && (self_port > 0))
         {
-          slave_ns_id_ = Func::str_to_addr(slave_ns_ip, slave_ns_port);
+          self_id_ = Func::str_to_addr(self_ip, self_port);
         }
         else
         {
-          slave_ns_id_ = 0;
+          TBSYS_LOG(ERROR, "ip_addr or port config item not found");
+          ret = TFS_ERROR;
+        }
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        const char* ns_ip  = config.getString(CONF_SN_CHECKSERVER, CONF_NS_IP, NULL);
+        if (NULL != ns_ip)
+        {
+          std::vector<std::string> ns_ip_parts;
+          common::Func::split_string(ns_ip, ':', ns_ip_parts);
+          if (2 == ns_ip_parts.size())
+          {
+            ns_id_ = Func::str_to_addr(ns_ip_parts[0].c_str(), atoi(ns_ip_parts[1].c_str()));
+          }
+          else
+          {
+            ret = TFS_ERROR;
+            TBSYS_LOG(ERROR, "ns_ip config invalid. must be ip:port.");
+          }
+        }
+        else
+        {
+          TBSYS_LOG(ERROR, "ns_ip config item not found.");
+          ret = TFS_ERROR;
+        }
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        const char* ns_ip  = config.getString(CONF_SN_CHECKSERVER, CONF_PEER_NS_IP, NULL);
+        if (NULL != ns_ip)
+        {
+          std::vector<std::string> ns_ip_parts;
+          common::Func::split_string(ns_ip, ':', ns_ip_parts);
+          if (2 == ns_ip_parts.size())
+          {
+            peer_ns_id_ = Func::str_to_addr(ns_ip_parts[0].c_str(), atoi(ns_ip_parts[1].c_str()));
+          }
+          else
+          {
+            ret = TFS_ERROR;
+            TBSYS_LOG(ERROR, "peer_ns_ip config invalid. must be ip:port.");
+          }
+        }
+        else
+        {
+          TBSYS_LOG(ERROR, "peer_ns_ip config item not found.");
+          ret = TFS_ERROR;
         }
       }
 
@@ -535,10 +680,11 @@ namespace tfs
         return TFS_ERROR;
       }
 
-      tair_master_ = config.getString(CONF_SN_KVMETA, CONF_TAIR_MASTER, "");
-      tair_slave_ = config.getString(CONF_SN_KVMETA, CONF_TAIR_SLAVE, "");
-      tair_group_ = config.getString(CONF_SN_KVMETA, CONF_TAIR_GROUP, "");
-      tair_object_area_ = config.getInt(CONF_SN_KVMETA, CONF_TAIR_OBJECT_AREA, -1);
+      conn_str_ = config.getString(CONF_SN_KVMETA, CONF_KV_DB_CONN, "");
+      user_name_ = config.getString(CONF_SN_KVMETA, CONF_KV_DB_USER, "");
+      pass_wd_ = config.getString(CONF_SN_KVMETA, CONF_KV_DB_PASS, "");
+      object_area_ = config.getInt(CONF_SN_KVMETA, CONF_OBJECT_AREA, -1);
+      lifecycle_area_ = config.getInt(CONF_SN_KVMETA, CONF_LIFECYCLE_AREA, -1);
       dump_stat_info_interval_ = config.getInt(CONF_SN_KVMETA, CONF_STAT_INFO_INTERVAL, 60000000);
 
       if (TFS_SUCCESS == ret)
@@ -585,6 +731,7 @@ namespace tfs
       }
       return ret;
     }
+
     int KvRtServerParameter::initialize(void)
     {
       int32_t iret = TFS_SUCCESS;
@@ -619,6 +766,125 @@ namespace tfs
       }
       return iret;
     }
+
+    int ExpireServerParameter::initialize(const std::string& config_file)
+    {
+      tbsys::CConfig config;
+      int32_t ret = config.load(config_file.c_str());
+      if (EXIT_SUCCESS != ret)
+      {
+        TBSYS_LOG(ERROR, "load config file erro.");
+        return TFS_ERROR;
+      }
+      conn_str_ = config.getString(CONF_SN_EXPIRESERVER, CONF_KV_DB_CONN, "");
+      user_name_ = config.getString(CONF_SN_EXPIRESERVER, CONF_KV_DB_USER, "");
+      pass_wd_ = config.getString(CONF_SN_EXPIRESERVER, CONF_KV_DB_PASS, "");
+      lifecycle_area_ = config.getInt(CONF_SN_EXPIRESERVER, CONF_LIFECYCLE_AREA, -1);
+
+      re_clean_days_ = config.getInt(CONF_SN_EXPIRESERVER, CONF_EXPIRE_RE_CLEAN_DAYS, 1);
+      nginx_root_ = config.getString(CONF_SN_EXPIRESERVER, CONF_ES_NGINX_ROOT, "");
+      es_appkey_ = config.getString(CONF_SN_EXPIRESERVER, CONF_ES_APPKEY, "");
+      log_level_ = config.getString(CONF_SN_PUBLIC, CONF_LOG_LEVEL, "debug");
+      if (TFS_SUCCESS == ret)
+      {
+        std::string ips1 = TBSYS_CONFIG.getString(CONF_SN_EXPIRESERVER, CONF_EXPIRE_ROOT_SERVER_IPPORT, "");
+        std::vector<std::string> items1;
+        Func::split_string(ips1.c_str(), ':', items1);
+        if (items1.size() != 2U)
+        {
+          TBSYS_LOG(ERROR, "%s is invalid", ips1.c_str());
+          ret = TFS_ERROR;
+        }
+        else
+        {
+          int32_t port1 = atoi(items1[1].c_str());
+          if (port1 <= 1024 || port1 >= 65535)
+          {
+            TBSYS_LOG(ERROR, "%s is invalid", ips1.c_str());
+            ret = TFS_ERROR;
+          }
+          else
+          {
+            ers_ip_port_ = tbsys::CNetUtil::strToAddr(items1[0].c_str(), atoi(items1[1].c_str()));
+          }
+          TBSYS_LOG(INFO, "expire root server ip addr: %s", ips1.c_str());
+        }
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        std::string ips2 = TBSYS_CONFIG.getString(CONF_SN_PUBLIC, CONF_IP_ADDR, "");
+        std::string ports2 = TBSYS_CONFIG.getString(CONF_SN_PUBLIC, CONF_PORT, "");
+
+        int32_t port2 = atoi(ports2.c_str());
+        if (port2 <= 1024 || port2 >= 65535)
+        {
+          TBSYS_LOG(ERROR, "%s is invalid", ports2.c_str());
+          ret = TFS_ERROR;
+        }
+        else
+        {
+          es_ip_port_ = tbsys::CNetUtil::strToAddr(ips2.c_str(), port2);
+        }
+        TBSYS_LOG(INFO, "expire server ip addr: %s:%d", ips2.c_str(), port2);
+      }
+      return ret;
+    }
+
+    int ExpireRootServerParameter::initialize(const std::string& config_file)
+    {
+      tbsys::CConfig config;
+      int32_t ret = config.load(config_file.c_str());
+      if (EXIT_SUCCESS != ret)
+      {
+        TBSYS_LOG(ERROR, "load config file erro.");
+        return TFS_ERROR;
+      }
+
+      conn_str_ = config.getString(CONF_SN_EXPIREROOTSERVER, CONF_KV_DB_CONN, "");
+      user_name_ = config.getString(CONF_SN_EXPIREROOTSERVER, CONF_KV_DB_USER, "");
+      pass_wd_ = config.getString(CONF_SN_EXPIREROOTSERVER, CONF_KV_DB_PASS, "");
+      lifecycle_area_ = config.getInt(CONF_SN_EXPIREROOTSERVER, CONF_LIFECYCLE_AREA, -1);
+      task_period_ = config.getInt(CONF_SN_EXPIREROOTSERVER, CONF_TASK_PERIOD, 0);
+      note_interval_ = config.getInt(CONF_SN_EXPIREROOTSERVER, CONF_NOTE_INTERVAL, 0);
+
+
+      es_rts_check_lease_interval_ =
+        TBSYS_CONFIG.getInt(CONF_SN_EXPIREROOTSERVER, CONF_ES_RTS_LEASE_CHECK_TIME, 1);
+      if (es_rts_check_lease_interval_ <= 0)
+      {
+        TBSYS_LOG(ERROR, "es_rts_check_lease_interval_: %d is invalid", es_rts_check_lease_interval_);
+        ret = TFS_ERROR;
+      }
+
+      es_rts_lease_expired_time_ =
+        TBSYS_CONFIG.getInt(CONF_SN_EXPIREROOTSERVER, CONF_ES_RTS_LEASE_EXPIRED_TIME, 4);
+      if (es_rts_lease_expired_time_ <= 0)
+      {
+        TBSYS_LOG(ERROR, "es_rts_lease_expired_time: %d is invalid", es_rts_lease_expired_time_);
+        ret = TFS_ERROR;
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        es_rts_heart_interval_
+        = TBSYS_CONFIG.getInt(CONF_SN_EXPIREROOTSERVER, CONF_ES_RTS_HEART_INTERVAL, 2);
+        if (es_rts_heart_interval_ > es_rts_lease_expired_time_ / 2 )
+        {
+          TBSYS_LOG(ERROR, "es_rts_lease_expired_interval: %d is invalid, less than: %d",
+            es_rts_heart_interval_, es_rts_lease_expired_time_ / 2 + 1);
+          ret = TFS_ERROR;
+        }
+
+        if (TFS_SUCCESS == ret)
+        {
+          safe_mode_time_ = TBSYS_CONFIG.getInt(CONF_SN_EXPIREROOTSERVER, CONF_SAFE_MODE_TIME, 60);
+        }
+      }
+
+      return ret;
+    }
+
   }/** common **/
 }/** tfs **/
 

@@ -301,7 +301,6 @@ int KvMetaHelper::do_put_object(const uint64_t server_id, const char *bucket_nam
     req_po_msg.set_object_info(object_info);
     req_po_msg.set_user_info(user_info);
 
-
     tbnet::Packet* rsp = NULL;
     NewClient* client = NewClientManager::get_instance().create_client();
     ret = send_msg_to_server(server_id, client, &req_po_msg, rsp, ClientConfig::wait_timeout_);
@@ -334,8 +333,9 @@ int KvMetaHelper::do_put_object(const uint64_t server_id, const char *bucket_nam
   return ret;
 }
 
+
 int KvMetaHelper::do_get_object(const uint64_t server_id, const char *bucket_name, const char *object_name,
-const int64_t offset, const int64_t length, ObjectInfo *object_info, bool *still_have, const UserInfo &user_info)
+    const int64_t offset, const int64_t length, ObjectInfo *object_info, bool *still_have, const UserInfo &user_info)
 {
   int ret = TFS_SUCCESS;
   if (0 == server_id)
@@ -355,7 +355,7 @@ const int64_t offset, const int64_t length, ObjectInfo *object_info, bool *still
     req_go_msg.set_length(length);
     req_go_msg.set_user_info(user_info);
     TBSYS_LOG(DEBUG, "bucket_name %s object_name %s "
-            "offset %ld length %ld still_have %d", bucket_name, object_name, offset, length, *still_have);
+        "offset %ld length %ld still_have %d", bucket_name, object_name, offset, length, *still_have);
     tbnet::Packet* rsp = NULL;
     NewClient* client = NewClientManager::get_instance().create_client();
     ret = send_msg_to_server(server_id, client, &req_go_msg, rsp, ClientConfig::wait_timeout_);
@@ -393,6 +393,7 @@ const int64_t offset, const int64_t length, ObjectInfo *object_info, bool *still
   }
   return ret;
 }
+
 
 int KvMetaHelper::do_del_object(const uint64_t server_id, const char *bucket_name,
     const char *object_name, ObjectInfo *object_info, bool *still_have, const UserInfo &user_info)
@@ -452,6 +453,7 @@ int KvMetaHelper::do_del_object(const uint64_t server_id, const char *bucket_nam
   return ret;
 }
 
+
 int KvMetaHelper::do_head_object(const uint64_t server_id, const char *bucket_name,
     const char *object_name, ObjectInfo *object_info, const UserInfo &user_info)
 {
@@ -508,3 +510,159 @@ int KvMetaHelper::do_head_object(const uint64_t server_id, const char *bucket_na
   return ret;
 }
 
+int KvMetaHelper::do_set_life_cycle(const uint64_t server_id,
+    const int32_t file_type, const char *file_name,
+    const int32_t invalid_time_s, const char *app_key)
+{
+  int ret = TFS_SUCCESS;
+  if (0 == server_id)
+  {
+    ret = EXIT_INVALID_KV_META_SERVER;
+  }
+  else if (NULL == file_name || NULL == app_key)
+  {
+    ret = EXIT_INVALID_FILE_NAME;
+  }
+  else
+  {
+    ReqKvMetaSetLifeCycleMessage req_set_lifecycle_msg;
+    req_set_lifecycle_msg.set_file_type(file_type);
+    req_set_lifecycle_msg.set_file_name(file_name);
+    req_set_lifecycle_msg.set_invalid_time_s(invalid_time_s);
+    req_set_lifecycle_msg.set_app_key(app_key);
+    tbnet::Packet* rsp = NULL;
+    NewClient* client = NewClientManager::get_instance().create_client();
+    ret = send_msg_to_server(server_id, client, &req_set_lifecycle_msg, rsp, ClientConfig::wait_timeout_);
+    if (TFS_SUCCESS != ret)
+    {
+      TBSYS_LOG(ERROR, "call set lifecycle fail,"
+          "server_addr: %s, file_name: %s, "
+          "ret: %d",
+          tbsys::CNetUtil::addrToString(server_id).c_str(), file_name, ret);
+      ret = EXIT_NETWORK_ERROR;
+    }
+    else if (STATUS_MESSAGE == rsp->getPCode())
+    {
+      StatusMessage* resp_status_msg = dynamic_cast<StatusMessage*>(rsp);
+      if ((ret = resp_status_msg->get_status()) != STATUS_MESSAGE_OK)
+      {
+        TBSYS_LOG(ERROR, "set lifecycle return error, ret: %d", ret);
+      }
+    }
+    else
+    {
+      ret = EXIT_UNKNOWN_MSGTYPE;
+      TBSYS_LOG(ERROR, "set lifecycle fail,"
+          "server_addr: %s, file_name: %s, "
+          "ret: %d, msg type: %d",
+          tbsys::CNetUtil::addrToString(server_id).c_str(), file_name, ret, rsp->getPCode());
+    }
+    NewClientManager::get_instance().destroy_client(client);
+  }
+  return ret;
+}
+
+int KvMetaHelper::do_get_life_cycle(const uint64_t server_id, const int32_t file_type,
+    const char* file_name, int32_t* invalid_time_s)
+{
+  int ret = TFS_SUCCESS;
+  if (0 == server_id)
+  {
+    ret = EXIT_INVALID_KV_META_SERVER;
+  }
+  else if (NULL == file_name || NULL == invalid_time_s)
+  {
+    ret = EXIT_INVALID_FILE_NAME;
+  }
+  else
+  {
+    ReqKvMetaGetLifeCycleMessage req_glc_msg;
+    req_glc_msg.set_file_type(file_type);
+    req_glc_msg.set_file_name(file_name);
+
+
+    tbnet::Packet* rsp = NULL;
+    NewClient* client = NewClientManager::get_instance().create_client();
+    ret = send_msg_to_server(server_id, client, &req_glc_msg, rsp, ClientConfig::wait_timeout_);
+    if (TFS_SUCCESS != ret)
+    {
+      TBSYS_LOG(ERROR, "call get lifecycle fail,"
+          "server_addr: %s, file_name: %s, "
+          "ret: %d",
+          tbsys::CNetUtil::addrToString(server_id).c_str(), file_name, ret);
+      ret = EXIT_NETWORK_ERROR;
+    }
+    else if (RSP_KVMETA_GET_LIFE_CYCLE_MESSAGE == rsp->getPCode())
+    {
+      RspKvMetaGetLifeCycleMessage* rsp_glc_msg = dynamic_cast<RspKvMetaGetLifeCycleMessage*>(rsp);
+      *invalid_time_s = rsp_glc_msg->get_invalid_time_s();
+    }
+    else if (STATUS_MESSAGE == rsp->getPCode())
+    {
+      StatusMessage* resp_status_msg = dynamic_cast<StatusMessage*>(rsp);
+      if ((ret = resp_status_msg->get_status()) != STATUS_MESSAGE_OK)
+      {
+        TBSYS_LOG(ERROR, "get lifecycle return error, ret: %d", ret);
+      }
+    }
+    else
+    {
+      ret = EXIT_UNKNOWN_MSGTYPE;
+      TBSYS_LOG(ERROR, "get lifecycle fail,"
+          "server_addr: %s, file_name: %s, "
+          "ret: %d, msg type: %d",
+          tbsys::CNetUtil::addrToString(server_id).c_str(), file_name, ret, rsp->getPCode());
+    }
+    NewClientManager::get_instance().destroy_client(client);
+  }
+  return ret;
+}
+
+int KvMetaHelper::do_rm_life_cycle(const uint64_t server_id, const int32_t file_type, const char *file_name)
+{
+  int ret = TFS_SUCCESS;
+  if (0 == server_id)
+  {
+    ret = EXIT_INVALID_KV_META_SERVER;
+  }
+  else if (NULL == file_name)
+  {
+    ret = EXIT_INVALID_FILE_NAME;
+  }
+  else
+  {
+    ReqKvMetaRmLifeCycleMessage req_rlc_msg;
+    req_rlc_msg.set_file_type(file_type);
+    req_rlc_msg.set_file_name(file_name);
+
+    tbnet::Packet* rsp = NULL;
+    NewClient* client = NewClientManager::get_instance().create_client();
+    ret = send_msg_to_server(server_id, client, &req_rlc_msg, rsp, ClientConfig::wait_timeout_);
+    if (TFS_SUCCESS != ret)
+    {
+      TBSYS_LOG(ERROR, "call rm life cycle fail,"
+          "server_addr: %s, file_name: %s, "
+          "ret: %d",
+          tbsys::CNetUtil::addrToString(server_id).c_str(), file_name, ret);
+      ret = EXIT_NETWORK_ERROR;
+    }
+    else if (STATUS_MESSAGE == rsp->getPCode())
+    {
+      StatusMessage* resp_status_msg = dynamic_cast<StatusMessage*>(rsp);
+      if ((ret = resp_status_msg->get_status()) != STATUS_MESSAGE_OK)
+      {
+        TBSYS_LOG(ERROR, "rm life cycle return error, ret: %d", ret);
+      }
+    }
+    else
+    {
+      ret = EXIT_UNKNOWN_MSGTYPE;
+      TBSYS_LOG(ERROR, "rm life cycle fail,"
+          "server_addr: %s, file_name: %s, "
+          "ret: %d, msg type: %d",
+          tbsys::CNetUtil::addrToString(server_id).c_str(), file_name, ret, rsp->getPCode());
+    }
+    NewClientManager::get_instance().destroy_client(client);
+  }
+  return ret;
+}

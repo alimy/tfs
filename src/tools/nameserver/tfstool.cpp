@@ -32,6 +32,7 @@
 #include "common/meta_server_define.h"
 #include "common/kv_meta_define.h"
 #include "common/kv_rts_define.h"
+#include "common/expire_define.h"
 #include "message/server_status_message.h"
 #include "message/client_cmd_message.h"
 #include "message/message_factory.h"
@@ -39,19 +40,21 @@
 #include "common/base_packet_streamer.h"
 #include "tools/util/tool_util.h"
 #include "tools/util/ds_lib.h"
-#include "new_client/fsname.h"
 #include "new_client/tfs_client_impl.h"
 #include "new_client/tfs_rc_client_api_impl.h"
 #include "new_client/tfs_meta_client_api_impl.h"
+#include "clientv2/tfs_client_impl_v2.h"
+#include "clientv2/fsname.h"
 
 
 using namespace std;
 using namespace tfs::client;
+using namespace tfs::clientv2;
 using namespace tfs::common;
 using namespace tfs::message;
 using namespace tfs::tools;
 
-static TfsClientImpl* g_tfs_client = NULL;
+static TfsClientImplV2* g_tfs_client = NULL;
 static STR_FUNC_MAP g_cmd_map;
 static int64_t app_id = 1;
 static int64_t uid = 1234;
@@ -65,6 +68,7 @@ typedef enum {
   META_RAW = 0,
   META_NAME,
   META_KV,
+  META_LIFECYCLE
 } MetaType;
 
 #ifdef _WITH_READ_LINE
@@ -168,13 +172,26 @@ int cmd_del_bucket(const VSTRING& param);
 int cmd_head_bucket(const VSTRING& param);
 
 int cmd_put_object(const VSTRING& param);
+int cmd_put_object_tag(const VSTRING& param);
 int cmd_get_object(const VSTRING& param);
+int cmd_get_object_tag(const VSTRING& param);
 int cmd_del_object(const VSTRING& param);
+int cmd_del_object_tag(const VSTRING& param);
+int cmd_update_object_tag(const VSTRING& param);
 int cmd_head_object(const VSTRING& param);
+
+/* for lifecycle */
+int cmd_set_life_cycle(const VSTRING& param);
+int cmd_get_life_cycle(const VSTRING& param);
+int cmd_del_life_cycle(const VSTRING& param);
+
+/* for lifecycle root */
+int cmd_query_task(const VSTRING& param);
 
 const char* rc_addr = NULL;
 const char* nsip = NULL;
 const char* krs_addr = NULL;
+const char* lrs_addr = NULL;
 MetaType g_meta_type = META_RAW;
 
 static tfs::common::BasePacketStreamer gstreamer;
@@ -190,7 +207,7 @@ int main(int argc, char* argv[])
   bool set_log_level = false;
 
   // analyze arguments
-  while ((i = getopt(argc, argv, "s:r:k:nih")) != EOF)
+  while ((i = getopt(argc, argv, "s:r:k:l:nih")) != EOF)
   {
     switch (i)
     {
@@ -206,6 +223,8 @@ int main(int argc, char* argv[])
       case 'k':
         krs_addr = optarg;
         break;
+      case 'l':
+        lrs_addr = optarg;
       case 'i':
         directly = true;
         break;
@@ -221,7 +240,7 @@ int main(int argc, char* argv[])
     TBSYS_LOGGER.setLogLevel("ERROR");
   }
 
-  if (NULL == nsip && NULL == rc_addr & NULL == krs_addr)
+  if (NULL == nsip && NULL == rc_addr & NULL == krs_addr && NULL == lrs_addr)
   {
     usage(argv[0]);
     return TFS_ERROR;
@@ -230,7 +249,17 @@ int main(int argc, char* argv[])
   gstreamer.set_packet_factory(&gfactory);
   NewClientManager::get_instance().initialize(&gfactory, &gstreamer);
 
-  if (krs_addr != NULL)
+  if (lrs_addr != NULL)
+  {
+    if (rc_addr == NULL)
+    {
+      usage(argv[0]);
+      return TFS_ERROR;
+    }
+    strcpy(app_key, default_app_key);
+    g_meta_type = META_LIFECYCLE;
+  }
+  else if (krs_addr != NULL)
   {
     if (rc_addr == NULL)
     {
@@ -247,8 +276,9 @@ int main(int argc, char* argv[])
   }
   else if (nsip != NULL)
   {
-    g_tfs_client = TfsClientImpl::Instance();
-    ret = g_tfs_client->initialize(nsip, DEFAULT_BLOCK_CACHE_TIME, 1000, false);
+    g_tfs_client = TfsClientImplV2::Instance();
+    // ret = g_tfs_client->initialize(nsip, DEFAULT_BLOCK_CACHE_TIME, 1000, false);
+    ret = g_tfs_client->initialize(nsip);
     if (ret != TFS_SUCCESS)
     {
       fprintf(stderr, "init tfs client fail, ret: %d\n", ret);
@@ -299,13 +329,14 @@ static void usage(const char* name)
           "Usage: a) %s -s nsip [-n] [-i] [-h] raw tfs client interface(without rc). \n"
           "       b) %s -r rcip [-n] [-i] [-h] name meta client interface(with rc). \n"
           "       c) %s -k krsip -r rcip [-n] [-i] [-h] kv meta client interface. \n"
+          "       D) %s -l lrsip -r rcip [-n] [-i] [-h] lifecycle root client interface. \n"
           "       -s nameserver ip port\n"
           "       -r rcserver ip port\n"
           "       -k kvrootserver ip port\n"
           "       -n set log level\n"
           "       -i directly execute the command\n"
           "       -h help\n",
-          name, name, name);
+          name, name, name, name);
 }
 
 static void sign_handler(const int32_t sig)
@@ -345,7 +376,7 @@ void init()
     g_cmd_map["stat"] = CmdNode("stat tfsname", "stat tfs file", 1, 1, cmd_stat_file);
     g_cmd_map["statblk"] = CmdNode("statblk blockid [serverip:port]", "stat a block", 1, 2, cmd_stat_blk);
     g_cmd_map["vcblk"] = CmdNode("vcblk serverip:port count", "visit count block", 2, 2, cmd_visit_count_blk);
-    g_cmd_map["lsf"] = CmdNode("lsf blockid [detail] [serverip:port]" , "list file list in block", 1, 3, cmd_list_file_info);
+    g_cmd_map["lsf"] = CmdNode("lsf blockid [attach_block_id] [detail] [serverip:port]" , "list file list in block", 1, 4, cmd_list_file_info);
     g_cmd_map["listblock"] = CmdNode("listblock blockid", "list block server list", 1, 1, cmd_list_block);
     g_cmd_map["cfi"] = CmdNode("cfi tfsname", "check file info", 1, 1, cmd_check_file_info);
     break;
@@ -382,15 +413,26 @@ void init()
         "check if file exist", 1, 4, cmd_is_file_exist_meta);
     break;
   case META_KV:
-    g_cmd_map["put_bucket"] = CmdNode("put_bucket bucket_name owner_id", "create a bucket", 2, 2, cmd_put_bucket);
-    g_cmd_map["get_bucket"] = CmdNode("get_bucket bucket_name [ prefix start_key delimiter limit ]", "get a bucket(list object)", 1, 5, cmd_get_bucket);
-    g_cmd_map["del_bucket"] = CmdNode("del_bucket bucket_name", "delete a bucket", 1, 1, cmd_del_bucket);
-    g_cmd_map["head_bucket"] = CmdNode("head_bucket bucket_name", "stat a bucket", 1, 1, cmd_head_bucket);
+    g_cmd_map["put_bucket"] = CmdNode("put_bucket bucket_name owner_id [app_key]", "create a bucket", 2, 3, cmd_put_bucket);
+    g_cmd_map["get_bucket"] = CmdNode("get_bucket bucket_name [ prefix start_key delimiter limit app_key]", "get a bucket(list object)", 1, 6, cmd_get_bucket);
+    g_cmd_map["del_bucket"] = CmdNode("del_bucket bucket_name [app_key]", "delete a bucket", 1, 2, cmd_del_bucket);
+    g_cmd_map["head_bucket"] = CmdNode("head_bucket bucket_name [app_key]", "stat a bucket", 1, 2, cmd_head_bucket);
+    //g_cmd_map["put_object_tag"] = CmdNode("put_object_tag bucket_name object_name k=v owner_id [app_key]", "put a object tag", 4, 5, cmd_put_object_tag);
 
-    g_cmd_map["put_object"] = CmdNode("put_object bucket_name object_name local_file owner_id", "put a object", 4, 4, cmd_put_object);
-    g_cmd_map["get_object"] = CmdNode("get_object bucket_name object_name local_file", "get a object", 3, 3, cmd_get_object);
-    g_cmd_map["del_object"] = CmdNode("del_object bucket_name object_name", "delete a object", 2, 2, cmd_del_object);
-    g_cmd_map["head_object"] = CmdNode("head_object bucket_name object_name", "stat a object", 2, 2, cmd_head_object);
+    g_cmd_map["put_object"] = CmdNode("put_object bucket_name object_name local_file owner_id [app_key]", "put a object", 4, 5, cmd_put_object);
+    g_cmd_map["get_object"] = CmdNode("get_object bucket_name object_name local_file [app_key]", "get a object", 3, 4, cmd_get_object);
+    //g_cmd_map["get_object_tag"] = CmdNode("get_object_tag bucket_name object_name keys [app_key]", "get a object", 2, 4, cmd_get_object_tag);
+    g_cmd_map["del_object"] = CmdNode("del_object bucket_name object_name [app_key]", "delete a object", 2, 3, cmd_del_object);
+    //g_cmd_map["del_object_tag"] = CmdNode("del_object_tag bucket_name object_name keys [app_key]", "delete a object tag", 2, 4, cmd_del_object_tag);
+    //g_cmd_map["update_object_tag"] = CmdNode("update_object_tag bucket_name object_name k=v [app_key]", "update a object tag", 4, 5, cmd_update_object_tag);
+    g_cmd_map["head_object"] = CmdNode("head_object bucket_name object_name [app_key]", "stat a object", 2, 3, cmd_head_object);
+    g_cmd_map["set_life_cycle"] = CmdNode("set_life_cycle file_type file_name invalid_time_s app_key", "set a expire time for file", 4, 4, cmd_set_life_cycle);
+    g_cmd_map["get_life_cycle"] = CmdNode("get_life_cycle file_type file_name", "get a expire time for a file", 2, 2, cmd_get_life_cycle);
+    g_cmd_map["del_life_cycle"] = CmdNode("del_life_cycle file_type file_name", "delete a expire time for a file", 2, 2, cmd_del_life_cycle);
+    break;
+
+  case META_LIFECYCLE:
+    g_cmd_map["query_task"] = CmdNode("query_task expire_server", "query lifecycle root task", 1, 1, cmd_query_task);
     break;
   }
 }
@@ -539,7 +581,7 @@ int put_file_ex(const VSTRING& param, const bool unique, const bool is_large)
   const char* suffix = NULL;
   int32_t flag = T_DEFAULT;
   int ret = TFS_SUCCESS;
-  char ret_tfs_name[TFS_FILE_LEN];
+  char ret_tfs_name[TFS_FILE_LEN_V2];
   ret_tfs_name[0] = '\0';
 
 
@@ -570,6 +612,7 @@ int put_file_ex(const VSTRING& param, const bool unique, const bool is_large)
     }
   }
 
+  /*
   if (unique)
   {
     // TODO: save unique
@@ -579,7 +622,7 @@ int put_file_ex(const VSTRING& param, const bool unique, const bool is_large)
     }
     else
     {
-      ret = g_tfs_client->save_file(ret_tfs_name, TFS_FILE_LEN, local_file, flag, suffix) < 0 ?
+      ret = g_tfs_client->save_file(ret_tfs_name, TFS_FILE_LEN_V2, local_file, flag, suffix) < 0 ?
           TFS_ERROR : TFS_SUCCESS;
     }
   }
@@ -591,10 +634,28 @@ int put_file_ex(const VSTRING& param, const bool unique, const bool is_large)
     }
     else
     {
-      ret = g_tfs_client->save_file(ret_tfs_name, TFS_FILE_LEN, local_file, flag, suffix) < 0 ?
+      ret = g_tfs_client->save_file(ret_tfs_name, TFS_FILE_LEN_V2, local_file, flag, suffix) < 0 ?
           TFS_ERROR : TFS_SUCCESS;
     }
   }
+  */
+
+  UNUSED(unique);
+
+  if (NULL != tfs_name)  // update
+  {
+    ret = g_tfs_client->save_file_update(local_file, flag, tfs_name, suffix);
+  }
+  else
+  {
+    ret = g_tfs_client->save_file(ret_tfs_name, TFS_FILE_LEN_V2, local_file, flag, suffix);
+  }
+
+  if (ret >= 0)
+  {
+    TBSYS_LOG(DEBUG, "save %d bytes data to tfs", ret);
+  }
+  ret = (ret < 0) ? ret : TFS_SUCCESS;
 
   //printf("tfs_name: %s, ret_tfs_name: %s\n", tfs_name, ret_tfs_name);
   ToolUtil::print_info(ret, "put %s => %s", local_file, tfs_name != NULL ? FSName(tfs_name, suffix).get_name() : ret_tfs_name);
@@ -610,7 +671,7 @@ int put_file_raw_ex(const VSTRING& param, const bool is_large)
   char appkey[257];
   //int32_t flag = T_DEFAULT;
   int ret = TFS_SUCCESS;
-  char ret_tfs_name[TFS_FILE_LEN];
+  char ret_tfs_name[TFS_FILE_LEN_V2];
   ret_tfs_name[0] = '\0';
 
   if (size > 1)
@@ -640,7 +701,7 @@ int put_file_raw_ex(const VSTRING& param, const bool is_large)
   }
   else
   {
-    ret = impl.save_file(local_file, ret_tfs_name, TFS_FILE_LEN, suffix, is_large) < 0 ? TFS_ERROR : TFS_SUCCESS;
+    ret = impl.save_file(local_file, ret_tfs_name, TFS_FILE_LEN_V2, suffix, is_large) < 0 ? TFS_ERROR : TFS_SUCCESS;
   }
 
   //printf("tfs_name: %s, ret_tfs_name: %s\n", tfs_name, ret_tfs_name);
@@ -790,7 +851,7 @@ int cmd_get_file(const VSTRING& param)
   const char* tfs_name = canonical_param(param[0]);
   const char* local_file = expand_path(const_cast<string&>(param[1]));
 
-  int ret = g_tfs_client->fetch_file(local_file, tfs_name, NULL);
+  int ret = g_tfs_client->fetch_file(local_file, tfs_name, NULL, READ_DATA_OPTION_FLAG_FORCE);
 
   ToolUtil::print_info(ret, "fetch %s => %s", tfs_name, local_file);
 
@@ -860,10 +921,10 @@ int cmd_stat_file(const VSTRING& param)
 
   if (TFS_SUCCESS == ret)
   {
-    FSName fsname(tfs_name, NULL);
+    tfs::clientv2::FSName fsname(tfs_name, NULL);
     fprintf(stdout,
             "  FILE_NAME:     %s\n"
-            "  BLOCK_ID:      %u\n"
+            "  BLOCK_ID:      %"PRI64_PREFIX"u\n"
             "  FILE_ID:       %" PRI64_PREFIX "u\n"
             "  OFFSET:        %d\n"
             "  SIZE:          %"PRI64_PREFIX"d\n"
@@ -931,24 +992,24 @@ int cmd_stat_blk(const VSTRING& param)
   int ret = TFS_ERROR;
 
   uint64_t server_id = 0;
-  uint32_t block_id = 0;
+  uint64_t block_id = 0;
 
-  if ((block_id = atoi(param[0].c_str())) <= 0)
+  if ((block_id = strtoull(param[0].c_str(), (char**)NULL, 10)) <= 0)
   {
-    fprintf(stderr, "invalid blockid: %u\n", block_id);
+    fprintf(stderr, "invalid blockid: %"PRI64_PREFIX"u\n", block_id);
   }
 
-  if (param.size() > 2)
+  if (param.size() >= 2)
   {
     server_id = Func::get_host_ip(param[1].c_str());
   }
   else
   {
     VUINT64 ds_list;
-    ret = ToolUtil::get_block_ds_list(g_tfs_client->get_server_id(), block_id, ds_list);
+    ret = ToolUtil::get_block_ds_list_v2(g_tfs_client->get_server_id(), block_id, ds_list);
     if (ret != TFS_SUCCESS)
     {
-      fprintf(stderr, "get ds list failed. block_id: %u, ret: %d\n", block_id, ret);
+      fprintf(stderr, "get ds list failed. block_id: %"PRI64_PREFIX"u, ret: %d\n", block_id, ret);
       return ret;
     }
     server_id = ds_list[0];
@@ -986,29 +1047,30 @@ int cmd_visit_count_blk(const VSTRING& param)
 
 int cmd_list_file_info(const VSTRING& param)
 {
-  uint32_t block_id = 0;
+  uint64_t block_id = 0;
+  uint64_t attach_block_id = 0;
   uint64_t server_id = 0;
 
   int32_t show_detail = 0;
 
   int ret = TFS_ERROR;
-  if ((block_id = atoi(param[0].c_str())) <= 0)
+  if ((block_id = strtoull(param[0].c_str(), (char**)NULL, 10)) <= 0)
   {
-    fprintf(stderr, "invalid blockid: %u\n", block_id);
+    fprintf(stderr, "invalid blockid: %"PRI64_PREFIX"u\n", block_id);
     return ret;
   }
 
-  if (param.size() > 2)
+  if (param.size() > 3)
   {
-    server_id = Func::get_host_ip(param[2].c_str());
+    server_id = Func::get_host_ip(param[3].c_str());
   }
   else
   {
     VUINT64 ds_list;
-    ret = ToolUtil::get_block_ds_list(g_tfs_client->get_server_id(), block_id, ds_list);
+    ret = ToolUtil::get_block_ds_list_v2(g_tfs_client->get_server_id(), block_id, ds_list);
     if (ret != TFS_SUCCESS)
     {
-      fprintf(stderr, "get ds list failed. block_id: %u, ret: %d\n", block_id, ret);
+      fprintf(stderr, "get ds list failed. block_id: %"PRI64_PREFIX"u, ret: %d\n", block_id, ret);
       return ret;
     }
     server_id = ds_list[0];
@@ -1016,12 +1078,23 @@ int cmd_list_file_info(const VSTRING& param)
 
   if (0 != server_id)
   {
-    if (param.size() > 1 && 0 == strcmp(param[1].c_str(), "detail"))
+    if (param.size() > 2 && 0 == strcmp(param[2].c_str(), "detail"))
     {
       show_detail = 1;
     }
+
+    if (param.size() > 1)
+    {
+      attach_block_id = strtoull(param[1].c_str(), (char**)NULL, 10);
+    }
+    else
+    {
+      attach_block_id = block_id;
+    }
+
     DsTask ds_task(server_id, g_tfs_client->get_cluster_id());
     ds_task.block_id_ = block_id;
+    ds_task.attach_block_id_ = attach_block_id;
     ds_task.mode_ = show_detail;
     ret = DsLib::list_file(ds_task);
   }
@@ -1031,26 +1104,26 @@ int cmd_list_file_info(const VSTRING& param)
 
 int cmd_list_block(const VSTRING& param)
 {
-  uint32_t block_id = atoi(param[0].c_str());
+  uint64_t block_id = strtoull(param[0].c_str(), (char**)NULL, 10);
   int ret = TFS_ERROR;
 
   if (block_id <= 0)
   {
-    fprintf(stderr, "invalid block id: %u\n", block_id);
+    fprintf(stderr, "invalid block id: %"PRI64_PREFIX"u\n", block_id);
   }
   else
   {
     VUINT64 ds_list;
-    ret = ToolUtil::get_block_ds_list(g_tfs_client->get_server_id(), block_id, ds_list);
+    ret = ToolUtil::get_block_ds_list_v2(g_tfs_client->get_server_id(), block_id, ds_list);
     ToolUtil::print_info(ret, "list block %u", block_id);
 
     if (TFS_SUCCESS == ret)
     {
       int32_t ds_size = ds_list.size();
-      fprintf(stdout, "------block: %u, has %d replicas------\n", block_id, ds_size);
+      fprintf(stdout, "------block: %"PRI64_PREFIX"u, has %d replicas------\n", block_id, ds_size);
       for (int32_t i = 0; i < ds_size; ++i)
       {
-        fprintf(stdout, "block: %u, (%d)th server: %s \n", block_id, i, tbsys::CNetUtil::addrToString(ds_list[i]).c_str());
+        fprintf(stdout, "block: %"PRI64_PREFIX"u, (%d)th server: %s \n", block_id, i, tbsys::CNetUtil::addrToString(ds_list[i]).c_str());
       }
     }
   }
@@ -1069,7 +1142,7 @@ int cmd_check_file_info(const VSTRING& param)
   else
   {
     VUINT64 ds_list;
-    ret = ToolUtil::get_block_ds_list(g_tfs_client->get_server_id(), fsname.get_block_id(), ds_list);
+    ret = ToolUtil::get_block_ds_list_v2(g_tfs_client->get_server_id(), fsname.get_block_id(), ds_list);
     if (ret != TFS_SUCCESS)
     {
       fprintf(stderr, "get block info fail, ret: %d\n", ret);
@@ -1137,7 +1210,7 @@ int cmd_stat_file_raw(const VSTRING& param)
       {
         TBSYS_LOG(DEBUG, "stat %s fail, return %d", tfs_name, ret);
       }
-      int re = impl.close(fd, const_cast<char*>(tfs_name), TFS_FILE_LEN);
+      int re = impl.close(fd, const_cast<char*>(tfs_name), TFS_FILE_LEN_V2);
       if (TFS_SUCCESS != re)
       {
         TBSYS_LOG(DEBUG, "close %s fail, return %d", tfs_name, re);
@@ -1152,7 +1225,7 @@ int cmd_stat_file_raw(const VSTRING& param)
     FSName fsname(tfs_name, NULL);
     fprintf(stdout,
             "  FILE_NAME:     %s\n"
-            "  BLOCK_ID:      %u\n"
+            "  BLOCK_ID:      %"PRI64_PREFIX"u\n"
             "  FILE_ID:       %" PRI64_PREFIX "u\n"
             "  OFFSET:        %d\n"
             "  SIZE:          %"PRI64_PREFIX"d\n"
@@ -1194,11 +1267,11 @@ int cmd_stat_file_meta(const VSTRING& param)
 
   if (size > 2)
   {
-    app_id = strtoll(param[2].c_str(), NULL, 10);
+    app_id = strtoull(param[2].c_str(), NULL, 10);
   }
   if (size > 3)
   {
-    uid = strtoll(param[3].c_str(), NULL, 10);
+    uid = strtoull(param[3].c_str(), NULL, 10);
   }
 
   NameMetaClientImpl impl;
@@ -1257,11 +1330,11 @@ int cmd_ls_dir_meta(const VSTRING& param)
 
   if (size > 2)
   {
-    app_id = strtoll(param[2].c_str(), NULL, 10);
+    app_id = strtoull(param[2].c_str(), NULL, 10);
   }
   if (size > 3)
   {
-    uid = strtoll(param[3].c_str(), NULL, 10);
+    uid = strtoull(param[3].c_str(), NULL, 10);
   }
 
   RcClientImpl impl;
@@ -1359,7 +1432,7 @@ int cmd_create_dir_meta(const VSTRING& param)
 
   if (size > 2)
   {
-    uid = strtoll(param[2].c_str(), NULL, 10);
+    uid = strtoull(param[2].c_str(), NULL, 10);
   }
 
   RcClientImpl impl;
@@ -1394,7 +1467,7 @@ int cmd_create_file_meta(const VSTRING& param)
 
   if (size > 2)
   {
-    uid = strtoll(param[2].c_str(), NULL, 10);
+    uid = strtoull(param[2].c_str(), NULL, 10);
   }
 
   RcClientImpl impl;
@@ -1429,7 +1502,7 @@ int cmd_rm_dir_meta(const VSTRING& param)
 
   if (size > 2)
   {
-    uid = strtoll(param[2].c_str(), NULL, 10);
+    uid = strtoull(param[2].c_str(), NULL, 10);
   }
 
   RcClientImpl impl;
@@ -1514,7 +1587,7 @@ int cmd_rm_file_meta(const VSTRING& param)
 
   if (size > 2)
   {
-    uid = strtoll(param[2].c_str(), NULL, 10);
+    uid = strtoull(param[2].c_str(), NULL, 10);
   }
 
   RcClientImpl impl;
@@ -1562,11 +1635,11 @@ int cmd_put_file_meta(const VSTRING& param)
 
   if (size > 3)
   {
-    app_id = strtoll(param[3].c_str(), NULL, 10);
+    app_id = strtoull(param[3].c_str(), NULL, 10);
   }
   if (size > 4)
   {
-    uid = strtoll(param[4].c_str(), NULL, 10);
+    uid = strtoull(param[4].c_str(), NULL, 10);
   }
 
   RcClientImpl impl;
@@ -1661,11 +1734,11 @@ int cmd_get_file_meta(const VSTRING& param)
 
   if (size > 3)
   {
-    app_id = strtoll(param[3].c_str(), NULL, 10);
+    app_id = strtoull(param[3].c_str(), NULL, 10);
   }
   if (size > 4)
   {
-    uid = strtoll(param[4].c_str(), NULL, 10);
+    uid = strtoull(param[4].c_str(), NULL, 10);
   }
 
   RcClientImpl impl;
@@ -1779,11 +1852,11 @@ int cmd_is_dir_exist_meta(const VSTRING& param)
 
   if (size > 2)
   {
-    app_id = strtoll(param[2].c_str(), NULL, 10);
+    app_id = strtoull(param[2].c_str(), NULL, 10);
   }
   if (size > 3)
   {
-    uid = strtoll(param[3].c_str(), NULL, 10);
+    uid = strtoull(param[3].c_str(), NULL, 10);
   }
 
   RcClientImpl impl;
@@ -1823,11 +1896,11 @@ int cmd_is_file_exist_meta(const VSTRING& param)
 
   if (size > 2)
   {
-    app_id = strtoll(param[2].c_str(), NULL, 10);
+    app_id = strtoull(param[2].c_str(), NULL, 10);
   }
   if (size > 3)
   {
-    uid = strtoll(param[3].c_str(), NULL, 10);
+    uid = strtoull(param[3].c_str(), NULL, 10);
   }
 
   RcClientImpl impl;
@@ -1849,12 +1922,24 @@ int cmd_put_bucket(const VSTRING& param)
 {
   const char* bucket_name = param[0].c_str();
   int64_t owner_id = strtoll(param[1].c_str(), NULL, 10);
+  char appkey[257];
+  int size = param.size();
+  if (size > 2)
+  {
+    strncpy(appkey, param[2].c_str(), 256);
+    appkey[256] = '\0';
+  }
+  else
+  {
+    strcpy(appkey, app_key);
+  }
+
   UserInfo user_info;
   user_info.owner_id_ = owner_id;
 
   RcClientImpl impl;
   impl.set_kv_rs_addr(krs_addr);
-  int ret = impl.initialize(rc_addr, app_key, app_ip);
+  int ret = impl.initialize(rc_addr, appkey, app_ip);
   if (TFS_SUCCESS != ret)
   {
     TBSYS_LOG(DEBUG, "rc client init failed, ret: %d", ret);
@@ -1878,10 +1963,12 @@ int cmd_get_bucket(const VSTRING& param)
   const char *bucket_name = NULL;
   const char *prefix = NULL;
   const char *start_key = NULL;
-  char delimiter = DEFAULT_CHAR;
-  int32_t limit = MAX_LIMIT;
+  char delimiter = KvDefine::DEFAULT_CHAR;
+  int32_t limit = KvDefine::MAX_LIMIT;
 
   bucket_name = param[0].c_str();
+
+  char appkey[257];
 
   if (size > 1)
   {
@@ -1895,12 +1982,22 @@ int cmd_get_bucket(const VSTRING& param)
 
   if (size > 3)
   {
-    delimiter = canonical_param(param[3]) == NULL ? DEFAULT_CHAR : (param[3].size() == 1 ? param[3][0] : DEFAULT_CHAR);
+    delimiter = canonical_param(param[3]) == NULL ? KvDefine::DEFAULT_CHAR : (param[3].size() == 1 ? param[3][0] : KvDefine::DEFAULT_CHAR);
   }
 
   if (size > 4)
   {
     limit = atoi(param[4].c_str());
+  }
+
+  if (size > 5)
+  {
+    strncpy(appkey, param[5].c_str(), 256);
+    appkey[256] = '\0';
+  }
+  else
+  {
+    strcpy(appkey, app_key);
   }
 
   vector<ObjectMetaInfo> v_object_meta_info;
@@ -1911,7 +2008,7 @@ int cmd_get_bucket(const VSTRING& param)
 
   RcClientImpl impl;
   impl.set_kv_rs_addr(krs_addr);
-  ret = impl.initialize(rc_addr, app_key, app_ip);
+  ret = impl.initialize(rc_addr, appkey, app_ip);
   if (TFS_SUCCESS != ret)
   {
     TBSYS_LOG(DEBUG, "rc client init failed, ret: %d", ret);
@@ -1950,10 +2047,21 @@ int cmd_del_bucket(const VSTRING& param)
 {
   const char* bucket_name = param[0].c_str();
   UserInfo user_info;
+  char appkey[257];
+  int size = param.size();
+  if (size > 1)
+  {
+    strncpy(appkey, param[1].c_str(), 256);
+    appkey[256] = '\0';
+  }
+  else
+  {
+    strcpy(appkey, app_key);
+  }
 
   RcClientImpl impl;
   impl.set_kv_rs_addr(krs_addr);
-  int ret = impl.initialize(rc_addr, app_key, app_ip);
+  int ret = impl.initialize(rc_addr, appkey, app_ip);
 
   if (TFS_SUCCESS != ret)
   {
@@ -1972,13 +2080,24 @@ int cmd_del_bucket(const VSTRING& param)
 int cmd_head_bucket(const VSTRING& param)
 {
   const char* bucket_name = param[0].c_str();
+  char appkey[257];
+  int size = param.size();
+  if (size > 1)
+  {
+    strncpy(appkey, param[1].c_str(), 256);
+    appkey[256] = '\0';
+  }
+  else
+  {
+    strcpy(appkey, app_key);
+  }
 
   BucketMetaInfo bucket_meta_info;
   UserInfo user_info;
 
   RcClientImpl impl;
   impl.set_kv_rs_addr(krs_addr);
-  int ret = impl.initialize(rc_addr, app_key, app_ip);
+  int ret = impl.initialize(rc_addr, appkey, app_ip);
 
   if (TFS_SUCCESS != ret)
   {
@@ -2007,12 +2126,24 @@ int cmd_put_object(const VSTRING& param)
   const char* object_name = param[1].c_str();
   const char* local_file = expand_path(const_cast<string&>(param[2]));
   int64_t owner_id = strtoll(param[3].c_str(), NULL, 10);
+  char appkey[257];
+  int size = param.size();
+  if (size > 4)
+  {
+    strncpy(appkey, param[4].c_str(), 256);
+    appkey[256] = '\0';
+  }
+  else
+  {
+    strcpy(appkey, app_key);
+  }
+
   UserInfo user_info;
   user_info.owner_id_ = owner_id;
 
   RcClientImpl impl;
   impl.set_kv_rs_addr(krs_addr);
-  int ret = impl.initialize(rc_addr, app_key, app_ip);
+  int ret = impl.initialize(rc_addr, appkey, app_ip);
 
   if (TFS_SUCCESS != ret)
   {
@@ -2027,17 +2158,68 @@ int cmd_put_object(const VSTRING& param)
   return ret;
 }
 
+#if 0
+int cmd_put_object_tag(const VSTRING& param)
+{
+  const char* bucket_name = param[0].c_str();
+  const char* object_name = param[1].c_str();
+  const char* kv = expand_path(const_cast<string&>(param[2]));
+  int64_t owner_id = strtoll(param[3].c_str(), NULL, 10);
+  char appkey[257];
+  int size = param.size();
+  if (size > 4)
+  {
+    strncpy(appkey, param[4].c_str(), 256);
+    appkey[256] = '\0';
+  }
+  else
+  {
+    strcpy(appkey, app_key);
+  }
+
+  UserInfo user_info;
+  user_info.owner_id_ = owner_id;
+
+  RcClientImpl impl;
+  impl.set_kv_rs_addr(krs_addr);
+  int ret = impl.initialize(rc_addr, appkey, app_ip);
+
+  if (TFS_SUCCESS != ret)
+  {
+    TBSYS_LOG(DEBUG, "rc client init failed, ret: %d", ret);
+  }
+  else
+  {
+    ret = impl.put_object_tag(bucket_name, object_name, kv, user_info);
+    ToolUtil::print_info(ret, "put object: %s, object: %s => %s owner_id: %"PRI64_PREFIX"d",
+        bucket_name, object_name, kv, owner_id);
+  }
+  return ret;
+}
+#endif
+
 int cmd_get_object(const VSTRING& param)
 {
   const char* bucket_name = param[0].c_str();
   const char* object_name = param[1].c_str();
   const char* local_file = expand_path(const_cast<string&>(param[2]));
+  char appkey[257];
+  int size = param.size();
+  if (size > 3)
+  {
+    strncpy(appkey, param[3].c_str(), 256);
+    appkey[256] = '\0';
+  }
+  else
+  {
+    strcpy(appkey, app_key);
+  }
 
   UserInfo user_info;
 
   RcClientImpl impl;
   impl.set_kv_rs_addr(krs_addr);
-  int ret = impl.initialize(rc_addr, app_key, app_ip);
+  int ret = impl.initialize(rc_addr, appkey, app_ip);
 
   if (TFS_SUCCESS != ret)
   {
@@ -2053,15 +2235,78 @@ int cmd_get_object(const VSTRING& param)
   return ret;
 }
 
+#if 0
+int cmd_get_object_tag(const VSTRING& param)
+{
+  const char* bucket_name = param[0].c_str();
+  const char* object_name = param[1].c_str();
+  char *keys = NULL;
+  char appkey[257];
+  int size = param.size();
+  if (size > 2)
+  {
+    keys = const_cast<char*>(param[2].c_str());
+  }
+  if (size > 3)
+  {
+    strncpy(appkey, param[3].c_str(), 256);
+    appkey[256] = '\0';
+  }
+  else
+  {
+    strcpy(appkey, app_key);
+  }
+
+  UserInfo user_info;
+  map<string, string> object_tag_map;
+
+  RcClientImpl impl;
+  impl.set_kv_rs_addr(krs_addr);
+  int ret = impl.initialize(rc_addr, appkey, app_ip);
+
+  if (TFS_SUCCESS != ret)
+  {
+    TBSYS_LOG(DEBUG, "rc client init failed, ret: %d", ret);
+  }
+  else
+  {
+    ret = impl.get_object_tag(bucket_name, object_name, keys, user_info, &object_tag_map);
+  }
+
+  ToolUtil::print_info(ret, "get object: %s, object: %s tag info :",bucket_name, object_name);
+
+  map<string, string>::const_iterator iter = object_tag_map.begin();
+  for (; iter != object_tag_map.end(); ++iter)
+  {
+    ToolUtil::print_info(ret, "%s : %s :",iter->first.c_str(), iter->second.c_str());
+  }
+
+  return ret;
+}
+#endif
+
+
 int cmd_del_object(const VSTRING& param)
 {
   const char* bucket_name = param[0].c_str();
   const char* object_name = param[1].c_str();
+  char appkey[257];
+  int size = param.size();
+  if (size > 2)
+  {
+    strncpy(appkey, param[2].c_str(), 256);
+    appkey[256] = '\0';
+  }
+  else
+  {
+    strcpy(appkey, app_key);
+  }
+
   UserInfo user_info;
 
   RcClientImpl impl;
   impl.set_kv_rs_addr(krs_addr);
-  int ret = impl.initialize(rc_addr, app_key, app_ip);
+  int ret = impl.initialize(rc_addr, appkey, app_ip);
 
   if (TFS_SUCCESS != ret)
   {
@@ -2076,17 +2321,109 @@ int cmd_del_object(const VSTRING& param)
   return ret;
 }
 
+#if 0
+int cmd_del_object_tag(const VSTRING& param)
+{
+  const char* bucket_name = param[0].c_str();
+  const char* object_name = param[1].c_str();
+  char *keys = NULL;
+  char appkey[257];
+  int size = param.size();
+  if (size > 2)
+  {
+    keys = const_cast<char*>(param[2].c_str());
+  }
+  if (size > 3)
+  {
+    strncpy(appkey, param[2].c_str(), 256);
+    appkey[256] = '\0';
+  }
+  else
+  {
+    strcpy(appkey, app_key);
+  }
+
+  UserInfo user_info;
+
+  RcClientImpl impl;
+  impl.set_kv_rs_addr(krs_addr);
+  int ret = impl.initialize(rc_addr, appkey, app_ip);
+
+  if (TFS_SUCCESS != ret)
+  {
+    TBSYS_LOG(DEBUG, "rc client init failed, ret: %d", ret);
+  }
+  else
+  {
+    ret = impl.del_object_tag(bucket_name, object_name, keys, user_info);
+  }
+  ToolUtil::print_info(ret, "del bucket: %s, object: %s", bucket_name, object_name);
+
+  return ret;
+}
+
+int cmd_update_object_tag(const VSTRING& param)
+{
+  const char* bucket_name = param[0].c_str();
+  const char* object_name = param[1].c_str();
+  const char* kv = param[2].c_str();
+  int64_t owner_id = strtoll(param[3].c_str(), NULL, 10);
+
+  char appkey[257];
+  int size = param.size();
+  if (size > 4)
+  {
+    strncpy(appkey, param[4].c_str(), 256);
+    appkey[256] = '\0';
+  }
+  else
+  {
+    strcpy(appkey, app_key);
+  }
+
+  UserInfo user_info;
+  user_info.owner_id_ = owner_id;
+
+  RcClientImpl impl;
+  impl.set_kv_rs_addr(krs_addr);
+  int ret = impl.initialize(rc_addr, appkey, app_ip);
+
+  if (TFS_SUCCESS != ret)
+  {
+    TBSYS_LOG(DEBUG, "rc client init failed, ret: %d", ret);
+  }
+  else
+  {
+    ret = impl.update_object_tag(bucket_name, object_name, kv, user_info);
+  }
+  ToolUtil::print_info(ret, "update bucket: %s, object: %s", bucket_name, object_name);
+
+  return ret;
+}
+#endif
+
 int cmd_head_object(const VSTRING& param)
 {
   const char* bucket_name = param[0].c_str();
   const char* object_name = param[1].c_str();
+  char appkey[257];
+  int size = param.size();
+  if (size > 2)
+  {
+    strncpy(appkey, param[2].c_str(), 256);
+    appkey[256] = '\0';
+  }
+  else
+  {
+    strcpy(appkey, app_key);
+  }
 
   ObjectInfo object_info;
   UserInfo user_info;
 
   RcClientImpl impl;
   impl.set_kv_rs_addr(krs_addr);
-  int ret = impl.initialize(rc_addr, app_key, app_ip);
+  int ret = impl.initialize(rc_addr, appkey, app_ip);
 
   if (TFS_SUCCESS != ret)
   {
@@ -2099,10 +2436,133 @@ int cmd_head_object(const VSTRING& param)
 
   if (TFS_SUCCESS == ret)
   {
-    printf("create_time: %"PRI64_PREFIX"d, modify_time: %"PRI64_PREFIX"d, total_size: %"PRI64_PREFIX"d, owner_id: %"PRI64_PREFIX"d \n",
-        object_info.meta_info_.create_time_, object_info.meta_info_.modify_time_, object_info.meta_info_.big_file_size_, object_info.meta_info_.owner_id_);
+    object_info.dump();
   }
   ToolUtil::print_info(ret, "head bucket: %s, object: %s", bucket_name, object_name);
+
+  return ret;
+}
+
+int cmd_set_life_cycle(const VSTRING& param)
+{
+  int32_t file_type = atoi(param[0].c_str());
+  const char* file_name = param[1].c_str();
+  int32_t invalid_time_s = atoi(param[2].c_str());
+  const char* user_appkey = param[3].c_str();
+  char appkey[257];
+
+  strcpy(appkey, app_key);
+
+  RcClientImpl impl;
+  impl.set_kv_rs_addr(krs_addr);
+  int ret = impl.initialize(rc_addr, appkey, app_ip);
+  if (TFS_SUCCESS != ret)
+  {
+    TBSYS_LOG(DEBUG, "rc client init failed, ret: %d", ret);
+  }
+  else
+  {
+    ret = impl.set_life_cycle(file_type, file_name, invalid_time_s, user_appkey);
+    TBSYS_LOG(DEBUG, "set_life_cycle return ret: %d", ret);
+  }
+  if (TFS_SUCCESS == ret)
+  {
+    ToolUtil::print_info(ret, "set life cycle file %s invalid_time_s : %d", file_name, invalid_time_s);
+  }
+  return ret;
+}
+
+int cmd_get_life_cycle(const VSTRING& param)
+{
+  int32_t file_type = atoi(param[0].c_str());
+  const char* file_name = param[1].c_str();
+
+  char appkey[257];
+
+  strcpy(appkey, app_key);
+
+  RcClientImpl impl;
+  impl.set_kv_rs_addr(krs_addr);
+  int ret = impl.initialize(rc_addr, appkey, app_ip);
+  int32_t invalid_time_s = 0;
+  if (TFS_SUCCESS != ret)
+  {
+    TBSYS_LOG(DEBUG, "rc client init failed, ret: %d", ret);
+  }
+  else
+  {
+    ret = impl.get_life_cycle(file_type, file_name, &invalid_time_s);
+  }
+  if (TFS_SUCCESS == ret)
+  {
+    ToolUtil::print_info(ret, "get life cycle file %s invalid_time_s : %d", file_name, invalid_time_s);
+  }
+  return ret;
+}
+
+int cmd_del_life_cycle(const VSTRING& param)
+{
+  int32_t file_type = atoi(param[0].c_str());
+  const char* file_name = param[1].c_str();
+
+  char appkey[257];
+
+  strcpy(appkey, app_key);
+
+  RcClientImpl impl;
+  impl.set_kv_rs_addr(krs_addr);
+  int ret = impl.initialize(rc_addr, appkey, app_ip);
+  if (TFS_SUCCESS != ret)
+  {
+    TBSYS_LOG(DEBUG, "rc client init failed, ret: %d", ret);
+  }
+  else
+  {
+    ret = impl.rm_life_cycle(file_type, file_name);
+  }
+  if (TFS_SUCCESS == ret)
+  {
+    ToolUtil::print_info(ret, "del life cycle file %s success", file_name);
+  }
+  return ret;
+}
+
+int cmd_query_task(const VSTRING& param)
+{
+  int ret = TFS_SUCCESS;
+  const char *es_ip = NULL;
+  uint64_t es_id;
+  es_ip = param[0].c_str();
+  es_id = Func::get_host_ip(es_ip);
+  char appkey[257];
+  strcpy(appkey, app_key);
+
+  vector<ServerExpireTask> res_task;
+
+  RcClientImpl impl;
+  impl.set_lifecycle_rs_addr(lrs_addr);
+  ret = impl.initialize(rc_addr, appkey, app_ip);
+  if (TFS_SUCCESS != ret)
+  {
+    TBSYS_LOG(DEBUG, "rc client init failed, ret: %d", ret);
+  }
+  else
+  {
+    ret = impl.query_task(es_id, &res_task);
+  }
+  if (TFS_SUCCESS == ret)
+  {
+    vector<ServerExpireTask>::iterator iter = res_task.begin();
+    for (; iter != res_task.end(); ++iter)
+    {
+      cout << "expire_server : " << Func::addr_to_str(iter->server_id_, true) << " "
+           << "alive_task_total : " << iter->task_.alive_total_ << " "
+           << "this task num : " << iter->task_.assign_no_ << " "
+           << "root start task_time : " << iter->task_.spec_time_ << " "
+           << "task status : " << iter->task_.status_ << endl;
+    }
+  }
+  ToolUtil::print_info(ret, "query task success");
 
   return ret;
 }

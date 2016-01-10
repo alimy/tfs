@@ -22,7 +22,7 @@ namespace tfs
 {
   namespace message
   {
-    class FileInfoMessage: public common::BasePacket 
+    class FileInfoMessage: public common::BasePacket
     {
       public:
         FileInfoMessage();
@@ -54,13 +54,23 @@ namespace tfs
         {
           return mode_;
         }
+
+        common::FamilyInfoExt& get_family_info()
+        {
+          return family_info_;
+        }
+        void set_family_info(common::FamilyInfoExt& family_info)
+        {
+          family_info_ = family_info;
+        }
       protected:
         uint32_t block_id_;
         uint64_t file_id_;
         int32_t mode_;
+        common::FamilyInfoExt family_info_;
     };
 
-    class RespFileInfoMessage: public common::BasePacket 
+    class RespFileInfoMessage: public common::BasePacket
     {
       public:
         RespFileInfoMessage();

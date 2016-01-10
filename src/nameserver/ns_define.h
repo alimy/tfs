@@ -33,13 +33,6 @@ namespace tfs
 {
   namespace nameserver
   {
-    enum NsRole
-    {
-      NS_ROLE_NONE = 0x00,
-      NS_ROLE_MASTER,
-      NS_ROLE_SLAVE
-    };
-
     enum NsStatus
     {
       NS_STATUS_NONE = -1,
@@ -57,6 +50,7 @@ namespace tfs
     {
       REPORT_BLOCK_STATUS_NONE = 0x0,
       REPORT_BLOCK_STATUS_IN_REPORT_QUEUE,
+      REPORT_BLOCK_STATUS_WAIT_REPORT,
       REPORT_BLOCK_STATUS_REPORTING,
       REPORT_BLOCK_STATUS_COMPLETE
     };
@@ -64,7 +58,8 @@ namespace tfs
     enum HandleDeleteBlockFlag
     {
       HANDLE_DELETE_BLOCK_FLAG_BOTH = 1,
-      HANDLE_DELETE_BLOCK_FLAG_ONLY_RELATION = 2
+      HANDLE_DELETE_BLOCK_FLAG_ONLY_RELATION = 2,
+      HANDLE_DELETE_BLOCK_FLAG_ONLY_DS = 4,
     };
 
     enum NsKeepAliveType
@@ -78,6 +73,12 @@ namespace tfs
     {
       BLOCK_IN_REPLICATE_QUEUE_NO  = 0,
       BLOCK_IN_REPLICATE_QUEUE_YES = 1
+    };
+
+    enum FamilyInReinstateOrDissolveQueueFlag
+    {
+      FAMILY_IN_REINSTATE_OR_DISSOLVE_QUEUE_NO = 0,
+      FAMILY_IN_REINSTATE_OR_DISSOLVE_QUEUE_YES = 1
     };
 
     enum BlockCompareServerFlag
@@ -119,7 +120,7 @@ namespace tfs
       void update(const NsGlobalStatisticsInfo& info);
       static NsGlobalStatisticsInfo& instance();
       void dump(int32_t level, const char* file = __FILE__, const int32_t line = __LINE__, const char* function =
-          __FUNCTION__) const;
+          __FUNCTION__, const pthread_t thid = pthread_self()) const;
       volatile int64_t use_capacity_;
       volatile int64_t total_capacity_;
       volatile int64_t total_block_count_;
@@ -132,12 +133,11 @@ namespace tfs
 
     struct NsRuntimeGlobalInformation
     {
+      uint64_t heart_ip_port_;
       uint64_t owner_ip_port_;
       uint64_t peer_ip_port_;
       int64_t switch_time_;
       int64_t discard_newblk_safe_mode_time_;
-      int64_t last_owner_check_time_;
-      int64_t last_push_owner_check_packet_time_;
       int64_t lease_id_;
       int64_t lease_expired_time_;
       int64_t startup_time_;
@@ -147,10 +147,12 @@ namespace tfs
       int8_t peer_role_;
       int8_t owner_status_;
       int8_t peer_status_;
+      bool load_family_complete_;
 
       bool is_destroyed() const;
       bool in_safe_mode_time(const int64_t now) const;
       bool in_discard_newblk_safe_mode_time(const int64_t now) const;
+      bool in_report_block_time(const int64_t now) const;
       bool is_master() const;
       bool peer_is_master() const;
       int keepalive(int64_t& lease_id, const uint64_t server,
@@ -164,7 +166,10 @@ namespace tfs
       bool own_is_initialize_complete() const;
       void initialize();
       void destroy();
-      void dump(int32_t level, const char* format = NULL);
+      void set_load_family_complete(const bool complete) { load_family_complete_ = complete; }
+      bool load_family_complete() const { return load_family_complete_;}
+      void dump(const int32_t level, const char* file, const int32_t line,
+            const char* function, const pthread_t thid, const char* format, ...);
       NsRuntimeGlobalInformation();
       static NsRuntimeGlobalInformation& instance();
       static NsRuntimeGlobalInformation instance_;
@@ -174,7 +179,6 @@ namespace tfs
     static const int32_t MAX_SERVER_NUMS = 3000;
     static const int32_t MAX_PROCESS_NUMS = MAX_SERVER_NUMS * 12;
     static const int32_t MAX_BLOCK_CHUNK_NUMS = 10240 * 4;
-    static const int32_t MAX_REPLICATION = 64;
     static const int32_t MAX_WRITE_FILE_COUNT = 256;
 
     static const uint64_t GB = 1 * 1024 * 1024 * 1024;
@@ -186,14 +190,17 @@ namespace tfs
 
     static const int32_t MAX_POP_SERVER_FROM_DEAD_QUEUE_LIMIT = 5;
 
-    class BlockCollect;
-    class ServerCollect;
+    static const int32_t MAX_RACK_NUM = 512;
+    static const int32_t MAX_SINGLE_RACK_SERVER_NUM = 64;
+    static const int32_t MAX_MARSHLLING_QUEUE_ELEMENT_SIZE = 128;//编组队列大小
+    static const int32_t MAX_FAMILY_CHUNK_NUM = 1024;//
+
+    static const int32_t MAX_TASK_RESERVE_TIME = 5;
 
     extern int ns_async_callback(common::NewClient* client);
-    extern std::string& print_servers(const common::ArrayHelper<ServerCollect*>&servers, std::string& result);
-    extern void print_servers(const common::ArrayHelper<uint64_t>&servers, std::string& result);
-    extern void print_servers(const std::vector<uint64_t>& servers, std::string& result);
-    extern void print_blocks(const std::vector<uint32_t>& blocks, std::string& result);
+    extern void print_int64(const common::ArrayHelper<uint64_t>&servers, std::string& result);
+    extern void print_int64(const std::vector<uint64_t>& servers, std::string& result);
+    extern bool in_hour_range(const int64_t now, int32_t& min, int32_t& max);
  }/** nameserver **/
 }/** tfs **/
 
