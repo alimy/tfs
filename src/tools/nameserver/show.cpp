@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: show.cpp 862 2011-09-29 01:20:39Z duanfei@taobao.com $
+ * Version: $Id: show.cpp 659 2011-08-04 05:59:13Z mingyan.zc@taobao.com $
  *
  * Authors:
  *   chuyu <chuyu@taobao.com>
@@ -400,7 +400,7 @@ namespace tfs
       {
         return TFS_ERROR;
       }
-      int32_t block_chunk_num = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_BLOCK_CHUNK_NUM, 512);
+      int32_t block_chunk_num = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_BLOCK_CHUNK_NUM, 32);
 
       while ((count > 0 || is_loop_) && !interrupt_)
       {

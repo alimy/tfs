@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: common.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: common.cpp 447 2011-06-08 09:32:19Z nayan@taobao.com $
  *
  * Authors:
  *   chuyu <chuyu@taobao.com>

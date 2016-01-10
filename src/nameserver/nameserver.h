@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: nameserver.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: nameserver.h 421 2011-06-07 08:06:27Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -89,9 +89,6 @@ namespace tfs
       virtual bool handlePacketQueue(tbnet::Packet *packet, void *args);
 
       int callback(common::NewClient* client);
-
-      LayoutManager& get_layout_manager() { return meta_mgr_;}
-      HeartManagement& get_heart_management() { return heart_mgr_;}
 
    private:
       DISALLOW_COPY_AND_ASSIGN(NameServer);

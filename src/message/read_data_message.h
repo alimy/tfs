@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: read_data_message.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: read_data_message.h 515 2011-06-17 01:50:58Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

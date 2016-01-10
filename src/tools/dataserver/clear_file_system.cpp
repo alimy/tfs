@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: clear_file_system.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: clear_file_system.cpp 380 2011-05-30 08:04:16Z daoan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

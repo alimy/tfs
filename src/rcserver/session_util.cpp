@@ -2,12 +2,12 @@
 #include <uuid/uuid.h>
 #include <stdlib.h>
 #include <tbsys.h>
-#include "internal.h"
-#include "error_msg.h"
+#include "common/internal.h"
+#include "common/error_msg.h"
 
 namespace tfs
 {
-  namespace common
+  namespace rcserver
   {
     using namespace common;
     using namespace std;

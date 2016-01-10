@@ -6,9 +6,9 @@ pkgdata_data_DATA=
 
 DIST_SUBDIRS = src conf scripts tests
 EXTRA_DIST=build.sh \
-	   conf/Makefile.am Makefile.am\
+	   conf/ns.conf conf/ds.conf conf/ads.conf conf/Makefile.am conf/Makefile.in \
 	   scripts/Makefile.am scripts/Makefile.in scripts/tfs.sh scripts/stfs.sh \
-	   libtool ax_lib_mysql.m4\
+	   libtool \
 	   packages/tfs.spec
 
 TMP_DIR := /tmp/tfs-tmp.$(shell echo $$$$)

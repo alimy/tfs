@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: session_manager.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: session_manager.h 378 2011-05-30 07:16:34Z zongdai@taobao.com $
  *
  * Authors:
  *   zongdai <zongdai@taobao.com>

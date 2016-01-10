@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: func.cpp 853 2011-09-28 02:21:16Z mingyan.zc@taobao.com $
+ * Version: $Id: func.cpp 504 2011-06-15 05:11:59Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -313,21 +313,21 @@ namespace tfs
 
     uint64_t Func::get_host_ip(const char *s)
     {
-      char addr[100];
-      strncpy(addr, s, 100);
-      addr[99] = '\0';
-      char* pos = strchr(addr, ':');
+     char addr[100];
+     strncpy(addr, s, 100);
+     addr[99] = '\0';
+     char* pos = strchr(addr, ':');
 
-      if (pos)
-      {
-          *pos++ = '\0';
-      }
-      else
-      {
-        return 0;
-      }
+     if (pos)
+     {
+         *pos++ = '\0';
+     }
+     else
+     {
+       return 0;
+     }
 
-      return Func::str_to_addr(addr, atoi(pos));
+     return Func::str_to_addr(addr, atoi(pos));
     }
 
     // convert to lower
@@ -544,18 +544,18 @@ namespace tfs
         p = strchr(start, del);
         if (p != NULL)
         {
-          //memset(buffer, 0, BUFSIZ);
-          assert(p - start < BUFSIZ);
+          memset(buffer, 0, BUFSIZ);
           strncpy(buffer, start, p - start);
-          buffer[p - start] = 0;
-          if (buffer[0] != '\0')
+          if (strlen(buffer) > 0)
             fields.push_back(buffer);
           start = p + 1;
         }
         else
         {
-          if (start[0] != '\0')
-            fields.push_back(start);
+          memset(buffer, 0, BUFSIZ);
+          strcpy(buffer, start);
+          if (strlen(buffer) > 0)
+            fields.push_back(buffer);
           break;
         }
       }
@@ -684,7 +684,7 @@ namespace tfs
               addrstr, hexstr);
       }
     }
-
+ 
 
   }
 }

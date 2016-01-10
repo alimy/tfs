@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: test_mmap_file.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: test_mmap_file.cpp 36 2010-11-02 08:14:59Z nayan@taobao.com $
  *
  * Authors:
  *   zhuhui <zhuhui_a.pt@taobao.com>

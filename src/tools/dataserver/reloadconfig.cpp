@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: reloadconfig.cpp 853 2011-09-28 02:21:16Z mingyan.zc@taobao.com $
+ * Version: $Id: reloadconfig.cpp 413 2011-06-03 00:52:46Z daoan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -19,9 +19,6 @@
 #include <string>
 
 #include "common/internal.h"
-#include "common/base_packet_factory.h"
-#include "common/base_packet_streamer.h"
-#include "message/message_factory.h"
 #include "common/new_client.h"
 #include "common/client_manager.h"
 #include "common/status_message.h"
@@ -91,17 +88,8 @@ int main(int argc, char* argv[])
     flag = strtoul(argv[2], reinterpret_cast<char**>(NULL), 10);
   }
 
-  MessageFactory packet_factory;
-  BasePacketStreamer packet_streamer(&packet_factory);
-  int ret = NewClientManager::get_instance().initialize(&packet_factory, &packet_streamer);
-  if (TFS_SUCCESS != ret)
-  {
-    printf("initialize NewClientManager fail, must exit, ret: %d\n", ret);
-    return ret;
-  }
-
-  ret = reload_config(server_ip, flag);
-  if (TFS_SUCCESS == ret)
+  int ret = reload_config(server_ip, flag);
+  if (ret == TFS_SUCCESS)
   {
     printf("reload Config Success.\n\n");
   }
@@ -109,6 +97,6 @@ int main(int argc, char* argv[])
   {
     printf("reload Config Fail ret=%d.\n\n", ret);
   }
-  NewClientManager::get_instance().destroy();
+
   return ret;
 }

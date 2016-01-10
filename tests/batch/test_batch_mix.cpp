@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: test_batch_mix.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: test_batch_mix.cpp 573 2011-07-18 06:49:57Z daoan@taobao.com $
  *
  * Authors:
  *   qushan <qushan@taobao.com>

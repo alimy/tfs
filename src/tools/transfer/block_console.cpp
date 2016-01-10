@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: block_console.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: block_console.cpp 445 2011-06-08 09:27:48Z nayan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

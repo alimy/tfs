@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: message_factory.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: message_factory.h 553 2011-06-24 08:47:47Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -40,7 +40,6 @@
 #include "dump_plan_message.h"
 #include "rc_session_message.h"
 #include "get_dataserver_information_message.h"
-#include "meta_nameserver_client_message.h"
 
 namespace tfs
 {

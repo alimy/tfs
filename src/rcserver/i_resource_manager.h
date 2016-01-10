@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: i_resource_manager.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: i_resource_manager.h 443 2011-06-08 09:07:08Z daoan@taobao.com $
  *
  * Authors:
  *   zongdai <zongdai@taobao.com>

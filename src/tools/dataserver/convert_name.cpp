@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: convert_name.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: convert_name.cpp 413 2011-06-03 00:52:46Z daoan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

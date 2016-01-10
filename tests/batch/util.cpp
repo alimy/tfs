@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: util.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: util.cpp 155 2011-02-21 07:33:27Z zongdai@taobao.com $
  *
  * Authors:
  *   qushan <qushan@taobao.com>

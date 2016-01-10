@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: showsyncoplog.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: showsyncoplog.cpp 445 2011-06-08 09:27:48Z nayan@taobao.com $
  *
  * Authors:
  *   duanfei <duanfei@taobao.com>

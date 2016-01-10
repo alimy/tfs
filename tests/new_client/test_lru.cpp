@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: test_lru.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: test_lru.cpp 158 2011-02-24 02:11:27Z zongdai@taobao.com $
  *
  * Authors:
  *

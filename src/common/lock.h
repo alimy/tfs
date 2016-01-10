@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: lock.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: lock.h 185 2011-04-07 06:31:43Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

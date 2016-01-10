@@ -394,12 +394,7 @@ int32_t TfsLargeFile::finish_write_process(const int status)
 int TfsLargeFile::close_process()
 {
   int ret = TFS_ERROR;
-  if (offset_ <= 0)
-  {
-    TBSYS_LOG(ERROR, "close tfs file fail: no data write ever");
-    local_key_.remove();        // ignore
-  }
-  else if ((ret = upload_key()) != TFS_SUCCESS) // upload key data
+  if ((ret = upload_key()) != TFS_SUCCESS) // upload key data
   {
     TBSYS_LOG(ERROR, "close tfs file fail: upload key fail, ret: %d");
   }
@@ -526,7 +521,6 @@ int TfsLargeFile::load_meta(int32_t flags)
     {
       TBSYS_LOG(ERROR, "reread meta file fail. remain size: %"PRI64_PREFIX"d, ret: %d",
                 remain_size, ret);
-      tbsys::gDelete(extra_seg_buf);
     }
     else
     {
@@ -539,7 +533,7 @@ int TfsLargeFile::load_meta(int32_t flags)
 
   if (TFS_SUCCESS == ret)
   {
-    if ((ret = local_key_.load(seg_buf, meta_seg_->file_info_->size_)) != TFS_SUCCESS)
+    if ((ret = local_key_.load(seg_buf)) != TFS_SUCCESS)
     {
       TBSYS_LOG(ERROR, "construct meta file info fail, ret: %d", ret);
     }
@@ -573,7 +567,7 @@ int TfsLargeFile::load_meta_head()
   }
   else
   {
-    local_key_.load_head(seg_buf, ret_size);
+    local_key_.load_head(seg_buf);
   }
 
   return ret;

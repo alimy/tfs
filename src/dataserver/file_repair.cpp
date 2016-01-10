@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: file_repair.cpp 726 2011-08-24 08:38:57Z nayan@taobao.com $
+ * Version: $Id: file_repair.cpp 687 2011-08-09 02:08:35Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -172,8 +172,7 @@ namespace tfs
       }
 
       FSName fsname(crc_check_record.block_id_, crc_check_record.file_id_);
-      int ret = tfs_client_->save_file_update(tmp_file, T_DEFAULT, fsname.get_name(), NULL) < 0 ? TFS_ERROR : TFS_SUCCESS;
-      // int ret = tfs_client_->save_file(tmp_file, fsname.get_name()) < 0 ? TFS_ERROR : TFS_SUCCESS;
+      int ret = tfs_client_->save_file(tmp_file, fsname.get_name()) < 0 ? TFS_ERROR : TFS_SUCCESS;
 
       if (TFS_SUCCESS != ret)
       {

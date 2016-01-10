@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: block_info_message.h 729 2011-08-29 02:36:32Z duanfei@taobao.com $
+ * Version: $Id: block_info_message.h 439 2011-06-08 08:35:08Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -257,7 +257,7 @@ namespace tfs
 
     class RemoveBlockMessage:  public common::BasePacket
     {
-     public:
+      public:
         RemoveBlockMessage();
         virtual ~RemoveBlockMessage();
         virtual int serialize(common::Stream& output)  const ;
@@ -272,17 +272,8 @@ namespace tfs
         {
           return remove_blocks_;
         }
-        inline void set_response_flag(common::RemoveBlockResponseFlag flag = common::REMOVE_BLOCK_RESPONSE_FLAG_YES)
-        {
-          response_flag_ = flag;
-        }
-        inline int8_t get_response_flag() const
-        {
-          return response_flag_;
-        }
       protected:
         common::VUINT32 remove_blocks_;
-        int8_t response_flag_;
     };
 
     class RemoveBlockResponseMessage :  public common::BasePacket

@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: modify_super_block.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: modify_super_block.cpp 553 2011-06-24 08:47:47Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

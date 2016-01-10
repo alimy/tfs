@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: nameserver_ha_monitor.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: nameserver_ha_monitor.cpp 457 2011-06-09 07:18:11Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: rc_session_message.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: rc_session_message.h 378 2011-05-30 07:16:34Z zongdai@taobao.com $
  *
  * Authors:
  *   zongdai <zongdai@taobao.com>

@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: replicate_block.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: replicate_block.cpp 476 2011-06-10 07:43:42Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

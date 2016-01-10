@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: main.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: main.cpp 495 2011-06-14 08:47:12Z zongdai@taobao.com $
  *
  * Authors:
  *   zongdai <zongdai@taobao.com>

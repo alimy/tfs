@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: mocked_resource_manager.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: mocked_resource_manager.h 523 2011-06-20 07:06:21Z daoan@taobao.com $
  *
  * Authors:
  *   zongdai <zongdai@taobao.com>

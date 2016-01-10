@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: mock_data_server_instance.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: mock_data_server_instance.cpp 451 2011-06-08 09:47:31Z duanfei@taobao.com $
  *
  * Authors:
  *   duanfei<duanfei@taobao.com>

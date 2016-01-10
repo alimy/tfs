@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: test_session_manager.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: test_session_manager.cpp 524 2011-06-20 07:19:32Z daoan@taobao.com $
  *
  * Authors:
  *   zongdai@taobao.com

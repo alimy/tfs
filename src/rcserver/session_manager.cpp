@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: session_manager.cpp 739 2011-08-31 08:03:31Z daoan@taobao.com $
+ * Version: $Id: session_manager.cpp 520 2011-06-20 06:05:52Z daoan@taobao.com $
  *
  * Authors:
  *   zongdai <zongdai@taobao.com>
@@ -16,7 +16,7 @@
 #include "session_manager.h"
 #include "common/parameter.h"
 #include "common/error_msg.h"
-#include "common/session_util.h"
+#include "session_util.h"
 
 namespace tfs
 {

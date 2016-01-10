@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: error_msg.h 738 2011-08-30 12:28:17Z mingyan.zc@taobao.com $
+ * Version: $Id: error_msg.h 579 2011-07-18 08:47:20Z nayan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -38,7 +38,6 @@ namespace tfs
     const int32_t EXIT_ACCESS_PERMISSION_ERROR = -1013; //access permission error
     const int32_t EXIT_SYSTEM_PARAMETER_ERROR = -1014; //system parameter error
     const int32_t EXIT_UNIQUE_META_NOT_EXIST = -1015;
-    const int32_t EXIT_PARAMETER_ERROR = -1016; // interface parameter error
 
     const int32_t EXIT_FILE_OP_ERROR = -2000;
     const int32_t EXIT_OPEN_FILE_ERROR = -2001;
@@ -77,7 +76,6 @@ namespace tfs
     const int32_t EXIT_PLAY_LOG_ERROR = -5013;//play log error
     const int32_t EXIT_NAMESERVER_ONLY_READ = -5014;//current nameserver only read
     const int32_t EXIT_BLOCK_ALREADY_EXIST = -5015;//current block already exist
-    const int32_t EXIT_CREATE_BLOCK_BY_ID_ERROR = -5016;//create block by block id failed
 
     const int32_t EXIT_WRITE_OFFSET_ERROR = -8001; // write offset error
     const int32_t EXIT_READ_OFFSET_ERROR = -8002; // read offset error
@@ -116,7 +114,6 @@ namespace tfs
     const int32_t EXIT_DS_CONNECT_ERROR = -8035; // connect to ds fail
     const int32_t EXIT_BLOCK_CHECKER_OVERLOAD = -8036; // too much block checker
     const int32_t EXIT_FALLOCATE_NOT_IMPLEMENT = -8037; // fallocate is not implement
-    const int32_t EXIT_SYNC_FILE_ERROR = -8038;//sync file failed
 
     const int32_t EXIT_SESSION_EXIST_ERROR = -9001;
     const int32_t EXIT_SESSIONID_INVALID_ERROR = -9002;
@@ -126,16 +123,6 @@ namespace tfs
     const int32_t EXIT_REGISTER_OPLOG_SYNC_ERROR = -12000;
     const int32_t EXIT_MAKEDIR_ERROR = -13000;
 
-    const int32_t EXIT_UNKNOWN_SQL_ERROR= -14000;
-    const int32_t EXIT_TARGET_EXIST_ERROR = -14001;
-    const int32_t EXIT_PARENT_EXIST_ERROR = -14002;
-    const int32_t EXIT_DELETE_DIR_WITH_FILE_ERROR = -14003;
-    const int32_t EXIT_VERSION_CONFLICT_ERROR = -14004;
-    const int32_t EXIT_NOT_CREATE_ERROR = -14005;
-    const int32_t EXIT_CLUSTER_ID_ERROR = -14006;
-    const int32_t EXIT_FRAG_META_OVERFLOW_ERROR = -14007;
-    const int32_t EXIT_UPDATE_FRAG_INFO_ERROR = -14008;
-    const int32_t EXIT_MOVE_TO_SUB_DIR_ERROR = -14009;
   }
 }
 #endif //TFS_COMMON_ERRMSG_H_

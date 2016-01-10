@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: directory_op.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: directory_op.h 388 2011-06-01 05:21:44Z nayan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

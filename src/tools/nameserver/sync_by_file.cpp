@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: sync_by_file.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: sync_by_file.cpp 479 2011-06-10 08:32:47Z daoan@taobao.com $
  *
  * Authors:
  *   duanfei<duanfei@taobao.com>

@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: oplog_sync_manager.cpp 816 2011-09-21 01:09:17Z duanfei@taobao.com $
+ * Version: $Id: oplog_sync_manager.cpp 626 2011-08-01 03:52:41Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -239,8 +239,7 @@ namespace tfs
       int iret = TFS_SUCCESS;
       NsRuntimeGlobalInformation& ngi = GFactory::get_runtime_info();
       if ((ngi.owner_role_ == NS_ROLE_MASTER)
-         && (ngi.owner_status_ == NS_STATUS_INITIALIZED)
-         && (ngi.sync_oplog_flag_ == NS_SYNC_DATA_FLAG_YES))
+         && (ngi.owner_status_ == NS_STATUS_INITIALIZED))
       {
         #if !defined(TFS_NS_GTEST) && !defined(TFS_NS_INTEGRATION)
         int count = 0;

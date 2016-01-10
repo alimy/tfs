@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: get_server_info.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: get_server_info.cpp 561 2011-07-04 06:49:46Z chuyu@taobao.com $
  *
  * Authors:
  *   chuyu <chuyu@taobao.com>

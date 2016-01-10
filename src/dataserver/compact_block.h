@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: compact_block.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: compact_block.h 390 2011-06-01 08:11:49Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: heart_message.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: heart_message.h 439 2011-06-08 08:35:08Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: base_resource.cpp 858 2011-09-28 03:46:46Z chuyu@taobao.com $
+ * Version: $Id: base_resource.cpp 378 2011-05-30 07:16:34Z zongdai@taobao.com $
  *
  * Authors:
  *   zongdai <zongdai@taobao.com>
@@ -20,9 +20,6 @@
 namespace 
 {
   const int SERVER_STAT_AVALIABLE = 1;
-  const int GROUP_ACCESS_TYPE_FORBIDEN = 0;
-  const int GROUP_ACCESS_TYPE_READ_ONLY = 1;
-  const int GROUP_ACCESS_TYPE_READ_AND_WRITE = 2;
   const int CLUSTER_ACCESS_TYPE_FORBIDEN = 0;
   const int CLUSTER_ACCESS_TYPE_READ_ONLY = 1;
   const int CLUSTER_ACCESS_TYPE_READ_AND_WRITE = 2;
@@ -132,8 +129,7 @@ namespace tfs
       for (; rack_group_it != v_cluster_rack_group_.end(); rack_group_it++)
       {
         //find right group
-        if (cluster_group_id == rack_group_it->cluster_group_id_
-                && GROUP_ACCESS_TYPE_FORBIDEN != rack_group_it->cluster_rack_access_type_)
+        if (cluster_group_id == rack_group_it->cluster_group_id_)
         {
           int32_t current_rack_id = rack_group_it->cluster_rack_id_;
           ClusterRackData tmp_rack;

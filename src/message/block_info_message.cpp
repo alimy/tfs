@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: block_info_message.cpp 729 2011-08-29 02:36:32Z duanfei@taobao.com $
+ * Version: $Id: block_info_message.cpp 580 2011-07-18 09:22:08Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -458,8 +458,7 @@ namespace tfs
       new_blocks_.push_back(block_id);
     }
 
-    RemoveBlockMessage::RemoveBlockMessage():
-      response_flag_(common::REMOVE_BLOCK_RESPONSE_FLAG_NO)
+    RemoveBlockMessage::RemoveBlockMessage()
     {
       _packetHeader._pcode = common::REMOVE_BLOCK_MESSAGE;
       remove_blocks_.clear();
@@ -471,28 +470,17 @@ namespace tfs
 
     int RemoveBlockMessage::deserialize(common::Stream& input)
     {
-      int32_t iret = input.get_vint32(remove_blocks_);
-      if (common::TFS_SUCCESS == iret
-         && input.get_data_length() > 0)
-      {
-        iret = input.get_int8(&response_flag_);
-      }
-      return iret;
+      return input.get_vint32(remove_blocks_);
     }
 
     int64_t RemoveBlockMessage::length() const
     {
-      return  common::Serialization::get_vint32_length(remove_blocks_) + common::INT8_SIZE;
+      return  common::Serialization::get_vint32_length(remove_blocks_);
     }
 
     int RemoveBlockMessage::serialize(common::Stream& output)  const
     {
-      int32_t iret = output.set_vint32(remove_blocks_);
-      if (common::TFS_SUCCESS == iret)
-      {
-        output.set_int8(response_flag_);
-      }
-      return iret;
+      return output.set_vint32(remove_blocks_);
     }
 
     void RemoveBlockMessage::add_remove_id(const uint32_t block_id)

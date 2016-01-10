@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: data_handle.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: data_handle.h 326 2011-05-24 07:18:18Z daoan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

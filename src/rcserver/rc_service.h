@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: rc_service.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: rc_service.h 494 2011-06-14 08:24:11Z zongdai@taobao.com $
  *
  * Authors:
  *   zongdai <zongdai@taobao.com>

@@ -53,8 +53,6 @@ namespace tfs
       void clear();
       void clear_info();
       int init_file_op(const char* name, const int mode);
-      int lock_file(const char* name);
-      int unlock_file(const char* name);
 
     protected:
       common::SegmentHead seg_head_;
@@ -72,7 +70,7 @@ namespace tfs
     {
       if (file_op_ != NULL)
       {
-        unlock_file(file_op_->get_file_name());
+        file_op_->unlock_file();
         tbsys::gDelete(file_op_);
       }
     }
@@ -147,7 +145,7 @@ namespace tfs
       }
       else
       {
-        unlock_file(file_op_->get_file_name());
+        file_op_->unlock_file();
         TBSYS_LOG(INFO, "remove file success");
       }
       return ret;
@@ -174,77 +172,19 @@ namespace tfs
       {
         if (file_op_ != NULL)
         {
-          unlock_file(file_op_->get_file_name());
+          file_op_->unlock_file();
           tbsys::gDelete(file_op_);
         }
 
         file_op_ = new common::FileOperation(name, mode);
-        if ((ret = file_op_->open_file()) < 0)
+        if (file_op_->lock_file() != 0)
         {
-          TBSYS_LOG(WARN, "open file fail: %s, %s", name, strerror(errno));
-        }
-        else if (lock_file(file_op_->get_file_name()) != common::TFS_SUCCESS)
-        {
-          TBSYS_LOG(WARN, "file is busy:  %s", file_op_->get_file_name());
+          TBSYS_LOG(WARN, "file is busy:  %s", name);
           ret = common::EXIT_FILE_BUSY_ERROR;
         }
         else
         {
           ret = common::TFS_SUCCESS;
-        }
-      }
-      return ret;
-    }
-
-    template< typename V >
-    int SegmentContainer<V>::lock_file(const char* name)
-    {
-      int ret = common::TFS_ERROR;
-      if (NULL != name)
-      {
-        int fd = ::open(name, O_RDWR);
-        if (fd > 0)
-        {
-          struct flock f_lock;
-          f_lock.l_type = F_WRLCK;
-          f_lock.l_whence = SEEK_SET;
-          f_lock.l_start = 0;
-          f_lock.l_len = 0;
-          ret = fcntl(fd, F_GETLK, &f_lock);
-
-          // consider checking lock fail as not own a lock
-          if (ret != 0 || f_lock.l_type == F_UNLCK)
-          {
-            f_lock.l_type = F_WRLCK;
-            ret = fcntl(fd, F_SETLK, &f_lock) == 0 ? common::TFS_SUCCESS : common::TFS_ERROR;
-          }
-          else
-          {
-            ret = common::TFS_ERROR;             // lock is already occupid, can't get lock
-          }
-          ::close(fd);
-        }
-      }
-      return ret;
-    }
-
-    template< typename V >
-    int SegmentContainer<V>::unlock_file(const char* name)
-    {
-      int ret = common::TFS_ERROR;
-      if (NULL != name)
-      {
-        int fd = ::open(name, O_RDWR);
-        if (fd > 0)
-        {
-          struct flock f_lock;
-          f_lock.l_type = F_UNLCK;
-          f_lock.l_whence = SEEK_SET;
-          f_lock.l_start = 0;
-          f_lock.l_len = 0;
-
-          ret = fcntl(fd, F_SETLK, &f_lock) == 0 ? common::TFS_SUCCESS : common::TFS_ERROR;
-          ::close(fd);
         }
       }
       return ret;

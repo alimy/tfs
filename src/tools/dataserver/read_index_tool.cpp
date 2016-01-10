@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: read_index_tool.cpp 726 2011-08-24 08:38:57Z nayan@taobao.com $
+ * Version: $Id: read_index_tool.cpp 154 2011-02-21 06:16:10Z zongdai@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -18,10 +18,9 @@
 #include <iostream>
 #include <string>
 #include "dataserver/index_handle.h"
-#include "common/file_op.h"
+#include "dataserver/file_op.h"
 
 using namespace std;
-using namespace tfs::common;
 using namespace tfs::dataserver;
 
 int main(int argc, char* argv[])

@@ -6,14 +6,13 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: resource_manager.cpp 858 2011-09-28 03:46:46Z chuyu@taobao.com $
+ * Version: $Id: resource_manager.cpp 520 2011-06-20 06:05:52Z daoan@taobao.com $
  *
  * Authors:
  *   zongdai <zongdai@taobao.com>
  *      - initial release
  *
  */
-#include <algorithm>
 #include "resource_manager.h"
 #include "common/parameter.h"
 #include "common/error_msg.h"
@@ -183,22 +182,11 @@ EXIT:
       int ret = EXIT_NOT_INIT_ERROR;
       if (have_inited_ && NULL != app_resource_manager_ && NULL != base_resource_manager_)
       {
-        int64_t last_app_modify_time = 0;
-        int64_t last_base_modify_time = 0;
         tbsys::CRLockGuard guard(resorce_mutex_);
         ret = app_resource_manager_->get_app_id(app_key, app_id);
-        // sync time between client and server
         if (TFS_SUCCESS == ret)
         {
-          ret = app_resource_manager_->get_last_modify_time(app_id, last_app_modify_time);
-        }
-        if (TFS_SUCCESS == ret)
-        {
-          ret = base_resource_manager_->get_last_modify_time(last_base_modify_time);
-        }
-        if (TFS_SUCCESS == ret)
-        {
-          ret = get_base_info(app_id, std::max(last_app_modify_time, last_base_modify_time), base_info);
+          ret = get_base_info(app_id, base_info);
         }
       }
       return ret;
@@ -224,7 +212,7 @@ EXIT:
           if (modify_time < last_app_modify_time || modify_time < last_base_modify_time)
           {
             update_flag = true;
-            ret = get_base_info(app_id, std::max(last_app_modify_time, last_base_modify_time), base_info);
+            ret = get_base_info(app_id, base_info);
           }
         }
       }
@@ -242,7 +230,7 @@ EXIT:
       return ret;
     }
 
-    int ResourceManager::get_base_info(const int32_t app_id, const int64_t modify_time, BaseInfo& base_info)
+    int ResourceManager::get_base_info(const int32_t app_id, BaseInfo& base_info)
     {
       int ret = EXIT_NOT_INIT_ERROR;
       if (have_inited_ && NULL != app_resource_manager_ && NULL != base_resource_manager_)
@@ -260,7 +248,6 @@ EXIT:
         if (TFS_SUCCESS == ret)
         {
           base_info.report_interval_ = app_info.report_interval_;
-          base_info.modify_time_ = modify_time;
           std::vector<ClusterRackData>::iterator it = base_info.cluster_infos_.begin();
           for (; it != base_info.cluster_infos_.end(); it++)
           {

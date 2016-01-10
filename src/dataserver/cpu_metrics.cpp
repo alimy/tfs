@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: cpu_metrics.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: cpu_metrics.cpp 187 2011-04-07 06:35:21Z duanfei@taobao.com $
  *
  * Authors:
  *   qushan <qushan@taobao.com>

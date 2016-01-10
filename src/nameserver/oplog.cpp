@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: oplog.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: oplog.cpp 490 2011-06-14 03:11:02Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

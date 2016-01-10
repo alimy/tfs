@@ -155,7 +155,7 @@ int64_t TfsFile::read_ex(void* buf, const int64_t count, const int64_t offset,
     TBSYS_LOG(ERROR, "read fail, file status: %d is not open yes.", file_status_);
     ret = EXIT_NOT_OPEN_ERROR;
   }
-  else if (modify && TFS_FILE_EOF_FLAG_YES == eof_)
+  else if (TFS_FILE_EOF_FLAG_YES == eof_)
   {
     TBSYS_LOG(DEBUG, "read file reach end");
   }
@@ -164,11 +164,10 @@ int64_t TfsFile::read_ex(void* buf, const int64_t count, const int64_t offset,
     TBSYS_LOG(ERROR, "read fail, file open without read flag: %d", flags_);
     ret = EXIT_NOT_PERM_OPER;
   }
-  else if (NULL == buf || count < 0 || offset < 0)
+  else if (NULL == buf || count < 0)
   {
-    TBSYS_LOG(ERROR, "invalid read buffer or count. buffer: %p, count: %"PRI64_PREFIX"d, offset: %"PRI64_PREFIX"d",
-              buf, count, offset);
-    ret = EXIT_PARAMETER_ERROR;
+    TBSYS_LOG(ERROR, "invalid read buffer or count. buffer: %p, count: %"PRI64_PREFIX"d", buf, count);
+    ret = TFS_ERROR;
   }
   else if (count > 0)
   {
@@ -186,7 +185,7 @@ int64_t TfsFile::read_ex(void* buf, const int64_t count, const int64_t offset,
       }
       else if (0 == cur_size)
       {
-        TBSYS_LOG(DEBUG, "file read reach end, offset: %"PRI64_PREFIX"d, size: %"PRI64_PREFIX"d",
+        TBSYS_LOG(INFO, "file read reach end, offset: %"PRI64_PREFIX"d, size: %"PRI64_PREFIX"d",
                   offset + check_size, cur_size);
         eof_ = TFS_FILE_EOF_FLAG_YES;
         break;
@@ -242,11 +241,10 @@ int64_t TfsFile::write_ex(const void* buf, const int64_t count, const int64_t of
     TBSYS_LOG(ERROR, "write fail: file open without write flag");
     ret = EXIT_NOT_PERM_OPER;
   }
-  else if (NULL == buf || count < 0 || offset < 0)
+  else if (NULL == buf || count < 0)
   {
-    TBSYS_LOG(ERROR, "invalid write buffer or count. buffer: %p, count: %"PRI64_PREFIX"d, offset: %"PRI64_PREFIX"d",
-              buf, count, offset);
-    ret = EXIT_PARAMETER_ERROR;
+    TBSYS_LOG(ERROR, "invalid write buffer or count. buffer: %p, count: %"PRI64_PREFIX"d", buf, count);
+    ret = TFS_ERROR;
   }
   else if (count > 0)
   {
@@ -317,13 +315,13 @@ int64_t TfsFile::write_ex(const void* buf, const int64_t count, const int64_t of
 
 int64_t TfsFile::lseek_ex(const int64_t offset, const int whence)
 {
-  int64_t ret = INVALID_FILE_SIZE;
+  int64_t ret = TFS_SUCCESS;
   if (TFS_FILE_OPEN_YES != file_status_)
   {
     TBSYS_LOG(ERROR, "lseek fail, file status: %d is not open yes", file_status_);
     ret = EXIT_NOT_OPEN_ERROR;
   }
-  else if ((flags_ & (T_READ|T_WRITE)) == 0)
+  else if (!(flags_ & T_READ))
   {
     TBSYS_LOG(ERROR, "lseek fail, file open without read flag: %d", flags_);
     ret = EXIT_NOT_PERM_OPER;
@@ -333,28 +331,12 @@ int64_t TfsFile::lseek_ex(const int64_t offset, const int whence)
     switch (whence)
     {
     case T_SEEK_SET:
-      if (offset < 0)
-      {
-        TBSYS_LOG(ERROR, "wrong offset seek_set, %"PRI64_PREFIX"d", offset);
-        ret = EXIT_PARAMETER_ERROR;
-      }
-      else
-      {
-        offset_ = offset;
-        ret = offset_;
-      }
+      offset_ = offset;
+      ret = offset_;
       break;
     case T_SEEK_CUR:
-      if (offset_ + offset < 0)
-      {
-        TBSYS_LOG(ERROR, "wrong offset seek_cur, %"PRI64_PREFIX"d", offset);
-        ret = EXIT_PARAMETER_ERROR;
-      }
-      else
-      {
-        offset_ += offset;
-        ret = offset_;
-      }
+      offset_ += offset;
+      ret = offset_;
       break;
     default:
       TBSYS_LOG(ERROR, "unknown seek flag: %d", whence);
@@ -556,8 +538,7 @@ int TfsFile::process(const InnerFilePhase file_phase)
       // all request fail
       if (0 == req_size)
       {
-        if (size > 1)
-          ret = EXIT_ALL_SEGMENT_ERROR;
+        ret = EXIT_ALL_SEGMENT_ERROR;
       }
       else
       {
@@ -657,9 +638,8 @@ int TfsFile::process_success_response(const InnerFilePhase file_phase, NewClient
       }
     }
 
-    if (processing_seg_list_.size() > 1)
-      ret = (0 == resp_size) ? EXIT_ALL_SEGMENT_ERROR :
-        (resp_size != static_cast<int32_t>(processing_seg_list_.size())) ? EXIT_GENERAL_ERROR : ret;
+    ret = (0 == resp_size) ? EXIT_ALL_SEGMENT_ERROR :
+      (resp_size != static_cast<int32_t>(processing_seg_list_.size())) ? EXIT_GENERAL_ERROR : ret;
   }
 
   return ret;

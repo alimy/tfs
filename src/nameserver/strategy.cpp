@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: strategy.cpp 800 2011-09-15 07:40:56Z mingyan.zc@taobao.com $
+ * Version: $Id: strategy.cpp 490 2011-06-14 03:11:02Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -268,7 +268,7 @@ namespace tfs
     {
       std::vector<ServerCollect*> except;
       WriteStrategy strategy(GFactory::get_global_info().get_elect_seq_num(), GFactory::get_global_info());
-      return elect_ds(strategy, ExcludeGroupElectOperation(), meta, except, elect_count, false, result);
+      return elect_ds(strategy, ExcludeGroupElectOperation(), meta, except, elect_count,false, result);
     }
 
     int elect_replicate_source_ds(LayoutManager& meta, vector<ServerCollect*>& source, vector<ServerCollect*>& except, int32_t elect_count, vector<ServerCollect*>& result)

@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: tfs_rc_helper.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: tfs_rc_helper.h 529 2011-06-20 09:29:28Z nayan@taobao.com $
  *
  * Authors:
  *      - initial release

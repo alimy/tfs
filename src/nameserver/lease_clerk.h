@@ -5,7 +5,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: lease_clerk.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: lease_clerk.h 381 2011-05-30 08:07:39Z nayan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

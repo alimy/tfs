@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: resource_manager.h 858 2011-09-28 03:46:46Z chuyu@taobao.com $
+ * Version: $Id: resource_manager.h 523 2011-06-20 07:06:21Z daoan@taobao.com $
  *
  * Authors:
  *   zongdai <zongdai@taobao.com>
@@ -85,7 +85,7 @@ namespace tfs
         bool need_reload();
 
       private:
-        int get_base_info(const int32_t app_id, const int64_t modify_time, common::BaseInfo& base_info);
+        int get_base_info(const int32_t app_id, common::BaseInfo& base_info);
         void clean_resource();
 
       protected:

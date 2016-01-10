@@ -142,10 +142,6 @@ namespace tfs
       {
         ret = Serialization::set_int32(data, data_len, pos, report_interval_);
       }
-      if (TFS_SUCCESS == ret)
-      {
-        ret = Serialization::set_int64(data, data_len, pos, modify_time_);
-      }
       return ret;
     }
 
@@ -164,16 +160,12 @@ namespace tfs
       {
         ret = Serialization::get_int32(data, data_len, pos, &report_interval_);
       }
-      if (TFS_SUCCESS == ret)
-      {
-        ret = Serialization::get_int64(data, data_len, pos, &modify_time_);
-      }
       return ret;
     }
 
     int64_t BaseInfo::length() const
     {
-      int64_t length = INT_SIZE + INT64_SIZE + Serialization::get_vint64_length(rc_server_infos_) + Serialization::get_list_length(cluster_infos_);
+      int64_t length = INT_SIZE + Serialization::get_vint64_length(rc_server_infos_) + Serialization::get_list_length(cluster_infos_);
       //TBSYS_LOG(DEBUG, "BaseInfo::length: %"PRI64_PREFIX"d, rc_server_infos_ length: %"PRI64_PREFIX"d, cluster_infos_ length: %"PRI64_PREFIX"d",
       //    length, Serialization::get_vint64_length(rc_server_infos_), Serialization::get_list_length(cluster_infos_));
       return length;
@@ -191,7 +183,6 @@ namespace tfs
         cluster_infos_[i].dump();
       }
       TBSYS_LOG(DEBUG, "report_interval: %d", report_interval_);
-      TBSYS_LOG(DEBUG, "modify_time: %"PRI64_PREFIX"d", modify_time_);
     }
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 

@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: bg_task.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: bg_task.h 520 2011-06-20 06:05:52Z daoan@taobao.com $
  *
  * Authors:
  *      - initial release

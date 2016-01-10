@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: ns_define.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: ns_define.h 626 2011-08-01 03:52:41Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

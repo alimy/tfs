@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: internal.h 818 2011-09-21 10:13:05Z mingyan.zc@taobao.com $
+ * Version: $Id: internal.h 665 2011-08-05 09:24:26Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -258,9 +258,7 @@ namespace tfs
       CLIENT_CMD_SET_PARAM,
       CLIENT_CMD_UNLOADBLK,
       CLIENT_CMD_FORCE_DATASERVER_REPORT,
-      CLIENT_CMD_ROTATE_LOG,
-      CLIENT_CMD_GET_BALANCE_PERCENT,
-      CLIENT_CMD_SET_BALANCE_PERCENT
+      CLIENT_CMD_ROTATE_LOG
     };
 
     enum PlanInterruptFlag
@@ -757,22 +755,6 @@ namespace tfs
       int64_t length() const;
       void display() const;
     };
-
-    enum MetaActionOp
-    {
-      NON_ACTION = 0,
-      CREATE_DIR = 1,
-      CREATE_FILE = 2,
-      REMOVE_DIR = 3,
-      REMOVE_FILE = 4,
-      MOVE_DIR = 5,
-      MOVE_FILE = 6
-    };
-    typedef enum _RemoveBlockResponseFlag 
-    {
-      REMOVE_BLOCK_RESPONSE_FLAG_NO = 0,
-      REMOVE_BLOCK_RESPONSE_FLAG_YES = 1
-    }RemoveBlockResponseFlag;
 
     // defined type typedef
     typedef std::vector<BlockInfo> BLOCK_INFO_LIST;

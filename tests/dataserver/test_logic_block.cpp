@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: test_logic_block.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: test_logic_block.cpp 32 2010-10-29 08:02:25Z zongdai@taobao.com $
  *
  * Authors:
  *   daozong

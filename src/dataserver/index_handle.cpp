@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: index_handle.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: index_handle.cpp 409 2011-06-02 08:32:14Z nayan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

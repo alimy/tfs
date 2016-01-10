@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: data_management.cpp 720 2011-08-22 03:14:36Z duanfei@taobao.com $
+ * Version: $Id: data_management.cpp 515 2011-06-17 01:50:58Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -352,7 +352,7 @@ namespace tfs
       // if mode is 0 and file is not in nomal status, return error.
       if ((0 == finfo.id_) 
           || (finfo.id_ != file_id )
-          || ((finfo.flag_ & (FI_DELETED | FI_INVALID | FI_CONCEAL)) != 0 && NORMAL_STAT == mode))
+          || ((finfo.flag_ & (FI_DELETED | FI_INVALID | FI_CONCEAL)) != 0 && 0 == mode))
       {
         TBSYS_LOG(WARN,
             "FileInfo parse fail. blockid: %u, fileid: %" PRI64_PREFIX "u, infoid: %" PRI64_PREFIX "u, flag: %d",

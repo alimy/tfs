@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: test_logic_block_and_compact.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: test_logic_block_and_compact.cpp 155 2011-02-21 07:33:27Z zongdai@taobao.com $
  *
  * Authors:
  *   yangye

@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: mmap_file.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: mmap_file.h 552 2011-06-24 08:44:50Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: close_file_message.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: close_file_message.cpp 491 2011-06-14 03:11:29Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

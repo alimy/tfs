@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: replicate_block_message.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: replicate_block_message.h 477 2011-06-10 08:15:48Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

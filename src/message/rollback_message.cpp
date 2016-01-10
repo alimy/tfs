@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: rollback_message.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: rollback_message.cpp 346 2011-05-26 01:18:07Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

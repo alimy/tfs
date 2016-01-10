@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: client_cmd_message.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: client_cmd_message.cpp 384 2011-05-31 07:47:07Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

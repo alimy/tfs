@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: block_checker.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: block_checker.h 356 2011-05-26 07:51:09Z daoan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

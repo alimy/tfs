@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: resource.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: resource.h 264 2011-05-06 08:38:41Z daoan@taobao.com $
  *
  * Authors:
  *   zongdai <zongdai@taobao.com>

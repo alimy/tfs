@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: ds_client.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: ds_client.cpp 465 2011-06-09 11:26:40Z daoan@taobao.com $
  *
  * Authors:
  *   jihe

@@ -105,21 +105,17 @@ int LocalKey::load()
     }
     else
     {
-      ret = load_segment(buf, sizeof(SegmentInfo) * seg_head_.count_);
+      ret = load_segment(buf);
     }
     tbsys::gDeleteA(buf);
   }
   return ret;
 }
 
-int LocalKey::load(const char* buf, const int32_t buf_len)
+int LocalKey::load(const char* buf)
 {
-  int ret = load_head(buf, buf_len);
-  if (TFS_SUCCESS == ret)
-  {
-    ret = load_segment(buf + sizeof(SegmentHead), buf_len - sizeof(SegmentHead));
-  }
-  return ret;
+  load_head(buf);
+  return load_segment(buf + sizeof(SegmentHead));
 }
 
 int LocalKey::add_segment(const SegmentInfo& seg_info)
@@ -305,8 +301,9 @@ int64_t LocalKey::get_segment_for_write(const int64_t offset, const char* buf,
             need_write_size += it->size_;
             remain_nw_size -= it->size_;
           }
-          else if (TfsClient::Instance()->stat_file(&file_stat, FSName(it->block_id_, it->file_id_).get_name(),
-                                                    NULL, NORMAL_STAT, tbsys::CNetUtil::addrToString(server_id_).c_str())
+          else if (TfsClient::Instance()->stat_file(FSName(it->block_id_, it->file_id_).get_name(),
+                                                    NULL, &file_stat, NORMAL_STAT,
+                                                    tbsys::CNetUtil::addrToString(server_id_).c_str())
                    != TFS_SUCCESS) // server id util
           {
             TBSYS_LOG(INFO, "segment info is not valid. blockid: %u, fileid: %"PRI64_PREFIX"u",
@@ -462,60 +459,41 @@ void LocalKey::get_segment(const int64_t offset, const char* buf,
   }
 }
 
-int LocalKey::load_head(const char* buf, const int32_t buf_len)
+int LocalKey::load_head(const char* buf)
 {
-  int ret = TFS_SUCCESS;
-  if (buf_len < static_cast<int32_t>(sizeof(SegmentHead)))
-  {
-    TBSYS_LOG(ERROR, "buffer length less than base segment head length: %d < %d", buf_len, sizeof(SegmentHead));
-    ret = TFS_ERROR;
-  }
-  else
-  {
-    memcpy(&seg_head_, buf, sizeof(SegmentHead));
-    TBSYS_LOG(DEBUG, "load segment head, count %d, size: %"PRI64_PREFIX"d", seg_head_.count_, seg_head_.size_);
-  }
-  return ret;
+  memcpy(&seg_head_, buf, sizeof(SegmentHead));
+  TBSYS_LOG(DEBUG, "load segment head, count %d, size: %"PRI64_PREFIX"d", seg_head_.count_, seg_head_.size_);
+  return TFS_SUCCESS;
 }
 
-int LocalKey::load_segment(const char* buf, const int32_t buf_len)
+int LocalKey::load_segment(const char* buf)
 {
   int ret = TFS_SUCCESS;
+  // clear last segment info ?
+  clear_info();
+
   int64_t size = 0;
   int32_t count = seg_head_.count_;
-
-  if (buf_len < static_cast<int32_t>(sizeof(SegmentInfo)) * count)
+  const SegmentInfo* segment = reinterpret_cast<const SegmentInfo*>(buf);
+  for (int32_t i = 0; i < count; ++i)
   {
-    TBSYS_LOG(ERROR, "buffer length less than required segmentInfo. segment count: %d, %d < %d",
-              count, buf_len, sizeof(SegmentInfo) * count);
-    ret = TFS_ERROR;
-  }
-  else
-  {
-    // clear last segment info ?
-    clear_info();
+    TBSYS_LOG(DEBUG, "load segment info, offset: %"PRI64_PREFIX"d, blockid: %u, fileid: %"PRI64_PREFIX"u, size: %d, crc: %u",
+              segment[i].offset_, segment[i].block_id_, segment[i].file_id_, segment[i].size_, segment[i].crc_);
 
-    const SegmentInfo* segment = reinterpret_cast<const SegmentInfo*>(buf);
-    for (int32_t i = 0; i < count; ++i)
+    if (!seg_info_.insert(segment[i]).second)
     {
-      TBSYS_LOG(DEBUG, "load segment info, offset: %"PRI64_PREFIX"d, blockid: %u, fileid: %"PRI64_PREFIX"u, size: %d, crc: %u",
-                segment[i].offset_, segment[i].block_id_, segment[i].file_id_, segment[i].size_, segment[i].crc_);
-
-      if (!seg_info_.insert(segment[i]).second)
-      {
-        TBSYS_LOG(ERROR, "load segment info fail, count: %d, failno: %d", count, i + 1);
-        ret = TFS_ERROR;
-        break;
-      }
-      size += segment[i].size_;
-    }
-
-    if (TFS_SUCCESS == ret && size != seg_head_.size_)
-    {
-      TBSYS_LOG(ERROR, "segment size conflict with head meta info size: %"PRI64_PREFIX"d <> %"PRI64_PREFIX"d",
-                size, seg_head_.size_);
+      TBSYS_LOG(ERROR, "load segment info fail, count: %d, failno: %d", count, i + 1);
       ret = TFS_ERROR;
+      break;
     }
+    size += segment[i].size_;
+  }
+
+  if (TFS_SUCCESS == ret && size != seg_head_.size_)
+  {
+    TBSYS_LOG(ERROR, "segment size conflict with head meta info size: %"PRI64_PREFIX"d <> %"PRI64_PREFIX"d",
+              size, seg_head_.size_);
+    ret = TFS_ERROR;
   }
 
   return ret;

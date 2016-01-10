@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: mmap_file_op.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: mmap_file_op.cpp 326 2011-05-24 07:18:18Z daoan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

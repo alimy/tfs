@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: lease_clerk.cpp 800 2011-09-15 07:40:56Z mingyan.zc@taobao.com $
+ * Version: $Id: lease_clerk.cpp 490 2011-06-14 03:11:02Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -112,15 +112,8 @@ namespace tfs
       if (status_ > LEASE_STATUS_RUNNING)
         return true;
       Time time_out = expire_time_ - tbutil::Time::now();
-      if (time_out >= 0 )
-      {
-        tbutil::Monitor<tbutil::Mutex>::Lock lock(*this);
-        return timedWait(time_out);
-      }
-      else
-      {
-        return true;
-      }
+      tbutil::Monitor<tbutil::Mutex>::Lock lock(*this);
+      return timedWait(time_out);
     }
 
     void LeaseEntry::change(LeaseStatus status)

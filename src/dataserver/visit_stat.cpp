@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: visit_stat.cpp 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: visit_stat.cpp 544 2011-06-23 02:32:20Z duanfei@taobao.com $
  *
  * Authors:
  *   qushan <qushan@taobao.com>

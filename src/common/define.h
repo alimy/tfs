@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: define.h 719 2011-08-22 02:09:46Z chuyu@taobao.com $
+ * Version: $Id: define.h 440 2011-06-08 08:41:54Z daoan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
