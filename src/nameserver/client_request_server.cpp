@@ -279,6 +279,18 @@ namespace tfs
             ret = ngi.in_discard_newblk_safe_mode_time(now) || is_discard() ? EXIT_DISCARD_NEWBLK_ERROR: TFS_SUCCESS;
             if (TFS_SUCCESS == ret)
             {
+              block =  manager_.get_block_manager().get(block_id);
+              ret = NULL != block ? TFS_SUCCESS : EXIT_BLOCK_NOT_FOUND;
+              if ((TFS_SUCCESS == ret)
+                  && (block->get_servers_size() <= 0)
+                  && (!block->is_creating())
+                  && (block->get_last_update_time() + SYSPARAM_NAMESERVER.replicate_wait_time_ <= now))
+              {
+                GCObject* pobject = NULL;
+                manager_.get_block_manager().remove(pobject,block_id);
+                if (NULL != pobject)
+                  manager_.get_gc_manager().add(pobject);
+              }
               //create new block by block_id
               ret = manager_.open_helper_create_new_block_by_id(block_id);
               if (TFS_SUCCESS != ret)
@@ -611,6 +623,27 @@ namespace tfs
       return ret;
     }
 
+    int ClientRequestServer::handle_control_clear_system_table(const common::ClientCmdInformation& info, const int64_t buf_length, char* buf)
+    {
+      int32_t ret = (info.value3_ <= 0) ? EXIT_PARAMETER_ERROR : TFS_SUCCESS;
+      if (TFS_SUCCESS != ret)
+      {
+        snprintf(buf, buf_length, "parameter is invalid, value3: %d", info.value3_);
+      }
+      else
+      {
+        if (info.value3_ & CLEAR_SYSTEM_TABLE_FLAG_TASK)
+            manager_.get_task_manager().clear();
+        if (info.value3_ & CLEAR_SYSTEM_TABLE_FLAG_WRITE_BLOCK)
+            manager_.get_block_manager().clear_write_block();
+        if (info.value3_ & CLEAR_SYSTEM_TABLE_FLAG_REPORT_SERVER)
+            manager_.get_server_manager().clear_report_block_server_table();
+        if (info.value3_ & CLEAR_SYSTEM_TABLE_FLAG_DELETE_QUEUE)
+            manager_.get_block_manager().clear_delete_queue();
+      }
+      return ret;
+    }
+
     int ClientRequestServer::handle_control_cmd(const ClientCmdInformation& info, common::BasePacket* msg, const int64_t buf_length, char* buf)
     {
       time_t now = Func::get_monotonic_time();
@@ -643,6 +676,9 @@ namespace tfs
           break;
         case CLIENT_CMD_SET_BALANCE_PERCENT:
           ret = handle_control_set_balance_percent(info, buf_length, buf);
+          break;
+        case CLIENT_CMD_CLEAR_SYSTEM_TABLE:
+          ret = handle_control_clear_system_table(info, buf_length, buf);
           break;
         default:
           snprintf(buf, buf_length, "unknow client cmd: %d", info.cmd_);

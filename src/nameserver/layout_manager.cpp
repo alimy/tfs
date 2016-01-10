@@ -571,7 +571,10 @@ namespace tfs
       time_t  now = 0, current = 0;
       int64_t need = 0, index = 0;
       uint32_t start = 0;
+      int32_t loop = 0;
       const int32_t MAX_QUERY_BLOCK_NUMS = 2048;
+      const int32_t MAX_SLEEP_TIME_US = 50000;
+      const int32_t MAX_LOOP_NUMS = 1000000 / MAX_SLEEP_TIME_US;
       BlockCollect* pblock = NULL;
       BlockCollect* blocks[MAX_QUERY_BLOCK_NUMS];
       ArrayHelper<BlockCollect*> results(MAX_QUERY_BLOCK_NUMS, blocks);
@@ -599,24 +602,32 @@ namespace tfs
 
           now = Func::get_monotonic_time();
 
-          check_emergency_replicate_(get_block_manager().get_emergency_replicate_queue(), results, MAX_QUERY_BLOCK_NUMS, now);
+          check_emergency_replicate_(results, MAX_QUERY_BLOCK_NUMS, now);
 
-          TBSYS_LOG(INFO, "emergency_replicate_queue: %u, need: %"PRI64_PREFIX"d",
-            get_block_manager().get_emergency_replicate_queue().size(), need);
+          if (loop >= MAX_LOOP_NUMS)
+          {
+            loop = 0;
+            TBSYS_LOG(INFO, "emergency_replicate_queue: %"PRI64_PREFIX"d, need: %"PRI64_PREFIX"d",
+              get_block_manager().get_emergency_replicate_queue_size(), need);
+          }
 
-          build_emergency_replicate_(need, get_block_manager().get_emergency_replicate_queue(), now);
+          build_emergency_replicate_(need, now);
 
           results.clear();
 
           if (need > 0)
           {
+            now = Func::get_monotonic_time();
+            bool ret = false;
             bool range = in_hour_range(current, SYSPARAM_NAMESERVER.compact_time_lower_, SYSPARAM_NAMESERVER.compact_time_upper_);
             over = get_block_manager().scan(results, start, MAX_QUERY_BLOCK_NUMS);
             for (index = 0; index < results.get_array_index(); ++index)
             {
               pblock = *results.at(index);
               assert(NULL != pblock);
-              bool ret = build_replicate_task_(need, pblock, now);
+              //bool ret = build_replicate_task_(need, pblock, now);
+              if ((ret = get_block_manager().need_replicate(pblock, now)))
+                get_block_manager().push_to_emergency_replicate_queue(pblock->id());
               if (!ret && range)
                 ret = build_compact_task_(pblock, now);
               if (ret)
@@ -630,7 +641,8 @@ namespace tfs
           //TBSYS_LOG(INFO, "emergency_replicate_queue: %ld", get_block_manager().get_emergency_replicate_queue().size());
           //build_redundant_(need, now);
         }
-        Func::sleep(SYSPARAM_NAMESERVER.heart_interval_, ngi.destroy_flag_);
+        ++loop;
+        usleep(MAX_SLEEP_TIME_US);
       }
     }
 
@@ -1178,29 +1190,35 @@ namespace tfs
       return TFS_SUCCESS == ret ? block : NULL;
     }
 
-    bool LayoutManager::build_emergency_replicate_(int64_t& need, std::deque<BlockCollect*>& queue, const time_t now)
+    bool LayoutManager::build_emergency_replicate_(int64_t& need, const time_t now)
     {
-      int32_t count = queue.size();
-      BlockCollect* block = NULL;
-      while (!queue.empty() && need > 0 && count-- > 0)
+      BlockCollect* pblock = NULL;
+      uint32_t block= INVALID_BLOCK_ID;
+      int64_t count = get_block_manager().get_emergency_replicate_queue_size();
+      while (need > 0 && (get_block_manager().pop_from_emergency_replicate_queue(block)) && count-- > 0)
       {
-        block = queue.front();
-        queue.pop_front();
-        if (!build_replicate_task_(need, block, now))
+        pblock = get_block_manager().get(block);
+        if (NULL == pblock)
         {
-          if (get_block_manager().need_replicate(block, now))
-            queue.push_back(block);
+          TBSYS_LOG(INFO, "block: %u maybe lost,don't replicate", block);
         }
         else
         {
-          --need;
+          if (!build_replicate_task_(need, pblock, now))
+          {
+            if (get_block_manager().need_replicate(pblock, now))
+                get_block_manager().push_to_emergency_replicate_queue(block);
+          }
+          else
+          {
+            --need;
+          }
         }
       }
       return true;
     }
 
-    bool LayoutManager::check_emergency_replicate_(std::deque<BlockCollect*>& queue, ArrayHelper<BlockCollect*>& result,
-        const int32_t count, const time_t now)
+    bool LayoutManager::check_emergency_replicate_(ArrayHelper<BlockCollect*>& result, const int32_t count, const time_t now)
     {
       ServerCollect* server = NULL;
       while (NULL != (server = get_server_manager().pop_from_dead_queue(now)))
@@ -1217,9 +1235,8 @@ namespace tfs
           {
             block = *result.at(i);
             assert(NULL != block);
-            //get_block_manager().relieve_relation(block, server, now);
-            if (block->check_replicate(now))
-              queue.push_back(block);
+            if (get_block_manager().need_replicate(block, now))
+              get_block_manager().push_to_emergency_replicate_queue(block->id());
           }
           if (!result.empty())
             start = block->id();
