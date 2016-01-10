@@ -691,7 +691,7 @@ namespace tfs
         if (read_stat_buffer_.size() >= READ_STAT_LOG_BUFFER_LEN)
         {
           int64_t time_start = tbsys::CTimeUtil::getTime();
-          TBSYS_LOG(INFO, "---->START DUMP READ INFO. buffer size: %u, start time: %" PRI64_PREFIX "d", read_stat_buffer_.size(), time_start);
+          TBSYS_LOG(INFO, "---->START DUMP READ INFO. buffer size: %zd, start time: %" PRI64_PREFIX "d", read_stat_buffer_.size(), time_start);
           read_stat_mutex_.lock();
           int per_log_size = FILE_NAME_LEN + 2; //two space
           char read_log_buffer[READ_STAT_LOG_BUFFER_LEN * per_log_size + 1];
@@ -1660,7 +1660,7 @@ namespace tfs
         {
           tbsys::gDelete(resp_rrd_msg);
           tbsys::gDeleteA(tmp_data_buffer);
-          TBSYS_LOG(ERROR, "allocdata fail, blockid: %u, realreadlen: %" PRI64_PREFIX "d", block_id, real_read_len);
+          TBSYS_LOG(ERROR, "allocdata fail, blockid: %u, realreadlen: %d", block_id, real_read_len);
           return TFS_ERROR;
         }
         else
@@ -1710,7 +1710,7 @@ namespace tfs
       uint64_t file_id = message->get_file_id();
       uint64_t new_file_id = message->get_new_file_id();
       TBSYS_LOG(INFO,
-          "renamefile, blockid: %u, fileid: %" PRI64_PREFIX "u, newfileid: %" PRI64_PREFIX "u, ds list size: %u",
+          "renamefile, blockid: %u, fileid: %" PRI64_PREFIX "u, newfileid: %" PRI64_PREFIX "u, ds list size: %zd",
           block_id, file_id, new_file_id, message->get_ds_list().size());
 
       int ret = data_management_.rename_file(block_id, file_id, new_file_id);
@@ -1985,19 +1985,26 @@ namespace tfs
         CheckBlockRequestMessage* message = dynamic_cast<CheckBlockRequestMessage*>(packet);
         CheckBlockResponseMessage* resp_cb_msg = new CheckBlockResponseMessage();
         uint32_t block_id = message->get_block_id();
-        if (0 == block_id)  // check all blocks
+        if (0 == block_id)  // block_id: 0, check all blocks
         {
           ret = check_block_->check_all_blocks(resp_cb_msg->get_result_ref(),
               message->get_check_flag(), message->get_check_time(),
               message->get_last_check_time());
         }
-        else  // check specific block
+        else
         {
-          CheckBlockInfo cbi;
-          ret = check_block_->check_one_block(block_id, cbi, message->get_check_flag());
-          if (TFS_SUCCESS == ret)
+          if (0 == message->get_check_flag())  // flag: 0, check specific block
           {
-            resp_cb_msg->get_result_ref().push_back(cbi);
+            CheckBlockInfo cbi;
+            ret = check_block_->check_one_block(block_id, cbi);
+            if (TFS_SUCCESS == ret)
+            {
+              resp_cb_msg->get_result_ref().push_back(cbi);
+            }
+          }
+          else  // flag: !0, repair block
+          {
+            ret = check_block_->repair_block_info(block_id);
           }
         }
 
@@ -2027,7 +2034,7 @@ namespace tfs
       int ret = block_checker_.add_repair_task(check_file_item);
       TBSYS_LOG(
           INFO,
-          "receive crc error cmd, blockid: %u, fileid: %" PRI64_PREFIX "u, crc: %u, flag: %d, failserver size: %d, ret: %d\n",
+          "receive crc error cmd, blockid: %u, fileid: %" PRI64_PREFIX "u, crc: %u, flag: %d, failserver size: %zd, ret: %d\n",
           check_file_item->block_id_, check_file_item->file_id_, check_file_item->crc_, check_file_item->flag_,
           check_file_item->fail_servers_.size(), ret);
       message->reply(new StatusMessage(STATUS_MESSAGE_OK));

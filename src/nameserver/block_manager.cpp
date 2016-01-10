@@ -142,6 +142,7 @@ namespace tfs
       bool ret = false;
       BlockCollect* block = NULL;
       ServerCollect* server = NULL;
+      const int8_t MIN_REPLICATE = SYSPARAM_NAMESERVER.max_replication_ > 1 ? 2 : SYSPARAM_NAMESERVER.max_replication_;
       while (pop_from_delete_queue_(output) && !ret)
       {
         block = get(output.first);
@@ -149,8 +150,12 @@ namespace tfs
         ret = (NULL != block) && (NULL != server);
         if (ret)
         {
-          RWLock::Lock lock(get_mutex_(output.first), READ_LOCKER);
-          ret = block->get_servers_size() > 0 && !block->exist(server);
+          get_mutex_(output.first).rdlock();
+          int8_t size = block->get_servers_size();
+          ret = size >= MIN_REPLICATE && !block->exist(server);
+          get_mutex_(output.first).unlock();
+          if (!ret && size < MIN_REPLICATE)
+            push_to_delete_queue(output.first, output.second);
         }
       }
       return ret;
@@ -619,7 +624,7 @@ namespace tfs
         {
           index = next % MAX_BLOCK_CHUNK_NUMS;
           RWLock::Lock lock(rwmutex_[index], WRITE_LOCKER);
-          TBSYS_LOG(DEBUG, "last_write_blocks_.size: %u, percent: %u", last_write_blocks_[index].size(), percent);
+          TBSYS_LOG(DEBUG, "last_write_blocks_.size: %zd, percent: %u", last_write_blocks_[index].size(), percent);
           if (last_write_blocks_[index].size() >= percent)
           {
             iter = last_write_blocks_[index].begin();

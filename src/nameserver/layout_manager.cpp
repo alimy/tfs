@@ -165,7 +165,7 @@ namespace tfs
         //是否可以考虑其他方式，例如：做一次for将新加入，删除的，不变化的先找出来,然后再建立关系
         //这里可以放到后面来优化
         server->clear(*this, now);
-        TBSYS_LOG(DEBUG, "%s update relation, block size: %u", CNetUtil::addrToString(server->id()).c_str(), blocks.size());
+        TBSYS_LOG(DEBUG, "%s update relation, block size: %zd", CNetUtil::addrToString(server->id()).c_str(), blocks.size());
         ret = get_block_manager().update_relation(server, blocks, now);
         TBSYS_LOG(DEBUG, "%s update relation end", CNetUtil::addrToString(server->id()).c_str());
       }
@@ -315,6 +315,10 @@ namespace tfs
           {
             block = get_block_manager().get(block_id);
             ret = (NULL == block) ? EXIT_BLOCK_NOT_FOUND: TFS_SUCCESS;
+            if (TFS_SUCCESS != ret)
+            {
+              snprintf(msg, length, "repair block: %u not found", block_id);
+            }
             if (TFS_SUCCESS == ret)
             {
               ret = relieve_relation(block, target, now) ? TFS_SUCCESS : TFS_ERROR;
@@ -328,6 +332,10 @@ namespace tfs
                 runer.push_back(source);
                 runer.push_back(target);
                 ret = get_task_manager().add(block_id, runer, PLAN_TYPE_REPLICATE, now, PLAN_PRIORITY_EMERGENCY);
+                if (TFS_SUCCESS != ret)
+                {
+                  snprintf(msg, length, "repair block: %u, add block to task manager failed, ret: %d", block_id, ret);
+                }
               }
             }
           }
@@ -688,7 +696,7 @@ namespace tfs
             // find move src and dest ds list
             get_server_manager().move_split_servers(source, targets, percent);
 
-            TBSYS_LOG(INFO, "need: %"PRI64_PREFIX"d, source : %Zd, target: %Zd, percent: %e",
+            TBSYS_LOG(INFO, "need: %"PRI64_PREFIX"d, source : %zd, target: %d, percent: %e",
                 need, source.size(), targets.size(), percent);
 
             const int32_t MAX_RETRY_COUNT = 3;
@@ -755,9 +763,15 @@ namespace tfs
     {
       const int32_t MAX_REDUNDNAT_NUMS = 256;
       int64_t need = 0;
+      time_t now = 0;
       NsRuntimeGlobalInformation& ngi = GFactory::get_runtime_info();
+      int32_t hour = common::SYSPARAM_NAMESERVER.report_block_time_upper_ - common::SYSPARAM_NAMESERVER.report_block_time_lower_ ;
+      const int32_t SAFE_MODE_TIME = hour > 0 ? hour * 3600 : SYSPARAM_NAMESERVER.safe_mode_time_ * 4;
       while (!ngi.is_destroyed())
       {
+        now = Func::get_monotonic_time();
+        if (ngi.in_safe_mode_time(now))
+          Func::sleep(SAFE_MODE_TIME, ngi.destroy_flag_);
         need = MAX_REDUNDNAT_NUMS;
         while ((get_block_manager().delete_queue_empty() && !ngi.is_destroyed()))
           Func::sleep(SYSPARAM_NAMESERVER.heart_interval_, ngi.destroy_flag_);
@@ -1123,7 +1137,7 @@ namespace tfs
                 }
               }
               if (NULL != pobject)
-                get_gc_manager().add(pobject);
+                get_gc_manager().add(pobject, now);
             }//end elect dataserver successful
           }//end if (count >0)
         }//end find or create block successful
@@ -1184,7 +1198,7 @@ namespace tfs
             get_block_manager().remove(pobject, block_id);//rollback
           }
           if (NULL != pobject)
-            get_gc_manager().add(pobject);
+            get_gc_manager().add(pobject, now);
         }
       }//end if (TFS_SUCCESS == ret) check parameter
       return TFS_SUCCESS == ret ? block : NULL;
@@ -1206,7 +1220,7 @@ namespace tfs
         {
           if (!build_replicate_task_(need, pblock, now))
           {
-            if (get_block_manager().need_replicate(pblock, now))
+            if (get_block_manager().need_replicate(pblock))
                 get_block_manager().push_to_emergency_replicate_queue(block);
           }
           else
@@ -1235,15 +1249,14 @@ namespace tfs
           {
             block = *result.at(i);
             assert(NULL != block);
-            if (get_block_manager().need_replicate(block, now))
+            if (get_block_manager().need_replicate(block))
               get_block_manager().push_to_emergency_replicate_queue(block->id());
           }
           if (!result.empty())
             start = block->id();
         }
         while (!complete);
-        server->update_last_time(now);
-        get_gc_manager().add(server);
+        get_gc_manager().add(server, now);
       }
       return true;
     }

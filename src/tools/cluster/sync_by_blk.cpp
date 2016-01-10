@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: sync_by_blk.cpp 1313 2012-03-01 03:41:06Z duanfei@taobao.com $
+ * Version: $Id: sync_by_blk.cpp 1542 2012-06-27 02:02:37Z duanfei@taobao.com $
  *
  * Authors:
  *   chuyu <chuyu@taobao.com>
@@ -373,7 +373,7 @@ int main(int argc, char* argv[])
       fclose(fp);
     }
   }
-  TBSYS_LOG(INFO, "blockid list size: %d", v_block_id.size());
+  TBSYS_LOG(INFO, "blockid list size: %zd", v_block_id.size());
 
   memset(&g_sync_stat_, 0, sizeof(g_sync_stat_));
 
