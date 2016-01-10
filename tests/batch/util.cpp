@@ -205,6 +205,7 @@ int copy_file(TfsClientImplV2* tfsclient, char* tfsname, int local_fd)
     fprintf(stderr, "TFS �ļ���Ƿ�%s\n", tfsname);
     return EXIT_FAILURE;
   }
+  prefix = tfsname + FILE_NAME_LEN;
 
   int fd;
   if ((fd = tfsclient->open(tfsname, prefix, NULL, T_READ)) <= 0 )
@@ -272,6 +273,7 @@ int copy_file(TfsClientImplV2* tfsclient, char* tfsname, int local_fd)
     fprintf(stderr, "TFS �ļ���Ƿ�%s\n", tfsname);
     return EXIT_FAILURE;
   }
+  prefix = tfsname + FILE_NAME_LEN;
 
   int fd;
   if (fd = tfsclient.open(tfsname, prefix, T_READ) <= 0)
@@ -354,6 +356,7 @@ int copy_file_v2(TfsClientImplV2* tfsclient, char* tfsname, int local_fd)
     fprintf(stderr, "TFS �ļ���Ƿ�%s\n", tfsname);
     return EXIT_FAILURE;
   }
+  prefix = tfsname + FILE_NAME_LEN;
 
   int fd;
   if ((fd = tfsclient->open(tfsname, prefix, NULL, T_READ)) <= 0)

@@ -74,6 +74,28 @@ namespace tfs
       public:
         DsRenewLeaseMessage();
         virtual ~DsRenewLeaseMessage();
+        virtual int serialize(common::Stream& output)  const;
+        virtual int deserialize(common::Stream& input);
+        virtual int64_t length() const;
+
+        common::BlockInfoV2* get_block_infos()
+        {
+          return block_infos_;
+        }
+
+        int32_t get_size() const
+        {
+          return size_;
+        }
+
+        void set_size(const int32_t size)
+        {
+          size_ = size;
+        }
+
+      protected:
+        common::BlockInfoV2 block_infos_[common::MAX_WRITABLE_BLOCK_COUNT];
+        int32_t size_;
     };
 
     class DsRenewLeaseResponseMessage : public DsApplyLeaseResponseMessage
@@ -81,6 +103,28 @@ namespace tfs
       public:
         DsRenewLeaseResponseMessage();
         virtual ~DsRenewLeaseResponseMessage();
+        virtual int serialize(common::Stream& output)  const;
+        virtual int deserialize(common::Stream& input);
+        virtual int64_t length() const;
+
+        common::BlockLease* get_block_lease()
+        {
+          return block_lease_;
+        }
+
+        int32_t get_size() const
+        {
+          return size_;
+        }
+
+        void set_size(const int32_t size)
+        {
+          size_ = size;
+        }
+
+      protected:
+        common::BlockLease block_lease_[common::MAX_WRITABLE_BLOCK_COUNT];
+        int32_t size_;
     };
 
     // reponse with StatusMessage
@@ -113,19 +157,19 @@ namespace tfs
           return server_id_;
         }
 
-        void set_size(const int32_t size)
+        void set_count(const int32_t count)
         {
-          size_ = size;
+          count_ = count;
         }
 
-        int32_t get_size() const
+        int32_t get_count() const
         {
-          return size_;
+          return count_;
         }
 
       protected:
         uint64_t server_id_;
-        int32_t size_;
+        int32_t count_;
     };
 
     class DsApplyBlockResponseMessage: public common::BasePacket
@@ -156,31 +200,6 @@ namespace tfs
         common::BlockLease block_lease_[common::MAX_WRITABLE_BLOCK_COUNT];
         int32_t size_;
    };
-
-    class DsRenewBlockMessage: public DsApplyBlockMessage
-    {
-      public:
-        DsRenewBlockMessage();
-        virtual ~DsRenewBlockMessage();
-        virtual int serialize(common::Stream& output)  const;
-        virtual int deserialize(common::Stream& input);
-        virtual int64_t length() const;
-
-        common::BlockInfoV2* get_block_infos()
-        {
-          return block_infos_;
-        }
-
-      protected:
-        common::BlockInfoV2 block_infos_[common::MAX_WRITABLE_BLOCK_COUNT];
-    };
-
-    class DsRenewBlockResponseMessage: public DsApplyBlockResponseMessage
-    {
-      public:
-        DsRenewBlockResponseMessage();
-        virtual ~DsRenewBlockResponseMessage();
-    };
 
     class DsApplyBlockForUpdateMessage: public common::BasePacket
     {

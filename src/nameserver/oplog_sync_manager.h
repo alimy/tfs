@@ -57,7 +57,6 @@ namespace tfs
       int replay_helper_do_oplog(const time_t now, const int32_t type, const char* const data, const int64_t data_len, int64_t& pos);
 
       inline uint64_t generation(const bool verify) { return id_factory_.generation(verify);}
-      inline int update(const uint64_t id) { return id_factory_.update(id);}
 
       int create_family_id(int64_t& family_id);
       int create_family(common::FamilyInfo& family_info);
@@ -73,10 +72,8 @@ namespace tfs
       int replay_all_();
       common::BasePacket* malloc_(const int32_t type);
 
-      int scan_all_family_(const int32_t thseqno, const int32_t chunk, int64_t& start_family_id);
+      int scan_all_family_(const int32_t chunk, int64_t& start_family_id);
       int scan_all_family_log_();
-      int load_family_info_(const int32_t thread_seqno);
-      int load_family_log_(const int32_t thread_seqno);
       int load_all_family_info_(const int32_t thread_seqno, bool& load_complete);
 
       class LoadFamilyInfoThreadHelper: public tbutil::Thread
@@ -97,14 +94,13 @@ namespace tfs
       typedef tbutil::Handle<LoadFamilyInfoThreadHelper> LoadFamilyInfoThreadHelperPtr;
 
     private:
-      static const int32_t DEFATUL_TAIR_INDEX = 0;
       LayoutManager& manager_;
       OpLog* oplog_;
       common::FileQueue* file_queue_;
       common::FileQueueThread* file_queue_thread_;
       BlockIdFactory id_factory_;
       tbutil::Mutex mutex_;
-      TairHelper* dbhelper_[MAX_LOAD_FAMILY_INFO_THREAD_NUM];
+      TairHelper* dbhelper_;
       tbnet::PacketQueueThread work_thread_;
       LoadFamilyInfoThreadHelperPtr load_family_info_thread_[MAX_LOAD_FAMILY_INFO_THREAD_NUM];
     };

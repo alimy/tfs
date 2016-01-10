@@ -10,14 +10,12 @@ bin_PROGRAMS = clear_file_system\
                format_file_system\
                read_super_block\
 							 read_index_tool\
-							 dump_file_name\
 							 convert_name\
                reverse_name\
 							 check_down_disk_data\
                check_super_block \
-							 safe_remove_block \
-							 check_family\
-							 check_index_tool
+               view_local_key \
+							 safe_remove_block
 
 LDADD =	$(top_builddir)/src/tools/util/libtfstoolsutil.a\
 				$(top_builddir)/src/dataserver/libdataserver.a\
@@ -46,15 +44,9 @@ format_file_system_SOURCES = format_file_system.cpp
 
 read_index_tool_SOURCES = read_index_tool.cpp
 
-dump_file_name_SOURCES = dump_file_name.cpp
-
-check_index_tool_SOURCES = check_index_tool.cpp
-
 check_down_disk_data_SOURCES = check_down_disk_data.cpp
 
 safe_remove_block_SOURCES = safe_remove_block.cpp
-
-check_family_SOURCES = check_family.cpp
 
 #recover_disk_data_to_clusterv2_SOURCES = recover_disk_data_to_cluster_v2.cpp
 
@@ -72,7 +64,7 @@ check_family_SOURCES = check_family.cpp
 
 #synctool_SOURCES = sync_tool.cpp # for test syncserver
 
-#view_local_key_SOURCES = view_local_key.cpp
+view_local_key_SOURCES = view_local_key.cpp
 
 #read_block_prefix_SOURCES = read_block_prefix.cpp
 

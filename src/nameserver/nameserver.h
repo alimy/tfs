@@ -80,6 +80,7 @@ namespace tfs
    private:
       DISALLOW_COPY_AND_ASSIGN(NameServer);
       LayoutManager layout_manager_;
+      NameServerHeartManager master_slave_heart_manager_;
       HeartManagement heart_manager_;
     protected:
       /** get log file path*/
@@ -91,7 +92,6 @@ namespace tfs
     private:
       int open(common::BasePacket* msg);
       int batch_open(common::BasePacket* msg);
-      int update_block_info(common::BasePacket* msg);
       int show_server_information(common::BasePacket* msg);
       int resolve_block_version_conflict(common::BasePacket* msg);
       int ping(common::BasePacket* msg);
@@ -103,7 +103,6 @@ namespace tfs
       int get_family_info(common::BasePacket* msg);
       //int repair(common::BasePacket* msg);
       int apply_block(common::BasePacket* msg);
-      int renew_block(common::BasePacket* msg);
       int apply_block_for_update(common::BasePacket* msg);
       int giveup_block(common::BasePacket* msg);
 

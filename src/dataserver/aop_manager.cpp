@@ -262,7 +262,7 @@ namespace tfs
         tbnet::Packet* packet)
     {
       int ret = ((INVALID_BLOCK_ID != block_id) && (INVALID_FILE_ID != file_id) &&
-          (INVALID_OP_ID != op_id)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
+          (INVALID_OP_ID != op_id) && (NULL != packet)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
 
       if (TFS_SUCCESS == ret)
       {
@@ -271,7 +271,7 @@ namespace tfs
         ret = get(oid, op_meta);
         if (TFS_SUCCESS == ret)
         {
-          if (NULL == packet || SLAVE_DS_RESP_MESSAGE != packet->getPCode())
+          if (SLAVE_DS_RESP_MESSAGE != packet->getPCode())
           {
             op_meta->update_member();
           }
@@ -386,7 +386,7 @@ namespace tfs
       if ((TFS_SUCCESS == ret) && (remote_version >= 0))
       {
         DsRuntimeGlobalInformation& info = DsRuntimeGlobalInformation::instance();
-        if (info.global_switch_ & ENABLE_VERSION_CHECK)
+        if (ENABLE_VERSION_CHECK_FLAG_YES == info.enable_version_check_)
         {
           ret = get_block_manager().check_block_version(local, remote_version, block_id, attach_block_id);
           if (TFS_SUCCESS != ret)
@@ -413,9 +413,6 @@ namespace tfs
         }
         put(op_meta);
       }
-
-      // make sure we have BlockInfoV2 in local
-      get_block_manager().get_block_info(local, block_id);
 
       return  ret;
     }

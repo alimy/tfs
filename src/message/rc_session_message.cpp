@@ -545,11 +545,12 @@ namespace tfs
 
       for (; cmit != app_oper_info_.end(); ++cmit)
       {
+        Buffer& buffer = output.get_buffer();
         int64_t  pos = 0;
         ret = cmit->second.serialize(output.get_free(), output.get_free_length(),pos);
         if (ret == TFS_SUCCESS)
         {
-          output.pour(cmit->second.length());
+          buffer.pour(cmit->second.length());
         }
       }
 
@@ -576,12 +577,13 @@ namespace tfs
 
       for (i = 0;i < length; ++i)
       {
+        Buffer& buffer = input.get_buffer();
         int64_t pos = 0;
 
         ret = app_oper_info.deserialize(input.get_data(), input.get_data_length(), pos);
         if (ret == TFS_SUCCESS)
         {
-          input.drain(app_oper_info.length());
+          buffer.drain(app_oper_info.length());
 
           oper_key = app_oper_info.oper_app_id_ | (app_oper_info.oper_type_ << 16);
           app_oper_info_.insert(pair<OperType, AppOperInfo>((OperType)oper_key, app_oper_info));

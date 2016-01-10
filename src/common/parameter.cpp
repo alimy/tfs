@@ -38,7 +38,6 @@ namespace tfs
     NameMetaServerParameter NameMetaServerParameter::meta_parameter_;
     RtServerParameter RtServerParameter::rt_parameter_;
     CheckServerParameter CheckServerParameter::cs_parameter_;
-    MigrateServerParameter MigrateServerParameter::ms_parameter_;
     KvMetaParameter KvMetaParameter::kv_meta_parameter_;
     KvRtServerParameter KvRtServerParameter::kv_rt_parameter_;
     ExpireServerParameter ExpireServerParameter::expire_server_parameter_;
@@ -68,23 +67,23 @@ namespace tfs
       marshalling_task_expired_time_ = 360;
       reinstate_task_expired_time_ = 240;
       dissolve_task_expired_time_  = 120;
-      max_mr_network_bandwith_ratio_ = 60;
-      max_rw_network_bandwith_ratio_ = 40;
-      compact_family_member_ratio_   = 60;
+      max_mr_network_bandwith_ratio_ = 50;
+      max_rw_network_bandwith_ratio_ = 50;
+      compact_family_member_ratio_   = 30;
       resolve_version_conflic_task_expired_time_ = 30;
-      max_single_machine_network_bandwith_ = 240;//120MB
+      max_single_machine_network_bandwith_ = 120;//120MB
       adjust_copies_location_time_lower_   = 6;
       adjust_copies_location_time_upper_   = 12;
       between_ns_and_ds_lease_expire_time_ = 60;//60s
       between_ns_and_ds_lease_safe_time_   = 2;//2s
       between_ns_and_ds_lease_retry_times_ = 3;
       between_ns_and_ds_lease_retry_expire_time_  = 2;//2s
-      max_marshalling_num_ = 10;
-      marshalling_visit_time_ = 7;
-      global_switch_ = ENABLE_VERSION_CHECK | ENABLE_READ_STATSTICS;
+      max_marshalling_num_ = 1;
+      marshalling_visit_time_ = 30;  //one month
+      enable_old_interface_ = ENABLE_OLD_INTERFACE_FLAG_NO;
+      enable_version_check_ = ENABLE_VERSION_CHECK_FLAG_YES;
       client_keepalive_interval_ = 600;
       verify_index_reserved_space_ratio_ = VERIFY_INDEX_RESERVED_SPACKE_DEFAULT_RATIO;
-      check_integrity_interval_days_ = CHECK_INTEGRITY_INTERVAL_DAYS_DEFAULT;
       write_file_check_copies_complete_ = WRITE_FILE_CHECK_COPIES_COMPLETE_FLAG_NO;
       report_block_time_interval_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_REPORT_BLOCK_TIME_INTERVAL, 1);
       report_block_time_interval_min_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_REPORT_BLOCK_TIME_INTERVAL_MIN, 0);
@@ -132,6 +131,11 @@ namespace tfs
 
       TBSYS_LOG(INFO, "load configure::max_block_size_:%u, max_replication_:%u,max_write_file_count_:%u,max_use_capacity_ratio_:%u",
           max_block_size_,max_replication_, max_write_file_count_,max_use_capacity_ratio_);
+
+      const char* group_mask_str = TBSYS_CONFIG.getString(CONF_SN_NAMESERVER, CONF_GROUP_MASK, "255.255.255.255");
+      if (group_mask_str == NULL)
+          group_mask_str = "255.255.255.255";
+      group_mask_ = Func::get_addr(group_mask_str);
 
       heart_interval_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_HEART_INTERVAL, 2);
       if (heart_interval_ <= 0)
@@ -197,11 +201,10 @@ namespace tfs
         TBSYS_LOG(ERROR, "%s in [%s] is invalid, value: %d", CONF_GROUP_SEQ, CONF_SN_NAMESERVER, group_seq_);
         return EXIT_SYSTEM_PARAMETER_ERROR;
       }
-      report_block_expired_time_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_REPORT_BLOCK_EXPIRED_TIME, 30);
+      report_block_expired_time_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_REPORT_BLOCK_EXPIRED_TIME, 10);
       discard_newblk_safe_mode_time_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_DISCARD_NEWBLK_SAFE_MODE_TIME, safe_mode_time_ * 2);
       int32_t report_block_thread_nums = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_REPORT_BLOCK_THREAD_COUNT, 4);
       report_block_queue_size_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_REPORT_BLOCK_MAX_QUEUE_SIZE, report_block_thread_nums * 2);
-      report_block_pending_size_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_REPORT_BLOCK_MAX_PENDING_SIZE, 16);
       if (report_block_queue_size_ < report_block_thread_nums * 2)
          report_block_queue_size_ = report_block_thread_nums * 2;
       const char* report_hour_str = TBSYS_CONFIG.getString(CONF_SN_NAMESERVER, CONF_REPORT_BLOCK_HOUR_RANGE, "2~4");
@@ -226,9 +229,6 @@ namespace tfs
 
       max_marshalling_queue_timeout_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_MAX_MARSHALLING_QUEUE_TIMEOUT, 3600);
 
-      // used by migrateserver
-      migrate_complete_wait_time_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_MIGRATE_COMPLETE_WAIT_TIME, 120);
-
       business_port_count_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_BUSINESS_PORT_COUNT, 1);
       if (business_port_count_ <= 0)
       {
@@ -241,9 +241,6 @@ namespace tfs
         TBSYS_LOG(ERROR, "%s in [%s] is invalid, value: %d", CONF_HEART_PORT_COUNT, CONF_SN_NAMESERVER, heart_port_count_);
         return EXIT_SYSTEM_PARAMETER_ERROR;
       }
-
-      plan_run_flag_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_PLAN_RUN_FLAG, -1);
-
       return TFS_SUCCESS;
     }
 
@@ -313,13 +310,6 @@ namespace tfs
       max_bg_task_queue_size_ = config.getInt(CONF_SN_DATASERVER, CONF_MAX_BG_TASK_QUEUE_SIZE, 5);
       business_port_count_ = config.getInt(CONF_SN_DATASERVER, CONF_BUSINESS_PORT_COUNT, 1);
       heart_port_count_ = config.getInt(CONF_SN_DATASERVER, CONF_HEART_PORT_COUNT, 1);
-      const int rack_id_tmp = config.getInt(CONF_SN_DATASERVER, CONF_RACK_ID, -1);
-      if (rack_id_tmp < 0)
-      {
-        TBSYS_LOG(ERROR, "rack_id %d < 0 invalid", rack_id_tmp);
-        return EXIT_SYSTEM_PARAMETER_ERROR;
-      }
-      rack_id_ = static_cast<uint32_t>(rack_id_tmp);
 
       // example ==> 10.232.36.201:3100:1|10.232.36.202:3100:2|10.232.36.203:3100:1
       const char* cluster_version_str = config.getString(CONF_SN_DATASERVER, CONF_CLUSTER_VERSION_LIST, NULL);
@@ -373,7 +363,7 @@ namespace tfs
 
     int DataServerParameter::get_real_ds_port(const int ds_port, const std::string& index)
     {
-      return ds_port + ((atoi(index.c_str()))- 1);
+      return ds_port + ((atoi((index.c_str()))));
     }
 
     int FileSystemParameter::initialize(const std::string& index)
@@ -615,8 +605,6 @@ namespace tfs
         check_flag_ = config.getInt(CONF_SN_CHECKSERVER, CONF_CHECK_FLAG, 0);
         check_reserve_time_ = config.getInt(CONF_SN_CHECKSERVER, CONF_CHECK_RESERVE_TIME, 180);
         force_check_all_ = config.getInt(CONF_SN_CHECKSERVER, CONF_FORCE_CHECK_ALL, 0);
-        group_seq_ = config.getInt(CONF_SN_CHECKSERVER, CONF_GROUP_SEQ, 0);
-        group_count_ = config.getInt(CONF_SN_CHECKSERVER, CONF_GROUP_COUNT, 1);
       }
 
       // start_time like 01:30
@@ -713,63 +701,6 @@ namespace tfs
       return ret;
     }
 
-    int MigrateServerParameter::initialize(void)
-    {
-      const char* ipaddr = TBSYS_CONFIG.getString(CONF_SN_MIGRATESERVER, CONF_IP_ADDR, "");
-      const int32_t port = TBSYS_CONFIG.getInt(CONF_SN_MIGRATESERVER, CONF_PORT, 0);
-      int32_t ret = (NULL != ipaddr && port > 1024 && port < 65535) ? TFS_SUCCESS : EXIT_SYSTEM_PARAMETER_ERROR;
-      if (TFS_SUCCESS != ret)
-      {
-        TBSYS_LOG(ERROR, "migrateserver not set (nameserver vip) ipaddr: %s or port: %d, must be exit", NULL == ipaddr ? "null" : ipaddr, port);
-      }
-      if (TFS_SUCCESS == ret)
-      {
-        ds_base_port_ = TBSYS_CONFIG.getInt(CONF_SN_MIGRATESERVER, CONF_DS_BASE_PORT, 3200);
-        max_full_ds_count_ = TBSYS_CONFIG.getInt(CONF_SN_MIGRATESERVER, CONF_MAX_FULL_DS_COUNT, 12);
-        ret = (port > 1024 && port < 65535 && max_full_ds_count_ > 0) ? TFS_SUCCESS : EXIT_SYSTEM_PARAMETER_ERROR;
-        if (TFS_SUCCESS != ret)
-        {
-          TBSYS_LOG(ERROR, "migrateserver not ds base port: %d or max full ds count: %d invalid, must be exit", ds_base_port_, max_full_ds_count_);
-        }
-      }
-      if (TFS_SUCCESS == ret)
-      {
-        ns_vip_port_ = tbsys::CNetUtil::strToAddr(ipaddr, port);
-
-        const char* percent = TBSYS_CONFIG.getString(CONF_SN_MIGRATESERVER, CONF_BALANCE_PERCENT, "0.05");
-        balance_percent_ = strtod(percent, NULL);
-        const char* penalty = TBSYS_CONFIG.getString(CONF_SN_MIGRATESERVER, CONF_PENALTY_PERCENT, "0.8");
-        penalty_percent_ = strtod(penalty, NULL);
-
-        update_statistic_interval_ = TBSYS_CONFIG.getInt(CONF_SN_MIGRATESERVER, CONF_UPDATE_STATISTIC_INTERVAL, 3600);
-        const int32_t TWO_MONTH = 2 * 31 * 86400;
-        hot_time_range_ = TBSYS_CONFIG.getInt(CONF_SN_MIGRATESERVER, CONF_HOT_TIME_RANGE, TWO_MONTH);
-
-        const char* str_full_disk_access_ratio = TBSYS_CONFIG.getString(CONF_SN_MIGRATESERVER, CONF_FULL_DISK_ACCESS_RATIO, "");
-        const char* str_system_disk_access_ratio = TBSYS_CONFIG.getString(CONF_SN_MIGRATESERVER, CONF_SYSTEM_DISK_ACCESS_RATIO, "");
-        std::vector<std::string> ratios[2];
-        Func::split_string(str_full_disk_access_ratio, ':', ratios[0]);
-        Func::split_string(str_system_disk_access_ratio, ':', ratios[1]);
-        ret = (5U == ratios[0].size() && 5U == ratios[1].size()) ? TFS_SUCCESS : EXIT_SYSTEM_PARAMETER_ERROR;
-        if (TFS_SUCCESS == ret)
-        {
-          AccessRatio* ar[2];
-          ar[0] = &full_disk_access_ratio_;
-          ar[1] = &system_disk_access_ratio_;
-          for (int32_t i = 0; i < 2; ++i)
-          {
-            ar[i]->last_access_time_ratio = atoi(ratios[i][0].c_str());
-            ar[i]->read_ratio = atoi(ratios[i][1].c_str());
-            ar[i]->write_ratio = atoi(ratios[i][2].c_str());
-            ar[i]->update_ratio = atoi(ratios[i][3].c_str());
-            ar[i]->unlink_ratio = atoi(ratios[i][4].c_str());
-          }
-        }
-        need_migrate_back_ = TBSYS_CONFIG.getInt(CONF_SN_MIGRATESERVER, CONF_NEED_MIGRATE_BACK, 0);
-      }
-      return ret;
-    }
-
     int KvMetaParameter::initialize(const std::string& config_file)
     {
       tbsys::CConfig config;
@@ -783,6 +714,7 @@ namespace tfs
       conn_str_ = config.getString(CONF_SN_KVMETA, CONF_KV_DB_CONN, "");
       user_name_ = config.getString(CONF_SN_KVMETA, CONF_KV_DB_USER, "");
       pass_wd_ = config.getString(CONF_SN_KVMETA, CONF_KV_DB_PASS, "");
+      pool_size_ = config.getInt(CONF_SN_KVMETA, CONF_KV_DB_POOL_SIZE, 20);
       object_area_ = config.getInt(CONF_SN_KVMETA, CONF_OBJECT_AREA, -1);
       lifecycle_area_ = config.getInt(CONF_SN_KVMETA, CONF_LIFECYCLE_AREA, -1);
       dump_stat_info_interval_ = config.getInt(CONF_SN_KVMETA, CONF_STAT_INFO_INTERVAL, 60000000);
@@ -879,6 +811,7 @@ namespace tfs
       conn_str_ = config.getString(CONF_SN_EXPIRESERVER, CONF_KV_DB_CONN, "");
       user_name_ = config.getString(CONF_SN_EXPIRESERVER, CONF_KV_DB_USER, "");
       pass_wd_ = config.getString(CONF_SN_EXPIRESERVER, CONF_KV_DB_PASS, "");
+      pool_size_ = config.getInt(CONF_SN_EXPIRESERVER, CONF_KV_DB_POOL_SIZE, 20);
       lifecycle_area_ = config.getInt(CONF_SN_EXPIRESERVER, CONF_LIFECYCLE_AREA, -1);
 
       re_clean_days_ = config.getInt(CONF_SN_EXPIRESERVER, CONF_EXPIRE_RE_CLEAN_DAYS, 1);
@@ -941,10 +874,6 @@ namespace tfs
         return TFS_ERROR;
       }
 
-      conn_str_ = config.getString(CONF_SN_EXPIREROOTSERVER, CONF_KV_DB_CONN, "");
-      user_name_ = config.getString(CONF_SN_EXPIREROOTSERVER, CONF_KV_DB_USER, "");
-      pass_wd_ = config.getString(CONF_SN_EXPIREROOTSERVER, CONF_KV_DB_PASS, "");
-      lifecycle_area_ = config.getInt(CONF_SN_EXPIREROOTSERVER, CONF_LIFECYCLE_AREA, -1);
       task_period_ = config.getInt(CONF_SN_EXPIREROOTSERVER, CONF_TASK_PERIOD, 0);
       note_interval_ = config.getInt(CONF_SN_EXPIREROOTSERVER, CONF_NOTE_INTERVAL, 0);
 

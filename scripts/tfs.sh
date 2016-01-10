@@ -7,11 +7,12 @@ TFS_MOCK_DS_CONF=${TFS_HOME}/conf/mock_ds.conf
 TFS_ADMIN_CONF=${TFS_HOME}/conf/ads.conf
 TFS_RC_CONF=${TFS_HOME}/conf/rc.conf
 TFS_CS_CONF=${TFS_HOME}/conf/cs.conf
-TFS_MS_CONF=${TFS_HOME}/conf/ms.conf
 TFS_RS_CONF=${TFS_HOME}/conf/rs.conf
 TFS_KV_RS_CONF=${TFS_HOME}/conf/kv_rs.conf
 TFS_META_CONF=${TFS_HOME}/conf/meta.conf
 TFS_KV_META_CONF=${TFS_HOME}/conf/kv_meta.conf
+TFS_LIFECYCLE_ROOT_CONF=${TFS_HOME}/conf/lifecycle_root.conf
+TFS_LIFECYCLE_EXPIRE_CONF=${TFS_HOME}/conf/lifecycle_expire.conf
 BIN_DIR=${TFS_HOME}/bin
 NS_BIN=${BIN_DIR}/nameserver
 DS_BIN=${BIN_DIR}/dataserver
@@ -19,22 +20,24 @@ ADMIN_BIN=${BIN_DIR}/adminserver
 MOCK_DS_BIN=${BIN_DIR}/mock_data_server
 RC_BIN=${BIN_DIR}/rcserver
 CS_BIN=${BIN_DIR}/checkserver
-MS_BIN=${BIN_DIR}/migrateserver
 RS_BIN=${BIN_DIR}/rootserver
 KV_RS_BIN=${BIN_DIR}/kvrootserver
 META_BIN=${BIN_DIR}/metaserver
 KV_META_BIN=${BIN_DIR}/kvmetaserver
+LIFECYCLE_ROOT_BIN=${BIN_DIR}/expirerootserver
+LIFECYCLE_EXPIRE_BIN=${BIN_DIR}/expireserver
 NS_CMD="${NS_BIN} -f ${TFS_NS_CONF} -d"
 DS_CMD="${DS_BIN} -f ${TFS_DS_CONF} -d -i"
 ADMIN_CMD="${ADMIN_BIN} -f ${TFS_ADMIN_CONF} -d -s"
 MOCK_DS_CMD="${MOCK_DS_BIN} -f ${TFS_MOCK_DS_CONF} -d -i"
 RC_CMD="${RC_BIN} -f ${TFS_RC_CONF} -d"
 CS_CMD="${CS_BIN} -f ${TFS_CS_CONF} -d"
-MS_CMD="${MS_BIN} -f ${TFS_MS_CONF} -d"
 RS_CMD="${RS_BIN} -f ${TFS_RS_CONF} -d"
 KV_RS_CMD="${KV_RS_BIN} -f ${TFS_KV_RS_CONF} -d"
 META_CMD="${META_BIN} -f ${TFS_META_CONF} -d"
 KV_META_CMD="${KV_META_BIN} -f ${TFS_KV_META_CONF} -d"
+LIFECYCLE_ROOT_CMD="${LIFECYCLE_ROOT_BIN} -f ${TFS_LIFECYCLE_ROOT_CONF} -d"
+LIFECYCLE_EXPIRE_CMD="${LIFECYCLE_EXPIRE_BIN} -f ${TFS_LIFECYCLE_EXPIRE_CONF} -d"
 UP_TIME=4
 DOWN_TIME=8
 
@@ -63,7 +66,7 @@ succ_echo()
 
 print_usage()
 {
-    warn_echo "Usage: $0 [start_ns | check_ns | stop_ns | start_ds ds_index | check_ds | stop_ds ds_index | start_ds_all | stop_ds_all | admin_ns | admin_ds | check_admin | stop_admin | start_rc | check_rc | stop_rc | start_cs | check_cs | stop_cs | start_ms | stop_ms | start_rs | check_rs | stop_rs | start_meta | check_meta | stop_meta | start_kv_rs| check_kv_rs | stop_kv_rs | start_kv_meta | check_kv_meta | stop_kv_meta]"
+    warn_echo "Usage: $0 [start_ns | check_ns | stop_ns | start_ds ds_index | check_ds | stop_ds ds_index | start_ds_all | stop_ds_all | admin_ns | admin_ds | check_admin | stop_admin | start_rc | check_rc | stop_rc | start_cs | check_cs | stop_cs | start_rs | check_rs | stop_rs | start_meta | check_meta | stop_meta | start_kv_rs| check_kv_rs | stop_kv_rs | start_kv_meta | check_kv_meta | stop_kv_meta | start_lifecycle_root | check_lifecycle_root | stop_lifecycle_root | start_lifecycle_expire | check_lifecycle_expire | stop_lifecycle_expire]"
     warn_echo "ds_index format : 2-4 OR 2,4,3 OR 2-4,6,7 OR '2-4 5,7,8'"
 }
 
@@ -148,14 +151,6 @@ get_info()
                 echo "checkserver"
             fi
             ;;
-        ms)
-            if [ $2 -gt 0 ]
-            then
-                echo "${MS_CMD}"
-            else
-                echo "migrateserver"
-            fi
-            ;;
         rs)
             if [ $2 -gt 0 ]
             then
@@ -186,6 +181,22 @@ get_info()
                 echo "${KV_META_CMD}"
             else
                 echo "kvmetaserver"
+            fi
+            ;;
+        lifecycle_root)
+            if [ $2 -gt 0 ]
+            then
+                echo "${LIFECYCLE_ROOT_CMD}"
+            else
+                echo "expirerootserver"
+            fi
+            ;;
+        lifecycle_expire)
+            if [ $2 -gt 0 ]
+            then
+                echo "${LIFECYCLE_EXPIRE_CMD}"
+            else
+                echo "expireserver"
             fi
             ;;
         *)
@@ -264,9 +275,6 @@ check_run()
         cs)
             grep_cmd="${CS_CMD}"
             ;;
-        ms)
-            grep_cmd="${MS_CMD}"
-            ;;
         meta)
             grep_cmd="${META_CMD}"
             ;;
@@ -275,6 +283,12 @@ check_run()
             ;;
         kv_meta)
             grep_cmd="${KV_META_CMD}"
+            ;;
+        lifecycle_root)
+            grep_cmd="${LIFECYCLE_ROOT_CMD}"
+            ;;
+        lifecycle_expire)
+            grep_cmd="${LIFECYCLE_EXPIRE_CMD}"
             ;;
         *)
             exit 1
@@ -450,18 +464,19 @@ stop_admin()
 
 start_ds_all()
 {
-  host=`hostname -i`
-  ds_index_list=`get_index_from_db $host`
-  if ! [ -n "$ds_index_list" ]
+  ret=`check_all_disks`
+  if [ "$ret" = "ok" ]
   then
-      fail_echo "No ds index info found"
+    host=`hostname -i`
+    ds_index_list=`get_index_from_db $host`
+    if ! [ -n "$ds_index_list" ]
+    then
+        fail_echo "No ds index info found"
+    else
+        do_start "ds" "`get_index $ds_index_list`"
+    fi
   else
-      single_index_list=" `get_index $ds_index_list` "
-      do_start "ds" "$single_index_list"
-      if [[ "$single_index_list" =~ ".* 0 .*" ]] # need to start migrateserver if exist disk0
-      then
-         start_ms
-      fi
+    fail_echo "exist disk not be formated"
   fi
 }
 
@@ -480,12 +495,6 @@ stop_ds_all()
     if [ "$dup_run_index" ]
     then
         fail_echo "more than one same dataserver [ "$dup_run_index" ] is running"
-    fi
-
-    ms_running=`ps -ef | egrep "${MS_CMD}" | grep -v grep`
-    if [ -n "$ms_running" ]
-    then
-        stop_ms
     fi
 
     if [ "$uniq_run_index" ]
@@ -529,6 +538,20 @@ check_ds()
     then
         succ_echo "dataserver [ "$uniq_run_index" ] is running"
     fi
+}
+
+check_all_disks()
+{
+  use_percents=`df |egrep "disk[0-9]{1,2}"|awk '{print $5}'|egrep -o "[0-9]{1,2}"|sort|uniq`
+  for per in $use_percents
+  do
+    if [ $per -lt 95 ] # use ratio should 95%, or the disk format fail
+    then
+      echo "fail"
+      return
+    fi
+  done
+  echo "ok"
 }
 
 check_admin()
@@ -603,16 +626,6 @@ check_cs()
 stop_cs()
 {
   do_stop "cs" 0
-}
-
-start_ms()
-{
-  do_start "ms" 0
-}
-
-stop_ms()
-{
-  do_stop "ms" 0
 }
 
 start_rs()
@@ -710,6 +723,54 @@ stop_kv_meta()
 {
     do_stop "kv_meta" 0
 }
+
+start_lifecycle_root()
+{
+    do_start "lifecycle_root" 0
+}
+
+check_lifecycle_root()
+{
+    ret_pid=`check_run lifecycle_root`
+    if [ $ret_pid -gt 0 ]
+    then
+        succ_echo "expirerootserver is running pid: $ret_pid"
+    elif [ $ret_pid -eq 0 ]
+    then
+        fail_echo "expirerootserver is NOT running"
+    else
+        fail_echo "more than one same expirerootserver is running"
+    fi
+}
+
+stop_lifecycle_root()
+{
+    do_stop "lifecycle_root" 0
+}
+
+start_lifecycle_expire()
+{
+    do_start "lifecycle_expire" 0
+}
+
+check_lifecycle_expire()
+{
+    ret_pid=`check_run lifecycle_expire`
+    if [ $ret_pid -gt 0 ]
+    then
+        succ_echo "expireserver is running pid: $ret_pid"
+    elif [ $ret_pid -eq 0 ]
+    then
+        fail_echo "expireserver is NOT running"
+    else
+        fail_echo "more than one same expireserver is running"
+    fi
+}
+
+stop_lifecycle_expire()
+{
+    do_stop "lifecycle_expire" 0
+}
 ########################
 case "$1" in
     start_ns)
@@ -782,12 +843,6 @@ case "$1" in
     stop_cs)
         stop_cs
         ;;
-    start_ms)
-        start_ms
-        ;;
-    stop_ms)
-        stop_ms
-        ;;
     start_rs)
         start_rs
         ;;
@@ -823,6 +878,24 @@ case "$1" in
         ;;
     stop_kv_meta)
         stop_kv_meta
+        ;;
+    start_lifecycle_root)
+        start_lifecycle_root
+        ;;
+    check_lifecycle_root)
+        check_lifecycle_root
+        ;;
+    stop_lifecycle_root)
+        stop_lifecycle_root
+        ;;
+    start_lifecycle_expire)
+        start_lifecycle_expire
+        ;;
+    check_lifecycle_expire)
+        check_lifecycle_expire
+        ;;
+    stop_lifecycle_expire)
+        stop_lifecycle_expire
         ;;
     *)
         print_usage

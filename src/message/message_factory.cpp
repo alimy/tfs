@@ -339,6 +339,12 @@ namespace tfs
           case common::DEGRADE_READ_DATA_MESSAGE:
             packet = new (std::nothrow)DegradeReadDataMessage();
             break;
+          case common::REQ_KVMETA_GET_SERVICE_MESSAGE:
+            packet = new (std::nothrow)ReqKvMetaGetServiceMessage();
+            break;
+          case common::RSP_KVMETA_GET_SERVICE_MESSAGE:
+            packet = new (std::nothrow)RspKvMetaGetServiceMessage();
+            break;
           case common::REQ_KVMETA_GET_OBJECT_MESSAGE:
             packet = new (std::nothrow)ReqKvMetaGetObjectMessage();
             break;
@@ -389,6 +395,15 @@ namespace tfs
             break;
           case common::RSP_KV_RT_GET_TABLE_MESSAGE:
             packet = new (std::nothrow)GetTableFromKvRtsResponseMessage();
+            break;
+          case common::REQ_KVMETA_PUT_BUCKET_ACL_MESSAGE:
+            packet = new ReqKvMetaPutBucketAclMessage();
+            break;
+          case common::REQ_KVMETA_GET_BUCKET_ACL_MESSAGE:
+            packet = new ReqKvMetaGetBucketAclMessage();
+            break;
+          case common::RSP_KVMETA_GET_BUCKET_ACL_MESSAGE:
+            packet = new RspKvMetaGetBucketAclMessage();
             break;
           case common::REQ_KVMETA_SET_LIFE_CYCLE_MESSAGE:
             packet = new ReqKvMetaSetLifeCycleMessage();
@@ -537,8 +552,11 @@ namespace tfs
           case common::RSP_SYNC_FILE_ENTRY_MESSAGE:
             packet = new (std::nothrow)SyncFileEntryResponseMessage();
             break;
-          case common::DS_STAT_INFO_MESSAGE:
-            packet = new (std::nothrow)GetDsStatInfoMessage();
+          case common::REQ_MIGRATE_DS_HEARTBEAT_MESSAGE:
+            packet = new (std::nothrow)MigrateDsHeartMessage();
+            break;
+          case common::RSP_MIGRATE_DS_HEARTBEAT_MESSAGE:
+            packet = new (std::nothrow)MigrateDsHeartResponseMessage();
             break;
           case common::REPORT_CHECK_BLOCK_RESPONSE_MESSAGE:
             packet = new ReportCheckBlockResponseMessage();
@@ -573,16 +591,16 @@ namespace tfs
           case common::NS_CLEAR_FAMILYINFO_MESSAGE:
             packet = new CleanFamilyInfoMessage();
             break;
-          case common::DS_RENEW_BLOCK_MESSAGE:
-            packet = new DsRenewBlockMessage();
+          case common::REQ_KVMETA_PUT_OBJECT_USER_METADATA_MESSAGE:
+            packet = new ReqKvMetaPutObjectUserMetadataMessage();
             break;
-          case common::DS_RENEW_BLOCK_RESPONSE_MESSAGE:
-            packet = new DsRenewBlockResponseMessage();
+          case common::REQ_KVMETA_DEL_OBJECT_USER_METADATA_MESSAGE:
+            packet = new ReqKvMetaDelObjectUserMetadataMessage();
             break;
           default:
             TBSYS_LOG(ERROR, "pcode: %d not found in message factory", pcode);
             break;
-         }
+        }
       }
       return packet;
     }

@@ -26,7 +26,7 @@ namespace tfs
     const uint64_t BlockIdFactory::MAX_BLOCK_ID = 0xFFFFFFFFFFFFFFFF -1;
     BlockIdFactory::BlockIdFactory():
       global_id_(BLOCK_START_NUMBER),
-      last_flush_id_(0),
+      count_(0),
       fd_(-1)
     {
 
@@ -71,7 +71,6 @@ namespace tfs
             }
             else
             {
-              last_flush_id_ = global_id_;// read success when startup be similar with flush
               if (global_id_ < BLOCK_START_NUMBER)
                 global_id_ = BLOCK_START_NUMBER;
             }
@@ -99,13 +98,14 @@ namespace tfs
     uint64_t BlockIdFactory::generation(const bool verify)
     {
       mutex_.lock();
+      ++count_;
       uint64_t id = ++global_id_;
       assert(id <= MAX_BLOCK_ID);
       bool flush_flag = false;
-      if (global_id_ - last_flush_id_ >= SKIP_BLOCK_NUMBER)
+      if (count_ >= SKIP_BLOCK_NUMBER)
       {
         flush_flag = true;
-        last_flush_id_ = global_id_; // check and set within lock for muti-thread safe
+        count_ = 0;
       }
       mutex_.unlock();
       int32_t ret = common::TFS_SUCCESS;
@@ -133,16 +133,17 @@ namespace tfs
       if (common::TFS_SUCCESS == ret)
       {
         tbutil::Mutex::Lock lock(mutex_);
+        ++count_;
         global_id_ = std::max(global_id_, tmp_id);
-        if (global_id_ - last_flush_id_ >= SKIP_BLOCK_NUMBER)
+        if (count_ >= SKIP_BLOCK_NUMBER)
         {
           flush_flag = true;
-          last_flush_id_ = global_id_;
+          count_ = 0;
         }
       }
-      if (flush_flag)
+      if (common::TFS_SUCCESS == ret && flush_flag)
       {
-        ret = flush_(global_id_);
+        ret = flush_(tmp_id);
         if (common::TFS_SUCCESS != ret)
         {
           TBSYS_LOG(WARN, "flush global block id failed, id: %"PRI64_PREFIX"u, ret: %d", tmp_id, ret);

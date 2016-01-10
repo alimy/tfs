@@ -46,8 +46,6 @@ namespace tfs
         lease_thread_[i] = 0;
       }
 
-      master_index_ = -1;
-      need_renew_block_ = false;
       apply_block_thread_ = 0;
     }
 
@@ -99,7 +97,16 @@ namespace tfs
 
     bool LeaseManager::has_valid_lease(const time_t now) const
     {
-      return master_index_ >= 0 && !is_expired(now, master_index_);
+      DsRuntimeGlobalInformation& ds_info = DsRuntimeGlobalInformation::instance();
+      bool valid = false;
+      for (int i = 0; i < MAX_SINGLE_CLUSTER_NS_NUM && !valid; i++)
+      {
+        if (0 != ns_ip_port_[i])
+        {
+          valid = (ns_ip_port_[i] == ds_info.master_ns_ip_port_ && !is_expired(now, i));
+        }
+      }
+      return valid;
     }
 
     int LeaseManager::alloc_writable_block(WritableBlock*& block)
@@ -192,9 +199,7 @@ namespace tfs
         ds_info.max_rw_network_bandwidth_mb_ = lease_meta_[who].max_rw_network_bandwith_;
         ds_info.max_block_size_ = lease_meta_[who].max_block_size_;
         ds_info.max_write_file_count_ = lease_meta_[who].max_write_file_count_;
-        ds_info.global_switch_ = lease_meta_[who].global_switch_;
-        ds_info.check_integrity_interval_days_ = lease_meta_[who].check_integrity_interval_days_;
-        master_index_ = who;  // record master index for fast access
+        ds_info.enable_version_check_ = lease_meta_[who].enable_version_check_;
       }
       return ns_switch;
     }
@@ -215,6 +220,13 @@ namespace tfs
       DsRuntimeGlobalInformation& ds_info = DsRuntimeGlobalInformation::instance();
       DsRenewLeaseMessage req_msg;
       req_msg.set_ds_stat(ds_info.information_);
+      if (is_master(who))
+      {
+        BlockInfoV2* block_infos = req_msg.get_block_infos();
+        ArrayHelper<BlockInfoV2> blocks(MAX_WRITABLE_BLOCK_COUNT, block_infos);
+        get_writable_block_manager().get_blocks(blocks, BLOCK_WRITABLE);
+        req_msg.set_size(blocks.get_array_index());
+      }
 
       tbnet::Packet* ret_msg = NULL;
       NewClient* new_client = NewClientManager::get_instance().create_client();
@@ -253,6 +265,34 @@ namespace tfs
       {
         get_writable_block_manager().expire_all_blocks();
       }
+
+      if (NS_ROLE_MASTER == lease_meta_[who].ns_role_ && !ns_switch)
+      {
+        ArrayHelper<BlockLease> leases(response->get_size(),
+            response->get_block_lease(), response->get_size());
+        for (int index = 0; index < response->get_size(); index++)
+        {
+          BlockLease& lease = *leases.at(index);
+          if (TFS_SUCCESS == lease.result_)
+          {
+            WritableBlock* block = get_writable_block_manager().get(lease.block_id_);
+            if (NULL != block)
+            {
+              // update replica information
+              ArrayHelper<uint64_t> helper(lease.size_, lease.servers_, lease.size_);
+              block->set_servers(helper);
+            }
+          }
+          else  // move to expired list
+          {
+            get_writable_block_manager().expire_one_block(lease.block_id_);
+            TBSYS_LOG(INFO, "expire block %"PRI64_PREFIX"u because renew fail, ret: %d",
+                lease.block_id_, lease.result_);
+          }
+          TBSYS_LOG_DW(lease.result_, "renew block %"PRI64_PREFIX"u, replica: %d, ret: %d",
+              lease.block_id_, lease.size_, lease.result_);
+        }
+      }
     }
 
     int LeaseManager::giveup(const int32_t who)
@@ -262,12 +302,12 @@ namespace tfs
       DsGiveupLeaseMessage req_msg;
       req_msg.set_ds_stat(ds_info.information_);
 
-      // ds will exit, aync giveup all blocks
       if (is_master(who))
       {
-        get_writable_block_manager().expire_all_blocks();
-        get_writable_block_manager().giveup_writable_block();
-        usleep(10000); // wait 10ms, let giveup_block first served by ns
+        BlockInfoV2* block_infos = req_msg.get_block_infos();
+        ArrayHelper<BlockInfoV2> blocks(MAX_WRITABLE_BLOCK_COUNT, block_infos);
+        get_writable_block_manager().get_blocks(blocks, BLOCK_ANY);
+        req_msg.set_size(blocks.get_array_index());
       }
 
       tbnet::Packet* ret_msg = NULL;
@@ -290,7 +330,7 @@ namespace tfs
 
     void LeaseManager::RunApplyBlockThreadHelper::run()
     {
-      manager_.run_writable_blocks();
+      manager_.run_apply_and_giveup();
     }
 
     void LeaseManager::update_stat(const int32_t who)
@@ -301,6 +341,7 @@ namespace tfs
         service_.get_block_manager().get_space(info.total_capacity_, info.use_capacity_);
         info.block_count_ = service_.get_block_manager().get_all_logic_block_count();
         info.current_load_ = Func::get_load_avg();
+        info.current_time_ = time(NULL);
       }
     }
 
@@ -344,23 +385,6 @@ namespace tfs
             {
               break;
             }
-            else if (EXIT_TIMEOUT_ERROR != ret)
-            {
-              usleep(SLEEP_TIME_US);
-            }
-          }
-
-          if (master_index_ == who)
-          {
-            if (TFS_SUCCESS == ret)
-            {
-              need_renew_block_ = true;
-            }
-            else
-            {
-              need_renew_block_ = false;
-              get_writable_block_manager().expire_all_blocks();
-            }
           }
 
           if (TFS_SUCCESS == ret)
@@ -389,14 +413,12 @@ namespace tfs
           tbsys::CNetUtil::addrToString(ns_ip_port_[who]).c_str(), who, TIMER_DURATION(), ret);
     }
 
-    void LeaseManager::run_writable_blocks()
+    void LeaseManager::run_apply_and_giveup()
     {
       const int32_t SLEEP_TIME_US = 1 * 1000 * 1000;
-      const int32_t APPLY_INTERVAL_S = 3;
       const int32_t GIVEUP_INTERVAL_S = 5;
       const int32_t DUMP_INTERVAL_S = 5;
-      int64_t last_apply_time = 0;
-      int64_t last_giveup_time = 0;
+      int64_t last_giveup_time_ = Func::get_monotonic_time();
       DsRuntimeGlobalInformation& ds_info = DsRuntimeGlobalInformation::instance();
       while (!ds_info.is_destroyed())
       {
@@ -418,28 +440,20 @@ namespace tfs
         if (has_valid_lease(now))
         {
           // giveup expired block
-          if (expired > 0 && now > last_giveup_time + GIVEUP_INTERVAL_S)
+          if (expired > 0 && now > last_giveup_time_ + GIVEUP_INTERVAL_S)
           {
             get_writable_block_manager().giveup_writable_block();
-            last_giveup_time = now;
+            last_giveup_time_ = now;
           }
 
           // apply writable block, system disk won't do apply
           if (ds_info.information_.type_ == DATASERVER_DISK_TYPE_FULL)
           {
             int32_t need = ds_info.max_write_file_count_ - writable;
-            if (need > 0 && now > last_apply_time + APPLY_INTERVAL_S)
+            if (need > 0)
             {
               get_writable_block_manager().apply_writable_block(need);
-              last_apply_time = now;
             }
-          }
-
-          // renew writable block
-          if (writable > 0 && need_renew_block_)
-          {
-            get_writable_block_manager().renew_writable_block();
-            need_renew_block_ = false;
           }
         }
         else if (INVALID_SERVER_ID != ds_info.master_ns_ip_port_)

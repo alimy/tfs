@@ -81,9 +81,6 @@ namespace tfs
       }
       rwmutex_.unlock();
 
-      if (EXIT_APPLY_LEASE_ALREADY_ISSUED == ret)
-        ret = common::TFS_SUCCESS;
-
       if (common::TFS_SUCCESS == ret)
       {
         assert(NULL != pserver);
@@ -103,7 +100,7 @@ namespace tfs
         }
         pserver->set_status(SERVICE_STATUS_ONLINE);
       }
-      TBSYS_LOG(INFO, "dataserver %s apply lease: %s, ret: %d", tbsys::CNetUtil::addrToString(pserver->id()).c_str(),
+      TBSYS_LOG(DEBUG, "dataserver %s apply lease: %s, ret: %d", tbsys::CNetUtil::addrToString(pserver->id()).c_str(),
         TFS_SUCCESS == ret ? "successful" : "failed", ret);
       return ret;
     }
@@ -143,7 +140,7 @@ namespace tfs
         pserver->callback(reinterpret_cast<void*>(&args), manager_);
         pserver->set_wait_free_phase(OBJECT_WAIT_FREE_PHASE_CLEAR);
       }
-      TBSYS_LOG(INFO, "dataserver %s giveup lease: %s, ret: %d", tbsys::CNetUtil::addrToString(server).c_str(),
+      TBSYS_LOG(DEBUG, "dataserver %s giveup lease: %s, ret: %d", tbsys::CNetUtil::addrToString(server).c_str(),
         TFS_SUCCESS == ret ? "successful" : "failed", ret);
       return ret;
     }
@@ -197,7 +194,6 @@ namespace tfs
       ServerCollect* pserver = NULL;
       int32_t expire_count = 0;
       const int32_t MAX_TRAVERSE_COUNT = 512;
-      const int32_t MAX_REPORT_COUNT = SYSPARAM_NAMESERVER.report_block_pending_size_;
       ServerCollect* entry[MAX_TRAVERSE_COUNT];
       ArrayHelper<ServerCollect*> helper(MAX_TRAVERSE_COUNT, entry);
       all_over = traverse(last_traverse_server, servers_, helper);
@@ -215,7 +211,7 @@ namespace tfs
         else
         {
           pserver->statistics(stat_info);
-          if (report_block_servers.get_array_index() < MAX_REPORT_COUNT && pserver->is_report_block(now))
+          if (pserver->is_report_block(now))
           {
             report_block_servers.push_back(pserver);
           }
@@ -255,17 +251,13 @@ namespace tfs
           pserver->set_wait_free_phase(OBJECT_WAIT_FREE_PHASE_FREE);
           pserver->set(now, SYSPARAM_NAMESERVER.object_wait_free_time_);
         }
-        else if (OBJECT_WAIT_FREE_PHASE_FREE == pserver->get_wait_free_phase())
+        else
         {
+          ++free_count;
           rwmutex_.wrlock();
-          SERVER_TABLE_ITER iter  = wait_free_servers_.find(pserver);
-          if (wait_free_servers_.end() != iter)
-          {
-            ++free_count;
-            wait_free_servers_.erase(pserver);
-            pserver->free();
-          }
+          wait_free_servers_.erase(pserver);
           rwmutex_.unlock();
+          pserver->free();
         }
       }
       return free_count;
@@ -492,9 +484,7 @@ namespace tfs
       for (; iter != servers_.end(); ++iter)
       {
         pserver = (*iter);
-        assert(NULL != pserver);
-        if (DATASERVER_DISK_TYPE_SYSTEM == pserver->get_disk_type())
-          continue;
+        assert(NULL !=pserver);
         total_capacity += (pserver->total_capacity() * SYSPARAM_NAMESERVER.max_use_capacity_ratio_) / 100;
         total_use_capacity += pserver->use_capacity();
       }
@@ -522,8 +512,6 @@ namespace tfs
           pserver = *helper.at(index);
           assert(NULL != pserver);
           server = pserver->id();
-          if (DATASERVER_DISK_TYPE_SYSTEM == pserver->get_disk_type())
-            continue;
           has_move = pserver->is_alive()
             && !manager_.get_task_manager().exist_server(pserver->id())
             && manager_.get_task_manager().has_space_do_task_in_machine(pserver->id());
@@ -559,7 +547,7 @@ namespace tfs
           assert(NULL != pserver);
           news.push_back(pserver->id());
           result.push_back(pserver->id());
-          uint32_t lan = pserver->get_rack_id();
+          uint32_t lan =  Func::get_lan(pserver->id(), SYSPARAM_NAMESERVER.group_mask_);
           lans.insert(lan);
         }
       }
@@ -615,7 +603,7 @@ namespace tfs
         random_index = random() % size;
         pserver = sources.at(random_index);
         assert(NULL != pserver);
-        uint32_t lan =  pserver->get_rack_id();
+        uint32_t lan =  Func::get_lan(pserver->id(), SYSPARAM_NAMESERVER.group_mask_);
         TBSYS_LOG(DEBUG, "==============addr: %s, lans : %u", tbsys::CNetUtil::addrToString(pserver->id()).c_str(), lan);
         if (manager_.get_task_manager().has_space_do_task_in_machine(pserver->id(), true)
             && !manager_.get_task_manager().exist_server(pserver->id())
@@ -628,6 +616,66 @@ namespace tfs
         }
       }
       return (NULL != result) ? TFS_SUCCESS : EXIT_NO_DATASERVER;
+    }
+
+    int ServerManager::choose_excess_backup_server(ServerCollect*& result, const common::ArrayHelper<uint64_t>& sources) const
+    {
+      result = NULL;
+      SORT_MAP sorts;
+      GROUP_MAP group, servers;
+      for (int64_t index = 0; index < sources.get_array_index(); ++index)
+      {
+        uint64_t id = *sources.at(index);
+        assert(INVALID_SERVER_ID != id);
+        ServerCollect* server = get(id);
+        if ((NULL != server) && server->total_capacity() > 0)
+        {
+          int64_t use = static_cast<int64_t>(calc_capacity_percentage(server->use_capacity(),
+                server->total_capacity()) *  PERCENTAGE_MAGIC);
+          sorts.insert(SORT_MAP::value_type(use, server));
+          uint32_t lan = Func::get_lan(server->id(), SYSPARAM_NAMESERVER.group_mask_);
+          GROUP_MAP_ITER iter = servers.find(server->id());
+          if (servers.end() == iter)
+            iter = servers.insert(GROUP_MAP::value_type(server->id(), SORT_MAP())).first;
+          iter->second.insert(SORT_MAP::value_type(use, server));
+          iter = group.find(lan);
+          if (group.end() == iter)
+            iter = group.insert(GROUP_MAP::value_type(lan, SORT_MAP())).first;
+          iter->second.insert(SORT_MAP::value_type(use, server));
+        }
+      }
+
+      if (0 == SYSPARAM_NAMESERVER.group_mask_)
+      {
+        result = sorts.empty() ? NULL : sorts.rbegin()->second;
+      }
+      else
+      {
+        GROUP_MAP_ITER iter = servers.begin();
+        for (; iter != servers.end() && NULL == result; ++iter)
+        {
+          if (iter->second.size() > 1u)
+            result = iter->second.rbegin()->second;
+        }
+        if (NULL == result)
+        {
+          uint32_t nums = 0;
+          GROUP_MAP_ITER iter = group.begin();
+          for (; iter != group.end(); ++iter)
+          {
+            if (iter->second.size() > nums)
+            {
+              nums = iter->second.size();
+              result = iter->second.rbegin()->second;
+            }
+          }
+        }
+        if (NULL == result)
+        {
+          result = sorts.empty() ? NULL : sorts.rbegin()->second;
+        }
+      }
+      return NULL != result ? TFS_SUCCESS : EXIT_NO_DATASERVER;
     }
 
     int ServerManager::expand_ratio(int32_t& index, const float expand_ratio)
@@ -705,12 +753,7 @@ namespace tfs
       {
         server = *source.at(index);
         assert(INVALID_SERVER_ID != server);
-        ServerCollect* pserver = manager_.get_server_manager().get(server);
-        if (NULL == pserver)
-        {
-          continue;
-        }
-        uint32_t lan =  pserver->get_rack_id();
+        uint32_t lan =  Func::get_lan(server, SYSPARAM_NAMESERVER.group_mask_);
         TBSYS_LOG(DEBUG, "addr: %s, lans : %u", tbsys::CNetUtil::addrToString(server).c_str(), lan);
         lans.insert(lan);
       }
@@ -762,7 +805,7 @@ namespace tfs
                       && (DATASERVER_DISK_TYPE_FULL == pserver->get_disk_type()));
         if (valid && !lans.empty())
         {
-          uint32_t lan =  pserver->get_rack_id();
+          uint32_t lan =  Func::get_lan(pserver->id(), SYSPARAM_NAMESERVER.group_mask_);
           valid = lans.find(lan) == lans.end();
         }
 
@@ -806,7 +849,7 @@ namespace tfs
       {
         servers.push_back((*iter));
       }
-      return servers.get_array_index() < servers.get_array_size() || iter == table.end();
+      return servers.get_array_index() < servers.get_array_size();
     }
 
     int ServerManager::in_apply_block_safe_mode_time_() const

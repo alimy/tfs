@@ -168,7 +168,6 @@ namespace tfs
     const int32_t EXIT_VERIYF_BLOCK_CANNOT_APPLY_LESAE  = -5066;
     const int32_t EXIT_MARSHALLING_CANNOT_COMPACT = -5067;
     const int32_t EXIT_LOAD_BLOCK_ERROR = -5068;
-    const int32_t EXIT_CANNOT_MIGRATE_BLOCK_ERROR = -5069;
 
 
     const int32_t EXIT_WRITE_OFFSET_ERROR = -8001; // write offset error
@@ -313,7 +312,14 @@ namespace tfs
     const int32_t EXIT_BUCKET_EXIST = -17007;// bucket already exist
     const int32_t EXIT_INVALID_KV_META_SERVER = -17008;// no kv meta server
     const int32_t EXIT_KV_RETURN_HAS_MORE_DATA = -17009; //tair return over 1M of get range once
-    const int32_t EXIT_REQ_OFFSET_NOT_FIND = -17100;//do direct scan offset but reqoffset not in scan
+    const int32_t EXIT_REQ_OFFSET_NOT_FIND = -17010;//do direct scan offset but reqoffset not in scan
+
+    const int32_t EXIT_OVER_MAX_BUCKETS_COUNT = -17011; //100 buckets per user
+    const int32_t EXIT_NO_BUCKETS = -17012;   // no buckets
+    const int32_t EXIT_BUCKET_PERMISSION_DENY = -17020; //not grant fit control
+
+    const int32_t EXIT_EXCEED_USER_METADATA_MAX_SIZE = -17101;
+    const int32_t EXIT_KV_STORE_CAN_NOT_CONNECT = -17102;
 
     // life cycle manager related
     const int32_t EXIT_LIFE_CYCLE_INFO_EXIST = -18000;

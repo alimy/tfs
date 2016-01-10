@@ -37,6 +37,7 @@ namespace tfs
   {
     NameServer::NameServer() :
       layout_manager_(*this),
+      master_slave_heart_manager_(layout_manager_),
       heart_manager_(*this)
     {
       for (int32_t index = 0; index < MAX_LISTEN_PORT_NUM; ++index)
@@ -182,6 +183,30 @@ namespace tfs
         }
       }
 
+      if (TFS_SUCCESS == ret)
+      {
+        ret = master_slave_heart_manager_.initialize();
+        if (TFS_SUCCESS != ret)
+        {
+          TBSYS_LOG(ERROR, "initialize master and slave heart manager failed, must be exit, ret: %d", ret);
+        }
+        else
+        {
+          if (GFactory::get_runtime_info().is_master())
+          {
+            ret = master_slave_heart_manager_.establish_peer_role_(GFactory::get_runtime_info());
+            if (EXIT_ROLE_ERROR == ret)
+            {
+              TBSYS_LOG(INFO, "nameserve role error, must be exit, ret: %d", ret);
+            }
+            else
+            {
+              ret = TFS_SUCCESS;
+            }
+          }
+        }
+      }
+
       //start heartbeat loop
       if (TFS_SUCCESS == ret)
       {
@@ -213,9 +238,11 @@ namespace tfs
 
         GFactory::destroy();
         heart_manager_.destroy();
+        master_slave_heart_manager_.destroy();
         layout_manager_.destroy();
 
         heart_manager_.wait_for_shut_down();
+        master_slave_heart_manager_.wait_for_shut_down();
         layout_manager_.wait_for_shut_down();
         GFactory::wait_for_shut_down();
       }
@@ -261,7 +288,11 @@ namespace tfs
             hret = tbnet::IPacketHandler::KEEP_CHANNEL;
             switch (pcode)
             {
-           case OPLOG_SYNC_MESSAGE:
+            case MASTER_AND_SLAVE_HEART_MESSAGE:
+            case HEARTBEAT_AND_NS_HEART_MESSAGE:
+              master_slave_heart_manager_.push(bpacket, 0, false);
+              break;
+            case OPLOG_SYNC_MESSAGE:
               layout_manager_.get_oplog_sync_mgr().push(bpacket, 0, false);
               break;
             default:
@@ -308,9 +339,6 @@ namespace tfs
             case BATCH_GET_BLOCK_INFO_MESSAGE_V2:
               ret = batch_open(msg);
               break;
-            case UPDATE_BLOCK_INFO_MESSAGE_V2:
-              ret = update_block_info(msg);
-              break;
             case REPLICATE_BLOCK_MESSAGE:
             case BLOCK_COMPACT_COMPLETE_MESSAGE:
             case REQ_EC_MARSHALLING_COMMIT_MESSAGE:
@@ -350,9 +378,6 @@ namespace tfs
               break;
             case DS_APPLY_BLOCK_MESSAGE:
               ret = apply_block(msg);
-              break;
-            case DS_RENEW_BLOCK_MESSAGE:
-              ret = renew_block(msg);
               break;
             case DS_APPLY_BLOCK_FOR_UPDATE_MESSAGE:
               ret = apply_block_for_update(msg);
@@ -496,26 +521,6 @@ namespace tfs
                 "batch get get block information error, mode: %d, ret: %d", mode, ret);
           }
         }
-      }
-      return ret;
-    }
-
-    int NameServer::update_block_info(common::BasePacket* msg)
-    {
-      int32_t ret = ((NULL != msg) && (msg->getPCode() == UPDATE_BLOCK_INFO_MESSAGE_V2)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
-      if (common::TFS_SUCCESS == ret)
-      {
-        UpdateBlockInfoMessageV2* message = dynamic_cast<UpdateBlockInfoMessageV2*> (msg);
-        const BlockInfoV2 info = message->get_block_info();
-        const uint64_t server_id =  message->get_server_id();
-        const UpdateBlockInfoType type = message->get_type();
-        bool addnew = UPDATE_BLOCK_INFO_REPL == type ? true : false;
-        ret = layout_manager_.update_block_info(info, server_id, Func::get_monotonic_time(), addnew);
-        char buf[256] = {'\0'};
-        snprintf(buf, 256, "update block: %"PRI64_PREFIX"u information %s, server: %s, ret: %d",
-            info.block_id_, TFS_SUCCESS == ret ? "successful" : "failed", tbsys::CNetUtil::addrToString(server_id).c_str(), ret);
-        TBSYS_LOG_DW(ret, buf);
-        ret = message->reply(new StatusMessage(ret, buf));
       }
       return ret;
     }
@@ -716,8 +721,7 @@ namespace tfs
             && pcode != CLIENT_CMD_MESSAGE
             && pcode != CLIENT_NS_KEEPALIVE_MESSAGE
             && pcode != DS_GIVEUP_BLOCK_MESSAGE
-            && pcode != DS_APPLY_BLOCK_MESSAGE
-            && pcode != DS_RENEW_BLOCK_MESSAGE)
+            && pcode != DS_APPLY_BLOCK_MESSAGE)
           {
             ret = ngi.owner_status_ < NS_STATUS_INITIALIZED? common::TFS_ERROR : common::TFS_SUCCESS;
           }
@@ -810,7 +814,7 @@ namespace tfs
         TIMER_START();
         DsApplyBlockMessage* ab_msg = dynamic_cast<DsApplyBlockMessage*>(msg);
         uint64_t server   = ab_msg->get_server_id();
-        int32_t MAX_COUNT = ab_msg->get_size();
+        int32_t MAX_COUNT = ab_msg->get_count();
         MAX_COUNT = std::min(MAX_COUNT, MAX_WRITABLE_BLOCK_COUNT);
         DsApplyBlockResponseMessage* reply_msg = new (std::nothrow)DsApplyBlockResponseMessage();
         assert(NULL != reply_msg);
@@ -826,41 +830,9 @@ namespace tfs
           reply_msg->free();
         }
         TIMER_END();
-        TBSYS_LOG(DEBUG, "dataserver: %s apply block %s consume times: %"PRI64_PREFIX"d(us), ret: %d, need: %d, actual: %"PRI64_PREFIX"d",
+        TBSYS_LOG(INFO, "dataserver: %s apply block %s consume times: %"PRI64_PREFIX"d(us), ret: %d, need: %d, actual: %"PRI64_PREFIX"d",
           tbsys::CNetUtil::addrToString(server).c_str(),TFS_SUCCESS == ret ? "successful" : "failed", TIMER_DURATION(),
           ret, MAX_COUNT, output.get_array_index());
-      }
-      return ret;
-    }
-
-    int NameServer::renew_block(common::BasePacket* msg)
-    {
-      int32_t ret = ((NULL != msg) && (msg->getPCode() == DS_RENEW_BLOCK_MESSAGE)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
-      if (TFS_SUCCESS == ret)
-      {
-        TIMER_START();
-        DsRenewBlockMessage* ab_msg = dynamic_cast<DsRenewBlockMessage*>(msg);
-        uint64_t server   = ab_msg->get_server_id();
-        int32_t MAX_COUNT = ab_msg->get_size();
-        MAX_COUNT = std::min(MAX_COUNT, MAX_WRITABLE_BLOCK_COUNT);
-        DsRenewBlockResponseMessage* reply_msg = new (std::nothrow)DsRenewBlockResponseMessage();
-        assert(NULL != reply_msg);
-        ArrayHelper<BlockInfoV2> input(MAX_WRITABLE_BLOCK_COUNT, ab_msg->get_block_infos(), ab_msg->get_size());
-        ArrayHelper<BlockLease>  output(MAX_COUNT, reply_msg->get_block_lease());
-        ret = layout_manager_.get_client_request_server().renew_block(server, input, output);
-        if (TFS_SUCCESS == ret)
-        {
-          reply_msg->set_size(output.get_array_index());
-          ret = ab_msg->reply(reply_msg);
-        }
-        else
-        {
-          reply_msg->free();
-        }
-        TIMER_END();
-        TBSYS_LOG(DEBUG, "dataserver: %s renew block %s consume times: %"PRI64_PREFIX"d(us), ret: %d, input: %"PRI64_PREFIX"d, output: %"PRI64_PREFIX"d",
-          tbsys::CNetUtil::addrToString(server).c_str(),TFS_SUCCESS == ret ? "successful" : "failed", TIMER_DURATION(),
-          ret, input.get_array_index(), output.get_array_index());
       }
       return ret;
     }
@@ -890,7 +862,7 @@ namespace tfs
           reply_msg->free();
         }
         TIMER_END();
-        TBSYS_LOG(DEBUG, "dataserver: %s apply block for update %s consume times: %"PRI64_PREFIX"d(us), ret: %d, need: %d, actual: %"PRI64_PREFIX"d",
+        TBSYS_LOG(INFO, "dataserver: %s apply block for update %s consume times: %"PRI64_PREFIX"d(us), ret: %d, need: %d, actual: %"PRI64_PREFIX"d",
           tbsys::CNetUtil::addrToString(server).c_str(),TFS_SUCCESS == ret ? "successful" : "failed", TIMER_DURATION(),
           ret, MAX_COUNT, output.get_array_index());
       }
@@ -922,7 +894,7 @@ namespace tfs
           reply_msg->free();
         }
         TIMER_END();
-        TBSYS_LOG(DEBUG, "dataserver: %s giveup block %s consume times: %"PRI64_PREFIX"d(us), ret: %d, need: %d, actual: %"PRI64_PREFIX"d",
+        TBSYS_LOG(INFO, "dataserver: %s giveup block %s consume times: %"PRI64_PREFIX"d(us), ret: %d, need: %d, actual: %"PRI64_PREFIX"d",
           tbsys::CNetUtil::addrToString(server).c_str(),TFS_SUCCESS == ret ? "successful" : "failed", TIMER_DURATION(),
           ret, MAX_COUNT, output.get_array_index());
       }

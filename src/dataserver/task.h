@@ -177,7 +177,7 @@ namespace tfs
         /**
          * @brief get all blocks in task
          */
-        virtual bool get_involved_blocks(common::ArrayHelper<uint64_t>& blocks) const
+        virtual bool get_involved_blocks(common::ArrayHelper<uint64_t>& blocks)
         {
           blocks.clear();
           return true;
@@ -227,11 +227,17 @@ namespace tfs
         DISALLOW_COPY_AND_ASSIGN(CompactTask);
 
         int do_compact();
+        int do_compact_only_check();
         int real_compact(BaseLogicBlock* src, BaseLogicBlock* dest);
         int write_big_file(BaseLogicBlock* src, BaseLogicBlock* dest,
             const common::FileInfoV2& finfo, const int32_t new_offset);
         int dispatch_sub_task();
         void add_response(const uint64_t server, const int status, const common::BlockInfoV2& info);
+        bool is_big_file(const int32_t size) const;
+        int check_integrity(BaseLogicBlock* src);
+        int calc_big_file_crc(BaseLogicBlock* src,
+            const common::FileInfoV2& finfo, uint32_t& crc);
+
       protected:
         uint64_t block_id_;
         common::BlockInfoV2 info_;
@@ -292,7 +298,6 @@ namespace tfs
 
       protected:
         common::FamilyMemberInfo* family_members_;
-        int64_t crc_[common::MAX_MARSHALLING_NUM];
         int64_t family_id_;
         int32_t family_aid_info_;
     };

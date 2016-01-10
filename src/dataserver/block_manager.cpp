@@ -87,7 +87,6 @@ namespace tfs
     int BlockManager::new_block(const uint64_t logic_block_id, const bool tmp, const int64_t family_id, const int8_t index_num, const int32_t expire_time)
     {
       RWLock::Lock lock(mutex_, WRITE_LOCKER);
-      TIMER_START();
       SuperBlockInfo* info = NULL;
       int32_t ret = (INVALID_BLOCK_ID != logic_block_id) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
       if (TFS_SUCCESS == ret)
@@ -104,7 +103,7 @@ namespace tfs
         index.logic_block_id_ = logic_block_id;
         BaseLogicBlock*    logic_block = NULL;
         BasePhysicalBlock* physical_block = NULL;
-        ret = get_physical_block_manager().alloc_block(index, BLOCK_SPLIT_FLAG_NO, false, tmp);
+        ret = get_physical_block_manager().alloc_block(index, BLOCK_SPLIT_FLAG_NO, true, tmp);
         if (TFS_SUCCESS == ret)
         {
           physical_block = get_physical_block_manager().get(index.physical_block_id_);
@@ -138,9 +137,8 @@ namespace tfs
           if (TFS_SUCCESS == ret)
           {
             logic_block->add_physical_block(dynamic_cast<PhysicalBlock*>(physical_block));
-            // ret = get_super_block_manager().flush();
+            ret = get_super_block_manager().flush();
           }
-
           if (TFS_SUCCESS != ret)
           {
             get_logic_block_manager().remove(logic_block, index.logic_block_id_, tmp);
@@ -150,25 +148,21 @@ namespace tfs
           }
         }
       }
-      TIMER_END();
-      TBSYS_LOG(INFO, "new block : %"PRI64_PREFIX"u, %s, ret: %d, tmp: %s, family id: %"PRI64_PREFIX"d, index_num: %d, expire_time: %d cost: %ld",
-          logic_block_id, TFS_SUCCESS == ret ? "successful" : "failed", ret, tmp ? "true" : "false", family_id, index_num, expire_time, TIMER_DURATION());
+      TBSYS_LOG(INFO, "new block : %"PRI64_PREFIX"u, %s, ret: %d, tmp: %s, family id: %"PRI64_PREFIX"d, index_num: %d, expire_time: %d",
+          logic_block_id, TFS_SUCCESS == ret ? "successful" : "failed", ret, tmp ? "true" : "false", family_id, index_num, expire_time);
       return ret;
     }
 
     int BlockManager::del_block(const uint64_t logic_block_id, const bool tmp)
     {
       int32_t ret = (INVALID_BLOCK_ID != logic_block_id) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
-      TimeStat timer;
       if (TFS_SUCCESS == ret)
       {
         RWLock::Lock lock(mutex_, WRITE_LOCKER);
-        timer.start();
         ret = del_block_(logic_block_id, tmp);
-        timer.end();
       }
-      TBSYS_LOG(INFO, "del block : %"PRI64_PREFIX"u, %s, ret: %d, tmp: %s, cost: %ld",
-          logic_block_id, TFS_SUCCESS == ret ? "successful" : "failed", ret, tmp ? "true" : "false", timer.duration());
+      TBSYS_LOG(INFO, "del block : %"PRI64_PREFIX"u, %s, ret: %d, tmp: %s",
+          logic_block_id, TFS_SUCCESS == ret ? "successful" : "failed", ret, tmp ? "true" : "false");
       return ret;
     }
 
@@ -374,66 +368,6 @@ namespace tfs
         if (TFS_SUCCESS == ret)
         {
           ret = logic_block->set_marshalling_offset(size);
-        }
-      }
-      return ret;
-    }
-
-    int BlockManager::get_last_check_time(int32_t& last_check_time, const uint64_t logic_block_id) const
-    {
-      int32_t ret = (INVALID_BLOCK_ID != logic_block_id) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
-      if (TFS_SUCCESS == ret)
-      {
-        BaseLogicBlock* logic_block = get(logic_block_id);
-        ret = (NULL != logic_block) ? TFS_SUCCESS  : EXIT_NO_LOGICBLOCK_ERROR;
-        if (TFS_SUCCESS == ret)
-        {
-          ret = logic_block->get_last_check_time(last_check_time);
-        }
-      }
-      return ret;
-    }
-
-    int BlockManager::set_last_check_time(const int32_t timestamp, const uint64_t logic_block_id)
-    {
-      int32_t ret = (INVALID_BLOCK_ID != logic_block_id) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
-      if (TFS_SUCCESS == ret)
-      {
-        BaseLogicBlock* logic_block = get(logic_block_id);
-        ret = (NULL != logic_block) ? TFS_SUCCESS  : EXIT_NO_LOGICBLOCK_ERROR;
-        if (TFS_SUCCESS == ret)
-        {
-          ret = logic_block->set_last_check_time(timestamp);
-        }
-      }
-      return ret;
-    }
-
-    int BlockManager::get_data_crc(uint32_t& crc, const uint64_t logic_block_id) const
-    {
-      int32_t ret = (INVALID_BLOCK_ID != logic_block_id) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
-      if (TFS_SUCCESS == ret)
-      {
-        BaseLogicBlock* logic_block = get(logic_block_id);
-        ret = (NULL != logic_block) ? TFS_SUCCESS  : EXIT_NO_LOGICBLOCK_ERROR;
-        if (TFS_SUCCESS == ret)
-        {
-          ret = logic_block->get_data_crc(crc);
-        }
-      }
-      return ret;
-    }
-
-    int BlockManager::set_data_crc(const uint32_t crc, const uint64_t logic_block_id)
-    {
-      int32_t ret = (INVALID_BLOCK_ID != logic_block_id) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
-      if (TFS_SUCCESS == ret)
-      {
-        BaseLogicBlock* logic_block = get(logic_block_id);
-        ret = (NULL != logic_block) ? TFS_SUCCESS  : EXIT_NO_LOGICBLOCK_ERROR;
-        if (TFS_SUCCESS == ret)
-        {
-          ret = logic_block->set_data_crc(crc);
         }
       }
       return ret;
@@ -842,21 +776,6 @@ namespace tfs
                   {
                     ret = logic_block->add_physical_block(dynamic_cast<PhysicalBlock*>(physical_block));
                   }
-                  else if (EXIT_INDEX_CORRUPT_ERROR == ret)
-                  {
-                    int tmp_ret = cleanup_dirty_index_single_logic_block_(index);
-                    BaseLogicBlock* object = NULL;
-                    get_logic_block_manager().remove(object, index.logic_block_id_, false);
-                    tbsys::gDelete(object);
-                    TBSYS_LOG(WARN, "load block, logic block: %"PRI64_PREFIX"u is corrupt. "
-                        "must be free current block, main physical block id: %d, ret: %d",
-                        index.logic_block_id_, index.physical_block_id_, tmp_ret);
-                    if (TFS_SUCCESS == tmp_ret)
-                    {
-                      ret = TFS_SUCCESS;
-                      continue;
-                    }
-                  }
                   if (TFS_SUCCESS == ret)
                   {
                     int32_t next_physical_block_id = index.next_index_;
@@ -1175,6 +1094,7 @@ namespace tfs
       {
         BasePhysicalBlock* physical_block = NULL;
         std::vector<int32_t> physical_blocks;
+        ret = logic_block->rename_index_filename();//rename index file name
         if (TFS_SUCCESS == ret)
         {
           logic_block->get_all_physical_blocks(physical_blocks);
@@ -1187,17 +1107,13 @@ namespace tfs
             assert(TFS_SUCCESS == ret);
             get_gc_manager().add(physical_block);
           }
-          if (TFS_SUCCESS == ret)
-          {
-            ret = logic_block->rename_index_filename();//rename index file name
-          }
           get_gc_manager().add(logic_block);
         }
 
-        //if (TFS_SUCCESS == ret)
-        //{
-        //  ret = get_super_block_manager().flush();
-        //}
+        if (TFS_SUCCESS == ret)
+        {
+          ret = get_super_block_manager().flush();
+        }
       }
       TBSYS_LOG(INFO, "del logic block : %"PRI64_PREFIX"u, %s, ret: %d, tmp: %s",
           logic_block_id, TFS_SUCCESS == ret ? "successful" : "failed", ret, tmp ? "true" : "false");

@@ -135,9 +135,8 @@ namespace tfs
       public:
         StatInfo();
         ~StatInfo();
-        void set_family_count(const int64_t family_count);
         static float div(const int64_t a, const int64_t b);
-        void add(const BlockBase& block_base, const float ratio);
+        void add(const BlockBase& block_base);
         void dump(FILE* fp) const;
       protected:
         int64_t block_count_;
@@ -145,11 +144,19 @@ namespace tfs
         int64_t file_size_;
         int64_t del_file_count_;
         int64_t del_file_size_;
-        int64_t replicate_count_;
-        int64_t data_block_count_;
-        int64_t family_count_;
-        int64_t total_file_size_;
     };
+/*
+    static inline uint64_t get_addr(const std::string& ns_ip_port)
+    {
+      std::string::size_type pos = ns_ip_port.find_first_of(":");
+      if (pos == std::string::npos)
+      {
+        return tfs::common::TFS_ERROR;
+      }
+      std::string tmp = ns_ip_port.substr(0, pos);
+      return tfs::common::Func::str_to_addr(tmp.c_str(), atoi(ns_ip_port.substr(pos + 1).c_str()));
+    }
+    */
   } //:tools
 }
 

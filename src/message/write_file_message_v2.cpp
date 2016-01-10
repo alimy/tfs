@@ -37,7 +37,7 @@ namespace tfs
       int ret = file_seg_.serialize(output.get_free(), output.get_free_length(), pos);
       if (TFS_SUCCESS == ret)
       {
-        output.pour(file_seg_.length());
+        ret = output.pour(file_seg_.length());
       }
 
       if (TFS_SUCCESS == ret)
@@ -94,7 +94,7 @@ namespace tfs
       int ret = file_seg_.deserialize(input.get_data(), input.get_data_length(), pos);
       if (TFS_SUCCESS == ret)
       {
-        input.drain(file_seg_.length());
+        ret = input.drain(file_seg_.length());
       }
 
       if (TFS_SUCCESS == ret)

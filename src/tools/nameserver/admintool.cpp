@@ -132,7 +132,7 @@ void init()
   g_cmd_map["removeblk"] = CmdNode("removeblk blockid [flag|dsip:port]",
       "remove block. flag: 1--remove block from both ds and ns, 2--just relieve relation from ns, default is 1.",
       1, 3, cmd_remove_block);
-  g_cmd_map["removefamily"] = CmdNode("removefamily family_id [flag]", "remove family. flag 1--store, 2--memory, default: 3 (store | memory)", 1, 2, cmd_remove_family);
+  g_cmd_map["removefamily"] = CmdNode("removefamily family_id [flag]", "remove family. flag 1--store, 2--memory, default: store | memory", 1, 2, cmd_remove_family);
   g_cmd_map["listblk"] = CmdNode("listblk blockid", "list block server list.", 1, 1, cmd_list_block);
   //g_cmd_map["loadblk"] = CmdNode("loadblk blockid dsip:port", "build relationship between block and dataserver.", 2, 2, cmd_load_block);
   g_cmd_map["clearsystemtable"] = CmdNode("clearsystemtable", "clear system table 1--task, 2--last_write block, 4--report block server, 8--delete block queue.", 1, 1, cmd_clear_system_table);
@@ -155,7 +155,7 @@ void init()
       "set balance percent ratio. value1: integer part, 0 or 1, value2: float part, should be a integer (0 ~ 999999), if value1 is 1  value2 should be 0.",
       2, 2, cmd_set_bpr);
   g_cmd_map["getbpr"] = CmdNode("getbpr", "get balance percent ratio, float value, ex: 1.000000 or 0.000005", 0, 0, cmd_get_bpr);
-  g_cmd_map["batch"] = CmdNode("batch file [time]", "batch run command in file, sleep time seconds per 100 line, default time is 0", 1, 2, cmd_batch_file);
+  g_cmd_map["batch"] = CmdNode("batch file", "batch run command in file", 1, 1, cmd_batch_file);
   g_cmd_map["batch_compact"] = CmdNode("batch_compact file num interval", "batch compact blockid in file, when send num line(blockid) continuously to ns, then sleep interval(s)", 3, 3, cmd_batch_compact_file);
   g_cmd_map["set_all_server_report_block"] = CmdNode("set_all_server_report_block", "set_all_server_report_block", 0, 0, cmd_set_all_server_report_block);
 }
@@ -189,12 +189,6 @@ const char* expand_path(string& path)
 int cmd_batch_file(const VSTRING& param)
 {
   const char* batch_file = expand_path(const_cast<string&>(param[0]));
-  int32_t sleep_seconds = 0;
-  if (param.size() > 1)
-  {
-    sleep_seconds = atoi(param[1].c_str());
-    fprintf(stdout, "will sleep: %ds per 100 lines.\n", sleep_seconds);
-  }
   FILE* fp = fopen(batch_file, "rb");
   int ret = TFS_SUCCESS;
   if (fp == NULL)
@@ -210,18 +204,14 @@ int cmd_batch_file(const VSTRING& param)
     char buffer[MAX_CMD_SIZE];
     while (fgets(buffer, MAX_CMD_SIZE, fp))
     {
-      if ((ret = do_cmd(buffer)) != TFS_SUCCESS)
+      if ((ret = do_cmd(buffer)) == TFS_ERROR)
       {
         error_count++;
       }
       if (++count % 100 == 0)
       {
-        fprintf(stdout, "total: %d, %d errors, sleep: %d.\n", count, error_count, sleep_seconds);
+        fprintf(stdout, "total: %d, %d errors.\r", count, error_count);
         fflush(stdout);
-        if (sleep_seconds > 0)
-        {
-          sleep(sleep_seconds);
-        }
       }
       if (TFS_CLIENT_QUIT == ret)
       {
@@ -358,20 +348,7 @@ int cmd_set_run_param(const VSTRING& param)
     fprintf(stderr, "param param_name\n\n");
     for (int32_t i = 0; i < param_strlen; i++)
     {
-      if (strcmp(dynamic_parameter_str[i], "plan_run_flag") == 0)
-      {
-        fprintf(stderr, "%s %s\n", dynamic_parameter_str[i],
-             "[bitmap: 1-replicate, 2-move, 4-compact, 8-marshalling, 16-reinstate, 32-dissolve]");
-      }
-      else if (strcmp(dynamic_parameter_str[i], "global_switch") == 0)
-      {
-        fprintf(stderr, "%s %s\n", dynamic_parameter_str[i],
-             "[bitmap: 1-enbale_version_check, 2-enable_read_statstics, 4-enable_incomplete_update]");
-      }
-      else
-      {
-        fprintf(stderr, "%s\n", dynamic_parameter_str[i]);
-      }
+      fprintf(stderr, "%s\n", dynamic_parameter_str[i]);
     }
     return TFS_ERROR;
   }
@@ -1151,6 +1128,9 @@ int cmd_get_file_retry(char*, char*)
 
 int main(int argc,char** argv)
 {
+
+  uint64_t server = 13764466632714;
+  printf("%s\n", tbsys::CNetUtil::addrToString(server).c_str());
   int32_t i;
   bool directly = false;
   bool set_log_level = false;

@@ -17,9 +17,6 @@
 
 #ifndef TFS_DATASERVER_ERASURECODE_H_
 #define TFS_DATASERVER_ERASURECODE_H_
-
-#include "Mutex.h"
-
 namespace tfs
 {
   namespace dataserver
@@ -123,8 +120,6 @@ namespace tfs
         int size_[common::MAX_MARSHALLING_NUM];       // size of each stripe
         int dm_ids_[common::MAX_MARSHALLING_NUM];     // alive disks
         int erased_[common::MAX_MARSHALLING_NUM];     // erased disk byte map
-
-        static tbutil::Mutex mutex_;                  // muext for create matrix
     };
   }
 }

@@ -119,7 +119,6 @@ namespace tfs
     {
       lease_id_ = common::INVALID_LEASE_ID;
       lease_expired_time_ = 0;
-      load_family_info_complete_ = false;
       if (startup)//startup
       {
         startup_time_ = now;
@@ -158,7 +157,7 @@ namespace tfs
 
     bool NsRuntimeGlobalInformation::in_report_block_time(const int64_t now) const
     {
-      bool report_time = in_min_range(time(NULL), SYSPARAM_NAMESERVER.report_block_time_lower_, (SYSPARAM_NAMESERVER.safe_mode_time_ + 59) / 60);
+      bool report_time = in_min_range(time(NULL), SYSPARAM_NAMESERVER.report_block_time_lower_, SYSPARAM_NAMESERVER.safe_mode_time_);
       return ((report_time) || ((switch_time_ +  SYSPARAM_NAMESERVER.safe_mode_time_) > now));
     }
 

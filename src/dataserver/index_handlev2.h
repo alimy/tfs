@@ -52,9 +52,7 @@ namespace tfs
         int update_block_info(const common::BlockInfoV2& info) const;
         int update_block_version(const int8_t step = common::VERSION_INC_STEP_DEFAULT);
         int get_block_info(common::BlockInfoV2& info) const;
-        int get_block_info_in_memory(common::BlockInfoV2& info) const;
         int get_index_header(common::IndexHeaderV2& header) const;
-        int get_index_header_in_memory(common::IndexHeaderV2& header) const;
         int set_index_header(const common::IndexHeaderV2& header);
         virtual int check_block_version(common::BlockInfoV2& info, const int32_t remote_version, const uint64_t logic_block_id) const;
         int update_used_offset(const int32_t size);
@@ -64,17 +62,12 @@ namespace tfs
         int get_avail_offset(int32_t& offset) const;
         int get_marshalling_offset(int32_t& offset) const;
         int set_marshalling_offset(const int32_t size);
-        int get_last_check_time(int32_t& timestamp) const;
-        int set_last_check_time(const int32_t timestamp);
-        int get_data_crc(uint32_t& crc) const;
-        int set_data_crc(const uint32_t crc);
         int get_family_id(int64_t& family_id) const;
         int set_family_id(const int64_t family_id);
         int rename_filename(const uint64_t logic_block_id);
         int remove_self(const uint64_t logic_block_id);
         int check_load() const;
         int statistic_visit(common::ThroughputV2& throughput, const bool reset = false);
-        int update_block_statistic_info(const int32_t oper_type, const int32_t new_size, const int32_t old_size, const bool rollback = false);
       protected:
         virtual int remmap_(const double threshold, const int32_t max_hash_bucket, const int32_t advise_per_mmap_size = 0) const = 0;
         virtual common::FileInfoV2*  get_file_infos_array_() const = 0;
@@ -92,14 +85,6 @@ namespace tfs
         int insert_file_info_(common::FileInfoV2& info, char* buf, const int32_t nbytes, const bool update) const;
         bool is_load_;
         mutable common::MMapFileOperation file_op_;
-
-        // many online server have limted memory so that index swaped out to disk frequently
-        // when report block to ns, it brings a lot of disk seeks
-        // to eliminate the impact of report, we keep a in-mem-copy of IndexHeaderV2 in memory
-        // the BlockInfoV2 & ThroughputV2 in mem_header_ are kept consistent with their in-disk-copy
-        // the other members in IndexHeaderV2 are not synced to in-mem-copy for simplicity
-        mutable common::IndexHeaderV2 mem_header_;
-
       private:
         DISALLOW_COPY_AND_ASSIGN(BaseIndexHandle);
     };
@@ -133,6 +118,7 @@ namespace tfs
         int traverse(std::vector<common::FileInfo>& infos, const uint64_t logic_block_id ) const;
         int get_attach_blocks(common::ArrayHelper<uint64_t>& blocks) const;
         int get_index_num(int32_t& index_num) const;
+        int update_block_statistic_info(const int32_t oper_type, const int32_t new_size, const int32_t old_size, const bool rollback = false);
         iterator begin();
         iterator end();
       protected:
@@ -178,8 +164,7 @@ namespace tfs
       int check_block_version(common::BlockInfoV2& info, const int32_t remote_version, const uint64_t logic_block_id) const;
 
       private:
-      //static const int32_t INDEX_DATA_START_OFFSET = sizeof(common::IndexHeaderV2) + common::MAX_MARSHALLING_NUM * sizeof(InnerIndex);
-      static const int32_t INDEX_DATA_START_OFFSET = sizeof(common::IndexHeaderV2) + 12 * sizeof(InnerIndex);
+      static const int32_t INDEX_DATA_START_OFFSET = sizeof(common::IndexHeaderV2) + common::MAX_MARSHALLING_NUM * sizeof(InnerIndex);
       InnerIndex* get_inner_index_array_() const;
       InnerIndex* get_inner_index_(const uint64_t logic_block_id) const;
       int read_file_info_(common::FileInfoV2*& info, const uint64_t fileid, char* buf, const int32_t nbytes, const int8_t type) const;

@@ -128,10 +128,6 @@ namespace tfs
       if (TFS_SUCCESS == ret)
       {
         gc_manager_.initialize(SYSPARAM_NAMESERVER.object_wait_free_time_, SYSPARAM_NAMESERVER.object_wait_clear_time_);
-        if (SYSPARAM_NAMESERVER.plan_run_flag_ >= 0 && SYSPARAM_NAMESERVER.plan_run_flag_ <= 63)
-        {
-          plan_run_flag_ = SYSPARAM_NAMESERVER.plan_run_flag_;
-        }
       }
 
       init_block_logger_();
@@ -218,10 +214,7 @@ namespace tfs
       {
         BlockCollect* pblock = get_block_manager().get(block);
         ServerCollect* pserver = get_server_manager().get(server);
-        if (NULL != pblock && NULL != pserver)
-        {
-          ret = this->relieve_relation(pblock, pserver, now, print);
-        }
+        ret = this->relieve_relation(pblock, pserver, now, print);
       }
       return ret;
     }
@@ -247,35 +240,6 @@ namespace tfs
         }
       }
       return ret != TFS_SUCCESS ? ret : result;
-    }
-
-    int LayoutManager::update_block_info(const BlockInfoV2& info, const uint64_t server, const time_t now, const bool addnew)
-    {
-      bool master = false;
-      bool writable = false;
-      BlockCollect* pblock = NULL;
-      ServerCollect* pserver = get_server_manager().get(server);
-      int32_t ret = (NULL != pserver) ? TFS_SUCCESS : EXIT_DATASERVER_NOT_FOUND;
-      if (addnew)
-      {
-        pblock = get_block_manager().insert(info.block_id_, now, true);
-        assert(NULL != pblock);
-      }
-      else
-      {
-        pblock = get_block_manager().get(info.block_id_);
-        ret = (NULL != pblock) ? TFS_SUCCESS : EXIT_BLOCK_NOT_FOUND;
-      }
-
-      if (TFS_SUCCESS == ret)
-      {
-        ret = get_block_manager().build_relation(pblock, writable, master, server, &info, INVALID_FAMILY_ID, now, true);
-      }
-      if (TFS_SUCCESS == ret && addnew)
-      {
-        ret = get_server_manager().build_relation(pserver, pblock->id(), writable, master);
-      }
-      return ret;
     }
 
     int LayoutManager::scan(SSMScanParameter& param)
@@ -385,9 +349,8 @@ namespace tfs
       oplog.server_num_ = servers.get_array_index();
       memcpy(oplog.servers_, servers.get_base_address(), oplog.server_num_ * INT64_SIZE);
       int64_t size = oplog.length();
-      char* buf = new char[size];
-      memset(buf, 0, size);
       int64_t pos = 0;
+      char buf[size];
       int32_t ret = oplog.serialize(buf, size, pos);
       if (TFS_SUCCESS != ret)
       {
@@ -404,7 +367,6 @@ namespace tfs
           TBSYS_LOG(INFO, "write oplog failed, block: %"PRI64_PREFIX"u", info.block_id_);
         }
       }
-      tbsys::gDeleteA(buf);
       return ret;
     }
 
@@ -469,8 +431,8 @@ namespace tfs
           &SYSPARAM_NAMESERVER.write_file_check_copies_complete_,
           &SYSPARAM_NAMESERVER.choose_target_server_retry_max_nums_,
           &SYSPARAM_NAMESERVER.max_marshalling_num_,
-          &SYSPARAM_NAMESERVER.check_integrity_interval_days_,
-          &SYSPARAM_NAMESERVER.global_switch_,
+          &SYSPARAM_NAMESERVER.enable_old_interface_,
+          &SYSPARAM_NAMESERVER.enable_version_check_,
           &SYSPARAM_NAMESERVER.marshalling_visit_time_,
           &SYSPARAM_NAMESERVER.client_keepalive_interval_,
           &SYSPARAM_NAMESERVER.verify_index_reserved_space_ratio_,
@@ -479,9 +441,7 @@ namespace tfs
           &SYSPARAM_NAMESERVER.between_ns_and_ds_lease_expire_time_,
           &SYSPARAM_NAMESERVER.between_ns_and_ds_lease_safe_time_,
           &SYSPARAM_NAMESERVER.between_ns_and_ds_lease_retry_times_,
-          &SYSPARAM_NAMESERVER.between_ns_and_ds_lease_retry_expire_time_,
-          &SYSPARAM_NAMESERVER.migrate_complete_wait_time_,
-          &SYSPARAM_NAMESERVER.force_dissolve_max_block_size_,
+          &SYSPARAM_NAMESERVER.between_ns_and_ds_lease_retry_expire_time_
         };
         int32_t size = sizeof(param) / sizeof(int32_t*);
         ret = (index >= 1 && index <= size) ? TFS_SUCCESS : TFS_ERROR;
@@ -526,8 +486,7 @@ namespace tfs
       uint64_t block_id = oplog_sync_mgr_.generation(verify);
       while (true)
       {
-        if (!get_block_manager().exist(block_id) &&
-            (verify || static_cast<int>(block_id % SYSPARAM_NAMESERVER.group_count_) == SYSPARAM_NAMESERVER.group_seq_))
+        if (!get_block_manager().exist(block_id))
           break;
         block_id = oplog_sync_mgr_.generation(verify);
       }
@@ -568,16 +527,13 @@ namespace tfs
         rotate_(current);
 
         now = Func::get_monotonic_time();
-        while (!ngi.is_destroyed() && (ngi.in_safe_mode_time(now) || !ngi.load_family_info_complete()))
-        {
-          Func::sleep(1, ngi.destroy_flag_);
-          now = Func::get_monotonic_time();
-        }
+        if (ngi.in_safe_mode_time(now) || !ngi.load_family_info_complete())
+          Func::sleep(SYSPARAM_NAMESERVER.safe_mode_time_, ngi.destroy_flag_);
 
         if (ngi.is_master())
         {
           while (((need = has_space_in_task_queue_()) <= 0) && (!ngi.is_destroyed()))
-            usleep(500000);
+            usleep(1000);
 
           now = Func::get_monotonic_time();
 
@@ -617,19 +573,17 @@ namespace tfs
           }
           if (need > 0 && !report_time && reinsate_or_dissolve_queue_size <= 0 && replicate_queue_size <= 0 && max_marshalling_num > 0)
           {
-            int32_t rt = TFS_SUCCESS;
-            for (int32_t index = 0; index < max_marshalling_num && TFS_SUCCESS == rt; ++index)
-            {
-              rt = build_marshalling_(need, now);
-            }
+            int32_t rt = build_marshalling_(need, now);
+            if (TFS_SUCCESS == rt)
+              --max_marshalling_num;
           }
 
           if (loop >= MAX_LOOP_NUMS)
           {
             loop = 0;
             const int64_t marshalling_queue_size = get_family_manager().get_marshalling_queue_size();
-            TBSYS_LOG(INFO, "need: %"PRI64_PREFIX"d, emergency_replicate_queue: %"PRI64_PREFIX"d, reinstate or dissolve queue: %"PRI64_PREFIX"d, marshalling queue: %"PRI64_PREFIX"d, block_start: %"PRI64_PREFIX"u, family_start: %"PRI64_PREFIX"d, now: %"PRI64_PREFIX"d",
-              need, replicate_queue_size, reinsate_or_dissolve_queue_size, marshalling_queue_size, block_start, family_start, now);
+            TBSYS_LOG(INFO, "need: %"PRI64_PREFIX"d, emergency_replicate_queue: %"PRI64_PREFIX"d, reinsate or dissolve queue: %"PRI64_PREFIX"d, marshalling queue: %"PRI64_PREFIX"d",
+              need, replicate_queue_size, reinsate_or_dissolve_queue_size, marshalling_queue_size);
             get_task_manager().dump(TBSYS_LOG_LEVEL_DEBUG, "task manager all queues information: ");
             get_family_manager().dump_marshalling_queue(TBSYS_LOG_LEVEL_DEBUG, "marshalling queue information: ");
           }
@@ -656,20 +610,15 @@ namespace tfs
       while (!ngi.is_destroyed())
       {
         now = Func::get_monotonic_time();
-        while (!ngi.is_destroyed() && (ngi.in_safe_mode_time(now) || !ngi.load_family_info_complete()))
-        {
-          Func::sleep(1, ngi.destroy_flag_);
-          now = Func::get_monotonic_time();
-        }
-
+        if (ngi.in_safe_mode_time(now) || !ngi.load_family_info_complete())
+          Func::sleep(SYSPARAM_NAMESERVER.safe_mode_time_ * 4, ngi.destroy_flag_);
 
         if (ngi.is_master())
         {
-          int min_replicate_task_num = get_server_manager().size() / 100;
-          int64_t current_total = get_family_manager().get_reinstate_or_dissolve_queue_size()
-              + get_block_manager().get_emergency_replicate_queue_size();
-          while (current_total > min_replicate_task_num
-              && (!ngi.is_destroyed()) && sleep_nums++ <= MAX_SLEEP_NUMS)
+          while ((get_block_manager().has_emergency_replicate_in_queue()) && (!ngi.is_destroyed()) && sleep_nums++ <= MAX_SLEEP_NUMS)
+            usleep(1000);
+
+          while ((!get_family_manager().reinstate_or_dissolve_queue_empty()) && (!ngi.is_destroyed()) && sleep_nums++ <= MAX_SLEEP_NUMS)
             usleep(1000);
 
           while (((need = has_space_in_task_queue_()) <= 0) && (!ngi.is_destroyed()))
@@ -683,10 +632,9 @@ namespace tfs
           total_capacity = 0, total_use_capacity = 0, alive_server_nums = 0, sleep_nums = 0;
           get_server_manager().move_statistic_all_server_info(total_capacity,
               total_use_capacity, alive_server_nums);
-          current_total = get_family_manager().get_reinstate_or_dissolve_queue_size()
-              + get_block_manager().get_emergency_replicate_queue_size();
           if (total_capacity > 0 && total_use_capacity > 0 && alive_server_nums > 0
-              && current_total <= min_replicate_task_num)
+             && !get_block_manager().has_emergency_replicate_in_queue()
+             && get_family_manager().reinstate_or_dissolve_queue_empty())
           {
             source.clear();
             targets.clear();
@@ -770,11 +718,8 @@ namespace tfs
       while (!ngi.is_destroyed())
       {
         int64_t now = Func::get_monotonic_time();
-        while (!ngi.is_destroyed() && (ngi.in_safe_mode_time(now) || !ngi.load_family_info_complete()))
-        {
-          Func::sleep(1, ngi.destroy_flag_);
-          now = Func::get_monotonic_time();
-        }
+        if (ngi.in_safe_mode_time(now) || !ngi.load_family_info_complete())
+          Func::sleep(SYSPARAM_NAMESERVER.safe_mode_time_ , ngi.destroy_flag_);
 
         now = Func::get_monotonic_time();
         while (ngi.in_report_block_time(now) && !ngi.is_destroyed())
@@ -831,7 +776,7 @@ namespace tfs
         }
         else
         {
-          usleep(500000);
+          usleep(500);
         }
       }
     }
@@ -1033,12 +978,8 @@ namespace tfs
                   if (TFS_SUCCESS == ret)
                   {
                     add_new_block_helper_write_log_(block_id, news, now);
-                    if (!GFactory::get_runtime_info().is_master())
-                    {
-                      oplog_sync_mgr_.update(block_id);
-                    }
+                    oplog_sync_mgr_.generation(block_id);
                   }
-                  block->set_create_flag(BLOCK_CREATE_FLAG_NO);
                 }//end send message to dataserver successful
                 else
                 {
@@ -1053,10 +994,8 @@ namespace tfs
                   }
                 }
               }
-            }//end elect dataserver successful
-            if (NULL != pobject)
               get_gc_manager().insert(pobject, now);
-
+            }//end elect dataserver successful
           }//end if (count >0)
         }//end find or create block successful
       }//end if (bret)
@@ -1105,7 +1044,6 @@ namespace tfs
               {
                 add_new_block_helper_write_log_(block_id, helper, now);
               }
-              block->set_create_flag(BLOCK_CREATE_FLAG_NO);
             }//end send message to dataserver successful
             else
             {
@@ -1116,8 +1054,7 @@ namespace tfs
           {
             get_block_manager().remove(pobject, block_id);//rollback
           }
-          if (NULL != pobject)
-            get_gc_manager().insert(pobject, now);
+          get_gc_manager().insert(pobject, now);
         }
       }//end if (TFS_SUCCESS == ret) check parameter
       return TFS_SUCCESS == ret ? block : NULL;
@@ -1225,12 +1162,7 @@ namespace tfs
               if (server != source->id())
                 result_array.push_back(server);
             }
-            int iret = get_task_manager().add(block->id(), result_array, PLAN_TYPE_REPLICATE, now);
-            if (TFS_SUCCESS != iret)
-            {
-              ret = false;
-              TBSYS_LOG(DEBUG, "build_replicate_task fail, block %"PRI64_PREFIX"u, ret: %d", block->id(), iret);
-            }
+            ret = TFS_SUCCESS == get_task_manager().add(block->id(), result_array, PLAN_TYPE_REPLICATE, now);
           }
         }
       }
@@ -1259,31 +1191,9 @@ namespace tfs
       if (ret)
       {
         ServerCollect* result= NULL;
-        uint64_t servers[MAX_REPLICATION_NUM + MAX_MARSHALLING_NUM];
-        ArrayHelper<uint64_t> helper(MAX_REPLICATION_NUM + MAX_MARSHALLING_NUM, servers);
-        uint64_t result_servers[MAX_REPLICATION_NUM];
-        ArrayHelper<uint64_t> result_helper(MAX_REPLICATION_NUM, result_servers);
-
+        uint64_t servers[MAX_REPLICATION_NUM];
+        ArrayHelper<uint64_t> helper(MAX_REPLICATION_NUM, servers);
         ret = get_block_manager().need_balance(helper, block, now);
-        if (ret)
-        {
-          int32_t family_aid_info = 0;
-          int64_t family_id = block->get_family_id();
-          if (INVALID_FAMILY_ID != family_id)
-          {
-            std::pair<uint64_t, uint64_t> arrays[MAX_MARSHALLING_NUM];
-            common::ArrayHelper<std::pair<uint64_t, uint64_t> > members(MAX_MARSHALLING_NUM, arrays);
-            int32_t rt = get_family_manager().get_members(members, family_aid_info, family_id);
-            ret = (TFS_SUCCESS == rt);
-            for (int64_t index = 0; index < members.get_array_index() && ret; ++index)
-            {
-              std::pair<uint64_t, uint64_t>* item = members.at(index);
-              ret = INVALID_SERVER_ID != item->second;
-              if (ret && !helper.exist(item->second))
-                helper.push_back(item->second);
-            }
-          }
-        }
         if (ret)
         {
           ret = helper.exist(source->id());
@@ -1304,20 +1214,9 @@ namespace tfs
             else
             {
               helper.clear();
-              int32_t rt = get_block_manager().get_servers(helper, block);
-              if (TFS_SUCCESS == rt && helper.get_array_index() > 0)
-              {
-                result_helper.clear();
-                result_helper.push_back(source->id());
-                result_helper.push_back(result->id());
-                for (int64_t index = 0; index < helper.get_array_index(); ++index)
-                {
-                  uint64_t server = *helper.at(index);
-                  if (server != source->id())
-                    result_helper.push_back(server);
-                }
-                ret = TFS_SUCCESS == get_task_manager().add(block->id(), result_helper, PLAN_TYPE_MOVE, now);
-              }
+              helper.push_back(source->id());
+              helper.push_back(result->id());
+              ret = TFS_SUCCESS == get_task_manager().add(block->id(), helper, PLAN_TYPE_MOVE, now);
             }
           }
         }
@@ -1394,10 +1293,6 @@ namespace tfs
                 helper.get_array_index(), members, now);
             }
           }
-        }
-        if (TFS_SUCCESS != ret)
-        {
-          TBSYS_LOG(DEBUG, "build_reinstate_task fail, family %"PRI64_PREFIX"d, ret: %d", family->get_family_id(), ret);
         }
       }
       return TFS_SUCCESS == ret;
@@ -1491,10 +1386,6 @@ namespace tfs
               }
             }
           }
-        }
-        if (TFS_SUCCESS != ret)
-        {
-          TBSYS_LOG(DEBUG, "build_dissolve_task fail, family %"PRI64_PREFIX"d, ret: %d", family->get_family_id(), ret);
         }
       }
       return TFS_SUCCESS == ret;
@@ -1645,31 +1536,6 @@ namespace tfs
       return server_manager_.size() - task_manager_.get_running_server_size();
     }
 
-    void LayoutManager::get_server_rack_helper(const uint64_t block, common::ArrayHelper<ServerRack>& server_rack_helper)
-    {
-      int ret = INVALID_BLOCK_ID != block ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
-      uint64_t array[MAX_REPLICATION_NUM];
-      ArrayHelper<uint64_t> servers(MAX_REPLICATION_NUM, array);
-      if (TFS_SUCCESS == ret)
-      {
-        ret = get_block_manager().get_servers(servers, block);
-      }
-      if (TFS_SUCCESS == ret)
-      {
-        for (int64_t i = 0; i < servers.get_array_index(); ++i)
-        {
-          uint64_t server_id = *servers.at(i);
-          ServerCollect* pserver = get_server_manager().get(server_id);
-          if (NULL != pserver)
-          {
-            uint32_t lan = pserver->get_rack_id();
-            ServerRack rack(server_id, lan);
-            server_rack_helper.push_back(rack);
-          }
-        }
-      }
-    }
-
     bool LayoutManager::scan_block_(ArrayHelper<BlockCollect*>& results, int64_t& need, uint64_t& start, int64_t& max_compact_task_count, const int32_t max_query_block_num,
           const time_t now, const bool compact_time, const bool marshalling_time, const bool report_time)
     {
@@ -1683,20 +1549,15 @@ namespace tfs
       ArrayHelper<ServerItem> invalids(MAX_REPLICATION_NUM, copies);
       ServerItem family_arrays[MAX_REPLICATION_NUM];
       common::ArrayHelper<ServerItem> clean_family_helper(MAX_REPLICATION_NUM, family_arrays);
-      NsRuntimeGlobalInformation& ngi = NsRuntimeGlobalInformation::instance();
-      ServerRack server_rack_array[MAX_REPLICATION_NUM];
-      common::ArrayHelper<ServerRack> server_rack_helper(MAX_REPLICATION_NUM, server_rack_array);
+       NsRuntimeGlobalInformation& ngi = NsRuntimeGlobalInformation::instance();
       bool over = get_block_manager().scan(results, start, max_query_block_num);
       for (int64_t index = 0; index < results.get_array_index() && need > 0; ++index)
       {
         invalids.clear();
-        server_rack_helper.clear();
         block = *results.at(index);
         block_id = block->id();
         assert(NULL != block);
-        get_server_rack_helper(block_id, server_rack_helper);
-        ret = get_block_manager().resolve_invalid_copies(invalids,clean_family_helper,block,now,server_rack_helper);
-
+        ret = get_block_manager().resolve_invalid_copies(invalids,clean_family_helper,block,now);
         build_resolve_invalid_copies_task_(invalids, block, now);
         for (int64_t k = 0; k < clean_family_helper.get_array_index(); ++k)
         {
@@ -1775,33 +1636,8 @@ namespace tfs
         {
 
         }
-        ret = ((!ret) && get_family_manager().check_family_conflict(family));
-        if (ret)
-        {
-          ret = remove_family(family->get_family_id());
-        }
       }
       return over;
-    }
-
-    bool LayoutManager::remove_family(const int64_t family_id)
-    {
-      int32_t ret = (INVALID_FAMILY_ID == family_id) ? EXIT_PARAMETER_ERROR : TFS_SUCCESS;
-      if (TFS_SUCCESS == ret)
-      {
-        ret = get_oplog_sync_mgr().del_family(family_id);
-        if (TFS_SUCCESS == ret)
-        {
-          ret = get_family_manager().del_family(family_id);
-        }
-        TBSYS_LOG(INFO, "del family %"PRI64_PREFIX"d %s for marshalling conflict, ret: %d", family_id,
-            TFS_SUCCESS == ret ? "successful" : "failed", ret);
-
-        CLogger& block_log = get_block_log();
-        block_log.logMessage(TBSYS_LOG_LEVEL(INFO), "delete family-%"PRI64_PREFIX"d forcely %s",
-            family_id, TFS_SUCCESS == ret ? "successful" : "failed");
-      }
-      return TFS_SUCCESS == ret;
     }
 
       void LayoutManager::BuildPlanThreadHelper::run()

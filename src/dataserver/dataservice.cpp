@@ -27,7 +27,6 @@
 #include "common/config_item.h"
 #include "common/directory_op.h"
 #include "clientv2/fsname.h"
-#include "message/get_dataserver_stat_info_message.h"
 
 namespace tfs
 {
@@ -46,18 +45,17 @@ namespace tfs
         client_request_server_(*this),
         writable_block_manager_(*this),
         check_manager_(*this),
-        integrity_manager_(*this),
+        migrate_manager_(NULL),
         timeout_thread_(0),
         task_thread_(0),
-        check_thread_(0),
-        check_integrity_thread_(0),
-        last_crash_time_(0)
+        check_thread_(0)
     {
 
     }
 
     DataService::~DataService()
     {
+      tbsys::gDelete(migrate_manager_);
       tbsys::gDelete(lease_manager_);
       tbsys::gDelete(block_manager_);
       timeout_thread_ = 0;
@@ -159,14 +157,6 @@ namespace tfs
         const int32_t server_index = atoi(server_index_.c_str());
         DsRuntimeGlobalInformation& instance = DsRuntimeGlobalInformation::instance();
         instance.information_.type_ = 0 == server_index ? DATASERVER_DISK_TYPE_SYSTEM : DATASERVER_DISK_TYPE_FULL;
-        if (0 != SYSPARAM_DATASERVER.rack_id_)
-        {
-          instance.information_.rack_id_ = SYSPARAM_DATASERVER.rack_id_;
-        }
-        else
-        {
-          instance.information_.rack_id_ = tbsys::CNetUtil::getAddr(get_ip_addr());// rack_id is 0 for test evn
-        }
       }
 
       if (TFS_SUCCESS == ret)
@@ -279,33 +269,6 @@ namespace tfs
           TBSYS_LOG(ERROR, "load all blocks failed, ret: %d", ret);
       }
 
-      // after load blocks
-      if (TFS_SUCCESS == ret)
-      {
-        // we create a file when ds start
-        // unlink it when ds normally exit
-        // if it already exist when start, ds may have crashed last time
-        running_path_ = get_real_work_dir() + string("/running");
-        if (access(running_path_.c_str(), F_OK) == 0)
-        {
-          last_crash_time_ = 0;
-          std::vector<IndexHeaderV2> headers;
-          get_block_manager().get_all_block_header(headers);
-          std::vector<IndexHeaderV2>::iterator it = headers.begin();
-          for ( ; it != headers.end(); it++)
-          {
-            if (it->throughput_.last_update_time_ > last_crash_time_)
-            {
-              last_crash_time_ = it->throughput_.last_update_time_;
-            }
-          }
-        }
-        else
-        {
-          mknod(running_path_.c_str(), 0644, S_IFREG);
-        }
-      }
-
       // init lease manager
       if (TFS_SUCCESS == ret)
       {
@@ -342,8 +305,6 @@ namespace tfs
         assert(0 != timeout_thread_);
         check_thread_ = new (std::nothrow)RunCheckThreadHelper(*this);
         assert(0 != check_thread_);
-        check_integrity_thread_ = new (std::nothrow)CheckIntegrityThreadHelper(*this);
-        assert(0 != check_integrity_thread_);
       }
 
       // sync mirror should init after bootstrap
@@ -388,6 +349,36 @@ namespace tfs
         }
       }
       */
+
+      // init migrate
+      if (TFS_SUCCESS == ret)
+      {
+        const char* str_dest_addr = TBSYS_CONFIG.getString(CONF_SN_DATASERVER, CONF_MIGRATE_SERVER_ADDR, NULL);
+        uint64_t migrate_addr = common::INVALID_SERVER_ID;
+        if (NULL != str_dest_addr)
+        {
+          std::vector<string> vec;
+          common::Func::split_string(str_dest_addr, ':', vec);
+          ret = vec.size() == 2U ? TFS_SUCCESS : EXIT_SYSTEM_PARAMETER_ERROR;
+          if (TFS_SUCCESS == ret)
+          {
+            migrate_addr = tbsys::CNetUtil::strToAddr(vec[0].c_str(), atoi(vec[1].c_str()));
+          }
+        }
+        if (TFS_SUCCESS == ret && INVALID_SERVER_ID != migrate_addr)
+        {
+          DsRuntimeGlobalInformation& instance = DsRuntimeGlobalInformation::instance();
+          migrate_manager_ = new (std::nothrow)MigrateManager(migrate_addr, instance.information_.id_);
+          assert(NULL != migrate_manager_);
+          ret = migrate_manager_->initialize();
+        }
+
+        if (INVALID_SERVER_ID != migrate_addr)
+        {
+          TBSYS_LOG(INFO, "start migrate heartbeat %s, migrate serveraddr: %s",
+            TFS_SUCCESS == ret ? "successful" : "failed", NULL != str_dest_addr ? str_dest_addr : "null");
+        }
+      }
 
       return ret;
     }
@@ -491,6 +482,9 @@ namespace tfs
       for (; iter != sync_mirror_.end(); iter++)
         (*iter)->stop();
 
+      if (NULL != migrate_manager_)
+        migrate_manager_->destroy();
+
       if (NULL != lease_manager_)
          lease_manager_->destroy();
 
@@ -509,13 +503,6 @@ namespace tfs
       {
         check_thread_->join();
       }
-
-      if (0 != check_integrity_thread_)
-      {
-        check_integrity_thread_->join();
-      }
-
-      unlink(running_path_.c_str());
 
       return TFS_SUCCESS;
     }
@@ -638,11 +625,6 @@ namespace tfs
       check_manager_.run_check();
     }
 
-    void DataService::CheckIntegrityThreadHelper::run()
-    {
-      service_.integrity_manager_.run_check();
-    }
-
     int DataService::callback(common::NewClient* client)
     {
       int32_t ret = NULL != client ? TFS_SUCCESS : TFS_ERROR;
@@ -660,8 +642,7 @@ namespace tfs
             ret = client_request_server_.callback(client);
           }
           else if (DS_APPLY_BLOCK_MESSAGE == pcode ||
-              DS_GIVEUP_BLOCK_MESSAGE == pcode ||
-              DS_RENEW_BLOCK_MESSAGE == pcode)
+              DS_GIVEUP_BLOCK_MESSAGE == pcode)
           {
             ret = writable_block_manager_.callback(client);
           }
@@ -917,14 +898,6 @@ namespace tfs
         {
           ret = message->reply(reply_msg);
         }
-      }
-      else if (GSS_DATASEVER_INFO == type)
-      {
-        GetDsStatInfoMessage* resp_msg = new (std::nothrow) GetDsStatInfoMessage();
-        assert(NULL != resp_msg);
-        DataServerStatInfo& info = DsRuntimeGlobalInformation::instance().information_;
-        resp_msg->set_dataserver_information(info);
-        ret = message->reply(resp_msg);
       }
       return ret;
     }

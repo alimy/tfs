@@ -41,8 +41,7 @@ namespace tfs
       manager_(m),
       packet_factory_(NULL),
       keepalive_queue_header_(*this),
-      report_block_queue_header_(*this),
-      master_slave_heart_manager_(m.get_layout_manager())
+      report_block_queue_header_(*this)
     {
       for (int32_t index = 0; index < MAX_LISTEN_PORT_NUM; ++index)
       {
@@ -89,25 +88,6 @@ namespace tfs
             TBSYS_LOG(ERROR, "listen port %d failed, ret: %d", base_port + index, ret);
         }
       }
-      if (TFS_SUCCESS == ret)
-      {
-        ret = master_slave_heart_manager_.initialize();
-        if (TFS_SUCCESS != ret)
-        {
-          TBSYS_LOG(ERROR, "initialize master and slave heart manager failed, must be exit, ret: %d", ret);
-        }
-        else
-        {
-          if (GFactory::get_runtime_info().is_master())
-          {
-            ret = master_slave_heart_manager_.establish_peer_role_(GFactory::get_runtime_info());
-            if (EXIT_ROLE_ERROR == ret)
-              TBSYS_LOG(INFO, "nameserve role error, must be exit, ret: %d", ret);
-            else
-              ret = TFS_SUCCESS;
-          }
-        }
-      }
       return ret;
     }
 
@@ -120,7 +100,6 @@ namespace tfs
         keepalive_threads_[index].wait();
         report_block_threads_[index].wait();
       }
-      master_slave_heart_manager_.wait_for_shut_down();
     }
 
     void HeartManagement::destroy()
@@ -132,7 +111,6 @@ namespace tfs
         keepalive_threads_[index].stop(true);
         report_block_threads_[index].stop(true);
       }
-      master_slave_heart_manager_.destroy();
     }
 
     tbnet::IPacketHandler::HPRetCode HeartManagement::handlePacket(tbnet::Connection *connection, tbnet::Packet *packet)
@@ -175,10 +153,6 @@ namespace tfs
           case REQ_REPORT_BLOCKS_TO_NS_MESSAGE:
             ret = report_block_threads_[index].push(bpacket, SYSPARAM_NAMESERVER.report_block_queue_size_, false) ? TFS_SUCCESS : EXIT_QUEUE_FULL_ERROR;
           break;
-          case MASTER_AND_SLAVE_HEART_MESSAGE:
-          case HEARTBEAT_AND_NS_HEART_MESSAGE:
-            master_slave_heart_manager_.push(bpacket, 0, false);
-            break;
           default:
             ret  = EXIT_UNKNOWN_MSGTYPE;
             hret = tbnet::IPacketHandler::FREE_CHANNEL;
@@ -295,8 +269,8 @@ namespace tfs
         meta.ns_role_ = GFactory::get_runtime_info().get_role();
         meta.max_block_size_ = SYSPARAM_NAMESERVER.max_block_size_;
         meta.max_write_file_count_ = SYSPARAM_NAMESERVER.max_write_file_count_;
-				meta.check_integrity_interval_days_ = SYSPARAM_NAMESERVER.check_integrity_interval_days_;
-				meta.global_switch_ = SYSPARAM_NAMESERVER.global_switch_;
+				meta.enable_old_interface_ = SYSPARAM_NAMESERVER.enable_old_interface_;
+				meta.enable_version_check_ = SYSPARAM_NAMESERVER.enable_version_check_;
         server_manager.calc_single_process_max_network_bandwidth(
               meta.max_mr_network_bandwith_, meta.max_rw_network_bandwith_, info);
         ret = rs.apply(info, meta.lease_expire_time_,meta.lease_renew_time_, meta.renew_retry_times_, meta.renew_retry_timeout_);
@@ -326,15 +300,16 @@ namespace tfs
         LeaseMeta& meta = reply_msg->get_lease_meta();
         meta.lease_id_ = info.id_;
         meta.ns_role_ = GFactory::get_runtime_info().get_role();
+        ArrayHelper<BlockInfoV2> input(MAX_WRITABLE_BLOCK_COUNT, msg->get_block_infos(), msg->get_size());
+        ArrayHelper<BlockLease>  output(MAX_WRITABLE_BLOCK_COUNT, reply_msg->get_block_lease());
         meta.max_block_size_ = SYSPARAM_NAMESERVER.max_block_size_;
         meta.max_write_file_count_ = SYSPARAM_NAMESERVER.max_write_file_count_;
-				meta.check_integrity_interval_days_ = SYSPARAM_NAMESERVER.check_integrity_interval_days_;
-				meta.global_switch_ = SYSPARAM_NAMESERVER.global_switch_;
         server_manager.calc_single_process_max_network_bandwidth(
               meta.max_mr_network_bandwith_, meta.max_rw_network_bandwith_, info);
-        ret = rs.renew(info, meta.lease_expire_time_,meta.lease_renew_time_, meta.renew_retry_times_, meta.renew_retry_timeout_);
+        ret = rs.renew(input, info, output, meta.lease_expire_time_,meta.lease_renew_time_, meta.renew_retry_times_, meta.renew_retry_timeout_);
         if (TFS_SUCCESS == ret)
         {
+          reply_msg->set_size(output.get_array_index());
           ret = msg->reply(reply_msg);
         }
         else
@@ -354,7 +329,8 @@ namespace tfs
         ClientRequestServer& rs       = layout_manager.get_client_request_server();
         DsGiveupLeaseMessage* msg = dynamic_cast<DsGiveupLeaseMessage*>(packet);
         DataServerStatInfo& info = msg->get_ds_stat();
-        ret = rs.giveup(info);
+        ArrayHelper<BlockInfoV2> input(MAX_WRITABLE_BLOCK_COUNT, msg->get_block_infos(), msg->get_size());
+        ret = rs.giveup(input, info);
         if (TFS_SUCCESS == ret)
         {
           ret = msg->reply(new (std::nothrow)StatusMessage(STATUS_MESSAGE_OK));

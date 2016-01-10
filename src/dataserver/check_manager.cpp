@@ -229,19 +229,6 @@ namespace tfs
       int ret = get_data_helper().get_block_replicas(peer_ns, block_id, replicas);
       if (TFS_SUCCESS == ret)
       {
-        ret = (replicas.size() > 0) ? TFS_SUCCESS : EXIT_NO_DATASERVER;
-      }
-      else if (EXIT_NO_BLOCK == ret || EXIT_BLOCK_NOT_FOUND == ret)
-      {
-        // less block in slave cluster will auto synced
-        if (flag & CHECK_FLAG_SYNC_LESS)
-        {
-          ret = TFS_SUCCESS;
-        }
-      }
-
-      if (TFS_SUCCESS == ret)
-      {
         vector<uint64_t>::iterator iter = replicas.begin();
         for ( ; iter != replicas.end(); iter++)
         {
@@ -251,6 +238,11 @@ namespace tfs
             break;
           }
         }
+      }
+      else if (EXIT_NO_BLOCK == ret || EXIT_BLOCK_NOT_FOUND == ret)
+      {
+        // block exist in peer cluster, we think the peer file list is empty
+        ret = TFS_SUCCESS;
       }
       else
       {

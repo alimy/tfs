@@ -73,7 +73,6 @@ namespace tfs
       block_count_(info.block_count_),
       total_network_bandwith_(128),//MB
       write_index_(0),
-      rack_id_(info.rack_id_),
       status_(SERVICE_STATUS_ONLINE),
       disk_type_(info.type_),
       wait_free_phase_(OBJECT_WAIT_FREE_PHASE_NONE),
@@ -209,7 +208,7 @@ namespace tfs
             block = manager.get_block_manager().get(scan_writable_block_id_);
             if (NULL == block)  // dissove maybe happened here
               continue;
-            if (cleanup_invalid_block_(block, now, false))
+            if (cleanup_invalid_block_(block, now))
               continue;
             RWLock::Lock lock(mutex_, READ_LOCKER);
             if (!exist_(scan_writable_block_id_, *issued_leases_))
@@ -238,9 +237,7 @@ namespace tfs
         param.data_.writeInt64(total_capacity_);
         param.data_.writeInt32(current_load_);
         param.data_.writeInt32(block_count_);
-        //param.data_.writeInt64(this->get());
-        param.data_.writeInt32(rack_id_);
-        param.data_.writeInt32(0);
+        param.data_.writeInt64(this->get());
         param.data_.writeInt64(startup_time_);
         for (int8_t index = 0; index < MAX_RW_STAT_PAIR_NUM; ++index)
         {
@@ -319,9 +316,16 @@ namespace tfs
         assert(NULL != entry);
         BlockCollect* pblock = NULL;
         int32_t& ret = entry->result_;
-        pblock = block_manager.get(entry->block_id_);
-        ret = (NULL != pblock) ? TFS_SUCCESS : EXIT_BLOCK_NOT_FOUND;
-
+        ret = is_equal_group(entry->block_id_) ? TFS_SUCCESS : EXIT_BLOCK_NOT_IN_CURRENT_GROUP;
+        if (TFS_SUCCESS == ret)
+        {
+          pblock = block_manager.get(entry->block_id_);
+          ret = (NULL != pblock) ? TFS_SUCCESS : EXIT_BLOCK_NOT_FOUND;
+        }
+        if (TFS_SUCCESS == ret)
+        {
+          ret = block_manager.has_valid_lease(pblock, now) ? EXIT_LEASE_EXISTED : TFS_SUCCESS;
+        }
         if (TFS_SUCCESS == ret)
         {
           ret = manager.get_task_manager().exist_block(entry->block_id_) ? EXIT_BLOCK_BUSY : TFS_SUCCESS;
@@ -345,16 +349,13 @@ namespace tfs
           ArrayHelper<uint64_t> servers(MAX_REPLICATION_NUM, entry->servers_);
           block_manager.get_servers(servers, pblock);
           entry->size_ = servers.get_array_index();
-          if (!(SYSPARAM_NAMESERVER.global_switch_ & ENABLE_INCOMPLETE_UPDATE))
-          {
-            int32_t expect_size = pblock->is_in_family() ? 1 : common::SYSPARAM_NAMESERVER.max_replication_;
-            ret = entry->size_ != expect_size ? EXIT_BLOCK_COPIES_INCOMPLETE : TFS_SUCCESS;
-          }
+          int32_t expect_size = pblock->is_in_family() ? 1 : common::SYSPARAM_NAMESERVER.max_replication_;
+          ret = entry->size_ != expect_size ? EXIT_BLOCK_COPIES_INCOMPLETE : TFS_SUCCESS;
         }
 
         if (TFS_SUCCESS != ret)
         {
-          TBSYS_LOG(WARN, "%s apply update block %"PRI64_PREFIX"u fail, ret: %d",
+          TBSYS_LOG(WARN, "%s apply update block %"PRI64_PREFIX"u fail, ret %d",
               CNetUtil::addrToString(id()).c_str(), entry->block_id_, ret);
         }
       }
@@ -441,7 +442,6 @@ namespace tfs
         BlockInfoV2* entry = input.at(index);
         result->block_id_ = entry->block_id_;
         int32_t& ret = result->result_;
-
         BlockCollect* pblock = block_manager.get(entry->block_id_);
         ret = (pblock != NULL) ? TFS_SUCCESS : EXIT_BLOCK_NOT_FOUND;
         if (TFS_SUCCESS == ret)
@@ -452,11 +452,6 @@ namespace tfs
         {
           ret = block_manager.renew_lease(id(), now, get() - now, false, *entry, pblock, invalid_helper, clean_family_helper);
           invalid_block_copies_(manager, invalid_helper, clean_family_helper, entry->block_id_);
-        }
-        if (TFS_SUCCESS == ret)
-        {
-          RWLock::Lock lock(mutex_, READ_LOCKER);
-          ret = exist_(pblock->id(), *issued_leases_) ? TFS_SUCCESS : EXIT_BLOCK_WRITING_ERROR;
         }
         if (TFS_SUCCESS == ret)
         {
@@ -562,7 +557,6 @@ namespace tfs
       int32_t args = CALL_BACK_FLAG_CLEAR;
       callback(reinterpret_cast<void*>(&args), manager);
       RWLock::Lock lock(mutex_, WRITE_LOCKER);
-      rack_id_ = info.rack_id_;
       rb_expired_time_ = 0;
       next_report_block_time_ = 0;
       scan_writable_block_id_ = 0;
@@ -675,8 +669,8 @@ namespace tfs
         hold_->expand_ratio(expand_ratio);
       if (writable_->need_expand(expand_ratio))
         writable_->expand_ratio(expand_ratio);
-      TBSYS_LOG(DEBUG, "%s expand, hold: %d, writable: %d, master: %d",
-        tbsys::CNetUtil::addrToString(id()).c_str(), hold_->size(), writable_->size(), issued_leases_->size());
+      TBSYS_LOG(DEBUG, "%s expand, hold: %d, writable: %d",
+        tbsys::CNetUtil::addrToString(id()).c_str(), hold_->size(), writable_->size());
       return TFS_SUCCESS;
     }
 
@@ -712,7 +706,6 @@ namespace tfs
       ArrayHelper<uint64_t> helper(MAX_QUERY_NUM, blocks);
       BlockManager& block_manager = manager.get_block_manager();
       ServerManager& server_manager = manager.get_server_manager();
-      FamilyManager& family_manager = manager.get_family_manager();
       while (!all_over)
       {
         helper.clear();
@@ -732,20 +725,10 @@ namespace tfs
               block_manager.relieve_relation(pblock, id(), now);
             }
             if ((CALL_BACK_FLAG_PUSH & args)
-               && (NULL == pserver))
+               && (NULL == pserver)
+               && (block_manager.need_replicate(pblock)))
             {
-              if (block_manager.need_replicate(pblock))
-              {
-                block_manager.push_to_emergency_replicate_queue(pblock);
-              }
-              else if (block_manager.need_reinstate(pblock))
-              {
-                FamilyCollect* family = family_manager.get(pblock->get_family_id());
-                if (NULL != family)
-                {
-                  family_manager.push_to_reinstate_or_dissolve_queue(family, PLAN_TYPE_EC_REINSTATE);
-                }
-              }
+              block_manager.push_to_emergency_replicate_queue(pblock);
             }
           }
         }
@@ -803,36 +786,29 @@ namespace tfs
       return ret;
     }
 
-    bool ServerCollect::cleanup_invalid_block_(BlockCollect* block, const int64_t now, const bool master, const bool writable)
+    bool ServerCollect::cleanup_invalid_block_(BlockCollect* block, const int64_t now)
     {
       bool ret = (NULL != block);
       if (ret)
       {
         ret = false;
-        if (master)
+        RWLock::Lock lock(mutex_, WRITE_LOCKER);
+        if (!block->is_writable()
+            || !block->is_master(id())
+            || !is_equal_group(block->id())
+            || !block->has_valid_lease(now)
+            || IS_VERFIFY_BLOCK(block->id()))
         {
-          if (!block->is_writable()
-              || !block->is_master(id())
-              || !is_equal_group(block->id())
-              || !block->has_valid_lease(now)
-              || IS_VERFIFY_BLOCK(block->id()))
-          {
-            RWLock::Lock lock(mutex_, WRITE_LOCKER);
-            remove_(block->id(), *issued_leases_);
-          }
+          ret = true;
+          remove_(block->id(), *issued_leases_);
         }
-
-        if (writable)
+        if (block->is_full()
+            || !block->is_master(id())
+            || !is_equal_group(block->id())
+            || IS_VERFIFY_BLOCK(block->id()))
         {
-          if (block->is_full()
-              || !block->is_master(id())
-              || !is_equal_group(block->id())
-              || IS_VERFIFY_BLOCK(block->id()))
-          {
-            ret = true;
-            RWLock::Lock lock(mutex_, WRITE_LOCKER);
-            remove_(block->id(), *writable_);
-          }
+          ret = true;
+          remove_(block->id(), *writable_);
         }
       }
       return ret;
@@ -855,21 +831,6 @@ namespace tfs
         ServerItem* item = clean_family_helper.at(k);
         assert(NULL != item);
         manager.get_block_manager().push_to_clean_familyinfo_queue(block, *item, GFactory::get_runtime_info().is_master());
-      }
-
-
-      if (helper.get_array_index() > 0 || clean_family_helper.get_array_index() > 0)
-      {
-        int64_t now = Func::get_monotonic_time();
-        NsRuntimeGlobalInformation& ngi = GFactory::get_runtime_info();
-        if (!ngi.in_safe_mode_time(now))
-        {
-          BlockCollect* pblock = manager.get_block_manager().get(block);
-          if (NULL != pblock && manager.get_block_manager().need_replicate(pblock))
-          {
-            manager.get_block_manager().push_to_emergency_replicate_queue(pblock);
-          }
-        }
       }
     }
 

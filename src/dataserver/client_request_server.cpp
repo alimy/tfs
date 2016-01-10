@@ -139,20 +139,10 @@ namespace tfs
       {
         DsRuntimeGlobalInformation& info = DsRuntimeGlobalInformation::instance();
         CallDsReportBlockRequestMessage* msg = dynamic_cast<CallDsReportBlockRequestMessage*>(message);
-        uint64_t server = msg->get_server();
-        msg->reply(new StatusMessage(STATUS_MESSAGE_OK));  // reply ns first
-
-        // ds is reporting block now, avoid reporting repeatly
-        if (info.is_reporting_block_)
-        {
-          return TFS_SUCCESS;
-        }
-
-        info.is_reporting_block_ = true;
-
         ReportBlocksToNsRequestMessage req_msg;
         req_msg.set_server(info.information_.id_);
         int32_t block_count = 0;
+        uint64_t server = msg->get_server();
         BlockInfoV2* blocks_ext = NULL;
         TIMER_START();
         get_block_manager().get_all_block_info(blocks_ext, block_count);
@@ -175,7 +165,6 @@ namespace tfs
             for (; iter != cleanup_family_id_array.end(); ++iter)
             {
               service_.get_block_manager().set_family_id(INVALID_FAMILY_ID, (*iter));
-              TBSYS_LOG(INFO, "block %"PRI64_PREFIX"u clear family id", *iter);
             }
           }
         }
@@ -184,8 +173,6 @@ namespace tfs
         TIMER_END();
         TBSYS_LOG(INFO, "report block to %s %s, blocks size: %d, cost: %"PRI64_PREFIX"d, ret: %d",
             tbsys::CNetUtil::addrToString(server).c_str(), TFS_SUCCESS == ret ? "succesful" : "failed", block_count, TIMER_DURATION(), ret);
-
-        info.is_reporting_block_ = false;  // report finish
       }
       return ret;
     }
@@ -611,7 +598,8 @@ namespace tfs
       if (TFS_SUCCESS == ret)
       {
         ret = get_op_manager().prepare_op(attach_block_id,
-            file_id, lease_id, OP_TYPE_UNLINK, is_master, family_info, servers);
+            file_id, lease_id, OP_TYPE_UNLINK, is_master, family_info, servers,
+            TFS_FILE_OP_NO_LEASE);
         if (TFS_SUCCESS == ret)
         {
           prepare_ok = true;
@@ -784,11 +772,6 @@ namespace tfs
           {
             get_op_manager().update_op(block_id, file_id, lease_id, iter->second.second);
           }
-          iter = fresponse->begin();
-          for ( ; iter != fresponse->end(); iter++)
-          {
-            get_op_manager().update_op(block_id, file_id, lease_id, iter->second.second);
-          }
           write_file_callback(msg);
         }
         else if (CLOSE_FILE_MESSAGE_V2 == pcode)
@@ -802,11 +785,6 @@ namespace tfs
           {
             get_op_manager().update_op(block_id, file_id, lease_id, iter->second.second);
           }
-          iter = fresponse->begin();
-          for ( ; iter != fresponse->end(); iter++)
-          {
-            get_op_manager().update_op(block_id, file_id, lease_id, iter->second.second);
-          }
           close_file_callback(msg);
         }
         else if (UNLINK_FILE_MESSAGE_V2 == pcode)
@@ -817,11 +795,6 @@ namespace tfs
           uint64_t lease_id = msg->get_lease_id();
           NewClient::RESPONSE_MSG_MAP::iterator iter = sresponse->begin();
           for ( ; iter != sresponse->end(); iter++)
-          {
-            get_op_manager().update_op(block_id, file_id, lease_id, iter->second.second);
-          }
-          iter = fresponse->begin();
-          for ( ; iter != fresponse->end(); iter++)
           {
             get_op_manager().update_op(block_id, file_id, lease_id, iter->second.second);
           }
@@ -1200,16 +1173,6 @@ namespace tfs
         ret = get_block_manager().get_marshalling_offset(ec_meta.mars_offset_, block_id);
       }
 
-      if (TFS_SUCCESS == ret)
-      {
-        uint32_t crc = 0;
-        ret = get_block_manager().get_data_crc(crc, block_id);
-        if (TFS_SUCCESS == ret)
-        {
-          ec_meta.data_crc_ = crc;
-        }
-      }
-
       return ret;
     }
 
@@ -1270,12 +1233,6 @@ namespace tfs
         if ((TFS_SUCCESS == ret) && (ec_meta.version_step_ > 0))
         {
           ret = logic_block->update_block_version(ec_meta.version_step_);
-        }
-
-        // commit block crc
-        if ((TFS_SUCCESS == ret) && (ec_meta.data_crc_ >= 0))
-        {
-          ret = logic_block->set_data_crc(ec_meta.data_crc_);
         }
 
         if (TFS_SUCCESS != ret)

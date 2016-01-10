@@ -40,9 +40,6 @@ namespace tfs
 
     int ClientRequestServer::apply(common::DataServerStatInfo& info, int32_t& expire_time, int32_t& next_renew_time, int32_t& renew_retry_times, int32_t& renew_retry_timeout)
     {
-      expire_time = 0;
-      renew_retry_times = 0;
-      renew_retry_timeout = 0;
       TIMER_START();
       const time_t now = Func::get_monotonic_time();
       int32_t ret = manager_.get_server_manager().apply(info, now,SYSPARAM_NAMESERVER.between_ns_and_ds_lease_expire_time_);
@@ -51,17 +48,16 @@ namespace tfs
         calc_lease_expire_time_(expire_time, next_renew_time, renew_retry_times, renew_retry_timeout);
       }
       TIMER_END();
-      TBSYS_LOG(DEBUG, "dataserver: %s apply lease %s, consume: %"PRI64_PREFIX"d, ret: %d: use capacity: %" PRI64_PREFIX "u, total capacity: %" PRI64_PREFIX "u,lease_expired_time: %d, next_renew_time: %d, retry_times: %d",
+      TBSYS_LOG(INFO, "dataserver: %s apply lease %s, consume: %"PRI64_PREFIX"d, ret: %d: use capacity: %" PRI64_PREFIX "u, total capacity: %" PRI64_PREFIX "u,lease_expired_time: %d, next_renew_time: %d, retry_times: %d",
         CNetUtil::addrToString(info.id_).c_str(),TFS_SUCCESS == ret ? "successful" : "failed", TIMER_DURATION(), ret, info.use_capacity_, info.total_capacity_,
         expire_time, next_renew_time, renew_retry_times);
       return ret;
     }
 
-    int ClientRequestServer::renew(common::DataServerStatInfo& info, int32_t& expire_time, int32_t& next_renew_time, int32_t& renew_retry_times, int32_t& renew_retry_timeout)
+    int ClientRequestServer::renew(const common::ArrayHelper<BlockInfoV2>& input,
+          common::DataServerStatInfo& info, common::ArrayHelper<common::BlockLease>& output,
+          int32_t& expire_time, int32_t& next_renew_time, int32_t& renew_retry_times, int32_t& renew_retry_timeout)
     {
-      expire_time = 0;
-      renew_retry_times = 0;
-      renew_retry_timeout = 0;
       TIMER_START();
       const time_t now = Func::get_monotonic_time();
       ServerManager& server_manager = manager_.get_server_manager();
@@ -70,22 +66,31 @@ namespace tfs
       {
         calc_lease_expire_time_(expire_time, next_renew_time, renew_retry_times, renew_retry_timeout);
       }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = server_manager.renew_block(info.id_,input, output);
+      }
       TIMER_END();
-
-      TBSYS_LOG(DEBUG, "dataserver: %s renew lease %s consume: %"PRI64_PREFIX"d, ret: %d: use capacity: %" PRI64_PREFIX "u, total capacity: %" PRI64_PREFIX "u,lease_expired_time: %d, next_renew_time: %d, retry_times: %d",
+      TBSYS_LOG(INFO, "dataserver: %s renew lease %s consume: %"PRI64_PREFIX"d, ret: %d: use capacity: %" PRI64_PREFIX "u, total capacity: %" PRI64_PREFIX "u,lease_expired_time: %d, next_renew_time: %d, retry_times: %d, input block count: %"PRI64_PREFIX"d, output block count: %"PRI64_PREFIX"d",
         CNetUtil::addrToString(info.id_).c_str(),TFS_SUCCESS == ret ? "successful" : "failed", TIMER_DURATION(), ret, info.use_capacity_, info.total_capacity_,
-        expire_time, next_renew_time, renew_retry_times);
+        expire_time, next_renew_time, renew_retry_times, input.get_array_index(), output.get_array_index());
       return ret;
     }
 
-    int ClientRequestServer::giveup(common::DataServerStatInfo& info)
+    int ClientRequestServer::giveup(const common::ArrayHelper<common::BlockInfoV2>& input,common::DataServerStatInfo& info)
     {
       TIMER_START();
+      BlockLease lease_array[1024];
+      ArrayHelper<BlockLease> output(1024, lease_array);
       const time_t now = Func::get_monotonic_time();
       ServerManager& server_manager = manager_.get_server_manager();
-      int32_t ret =  server_manager.giveup(now, info.id_);
+      int32_t ret = server_manager.giveup_block(info.id_, input, output);
+      if (TFS_SUCCESS == ret)
+      {
+        ret = server_manager.giveup(now, info.id_);
+      }
       TIMER_END();
-      TBSYS_LOG(DEBUG, "dataserver: %s giveup lease %s,consume: %"PRI64_PREFIX"d, ret: %d: use capacity: %" PRI64_PREFIX "u, total capacity: %" PRI64_PREFIX "u",
+      TBSYS_LOG(INFO, "dataserver: %s giveup lease %s,consume: %"PRI64_PREFIX"d, ret: %d: use capacity: %" PRI64_PREFIX "u, total capacity: %" PRI64_PREFIX "u",
         CNetUtil::addrToString(info.id_).c_str(),TFS_SUCCESS == ret ? "successful" : "failed", TIMER_DURATION(), ret, info.use_capacity_, info.total_capacity_);
       return ret;
     }
@@ -94,13 +99,6 @@ namespace tfs
     {
       ServerManager& server_manager = manager_.get_server_manager();
       return server_manager.apply_block(server, output);
-    }
-
-    int ClientRequestServer::renew_block(const uint64_t server, const common::ArrayHelper<common::BlockInfoV2>& input,
-            common::ArrayHelper<common::BlockLease>& output)
-    {
-      ServerManager& server_manager = manager_.get_server_manager();
-      return server_manager.renew_block(server, input, output);
     }
 
     int ClientRequestServer::apply_block_for_update(const uint64_t server, common::ArrayHelper<common::BlockLease>& output)
@@ -437,14 +435,6 @@ namespace tfs
       int32_t ret = ((NULL == buf) || (buf_length <= 0)) ? EXIT_PARAMETER_ERROR : TFS_SUCCESS;
       if (TFS_SUCCESS == ret)
       {
-        if (info.value4_ == REPLICATE_BLOCK_MOVE_FLAG_YES)
-        {
-          int64_t total = family_manager.get_reinstate_or_dissolve_queue_size() + block_manager.get_emergency_replicate_queue_size();
-          ret = total > 0 ? EXIT_CANNOT_MIGRATE_BLOCK_ERROR: TFS_SUCCESS;
-        }
-      }
-      if (TFS_SUCCESS == ret)
-      {
         pblock = block_manager.get(info.value3_);
         ret = (NULL != pblock) ? TFS_SUCCESS : EXIT_BLOCK_NOT_FOUND;
         if (TFS_SUCCESS != ret)
@@ -465,20 +455,9 @@ namespace tfs
       if (TFS_SUCCESS == ret)
       {
         if (INVALID_SERVER_ID != info.value1_)
-        {
-          if (!helper.exist(info.value1_))
-          {
-            source = NULL;
-          }
-          else
-          {
-            source = server_manager.get(info.value1_);
-          }
-        }
+          source = server_manager.get(info.value1_);
         else
-        {
           server_manager.choose_replicate_source_server(source, helper);
-        }
         ret = (NULL != source) ? TFS_SUCCESS : EXIT_CHOOSE_SOURCE_SERVER_ERROR;
         if (TFS_SUCCESS != ret)
         {
@@ -497,12 +476,11 @@ namespace tfs
           snprintf(buf, buf_length, " get family members failed: ret: %d block: %"PRI64_PREFIX"u, family_id: %"PRI64_PREFIX"d", ret, info.value3_, pblock->get_family_id());
         else
         {
-          for (int64_t index = 0; index < mem_helper.get_array_index() && TFS_SUCCESS == ret; ++index)
+          for (int64_t index = 0; index < mem_helper.get_array_index(); ++index)
           {
             std::pair<uint64_t, uint64_t>* item = mem_helper.at(index);
             assert(NULL != item);
-            ret = INVALID_SERVER_ID != item->second ? TFS_SUCCESS : EXIT_CANNOT_MIGRATE_BLOCK_ERROR;
-            if (TFS_SUCCESS == ret && !helper.exist(item->second))
+            if (!helper.exist(item->second))
               helper.push_back(item->second);
           }
         }
@@ -523,8 +501,8 @@ namespace tfs
       if (TFS_SUCCESS == ret
         && MOVE_BLOCK_NO_CHECK_RACK_FLAG_NO == info.value5_)
       {
-        uint32_t lan = source->get_rack_id();
-        uint32_t lan2= target->get_rack_id();
+        uint32_t lan = Func::get_lan(source->id(), SYSPARAM_NAMESERVER.group_mask_);
+        uint32_t lan2= Func::get_lan(target->id(), SYSPARAM_NAMESERVER.group_mask_);
         ret = (lan != lan2) ? TFS_SUCCESS : EXIT_CHOOSE_RACK_ERROR;
         if (TFS_SUCCESS != ret)
         {
@@ -535,22 +513,10 @@ namespace tfs
       if (TFS_SUCCESS == ret)
       {
         helper.clear();
-        ret = block_manager.get_servers(helper, pblock);
-      }
-      if (TFS_SUCCESS == ret)
-      {
-        uint64_t result_servers[MAX_REPLICATION_NUM];
-        ArrayHelper<uint64_t> result_helper(MAX_REPLICATION_NUM, result_servers);
-        result_helper.push_back(source->id());
-        result_helper.push_back(target->id());
-        for (int64_t index = 0; index < helper.get_array_index(); ++index)
-        {
-          uint64_t server = *helper.at(index);
-          if (server != source->id())
-            result_helper.push_back(server);
-        }
+        helper.push_back(source->id());
+        helper.push_back(target->id());
         PlanType type = (info.value4_ == REPLICATE_BLOCK_MOVE_FLAG_NO) ? PLAN_TYPE_REPLICATE : PLAN_TYPE_MOVE ;
-        ret = task_manager.add(info.value3_, result_helper, type, now);
+        ret = task_manager.add(info.value3_, helper, type, now);
         if (TFS_SUCCESS != ret)
         {
           snprintf(buf, buf_length, "add %s task failed, block: %"PRI64_PREFIX"u",
@@ -632,7 +598,7 @@ namespace tfs
     int ClientRequestServer::handle_control_delete_family(const common::ClientCmdInformation& info, const int64_t buf_length, char* buf)
     {
       TBSYS_LOG(INFO, "handle control remove family: %"PRI64_PREFIX"u, flag: %"PRI64_PREFIX"u",
-          info.value3_, info.value4_);
+          info.value3_, info.value1_);
 
       int32_t ret = (info.value3_ == INVALID_FAMILY_ID) ? EXIT_PARAMETER_ERROR : TFS_SUCCESS;
       FamilyManager& family_manager = manager_.get_family_manager();
@@ -654,9 +620,6 @@ namespace tfs
       {
         snprintf(buf, buf_length, "del family %"PRI64_PREFIX"d fail, ret: %d", info.value3_, ret);
       }
-      CLogger& block_log = manager_.get_block_log();
-      block_log.logMessage(TBSYS_LOG_LEVEL(INFO), "delete family-%"PRI64_PREFIX"d flag: %"PRI64_PREFIX"d %s",
-          info.value3_, info.value4_, TFS_SUCCESS == ret ? "successful" : "failed");
 
       return ret;
     }
@@ -804,11 +767,6 @@ namespace tfs
           {
             block->set_version(info.version_);
             block->update_info(info);
-
-            if (manager_.get_block_manager().need_replicate(block))
-            {
-              manager_.get_block_manager().push_to_emergency_replicate_queue(block);
-            }
           }
           else
           {
@@ -837,7 +795,6 @@ namespace tfs
       config.group_seq_ = SYSPARAM_NAMESERVER.group_seq_;
       config.group_count_ = SYSPARAM_NAMESERVER.group_count_;
       config.replica_num_ = SYSPARAM_NAMESERVER.max_replication_;
-      config.migrate_complete_wait_time_ = SYSPARAM_NAMESERVER.migrate_complete_wait_time_;
       interval = SYSPARAM_NAMESERVER.client_keepalive_interval_;
       if (flag != DS_TABLE_NONE)
       {

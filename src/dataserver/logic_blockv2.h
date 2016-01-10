@@ -56,9 +56,7 @@ namespace tfs
       int update_block_info(const common::BlockInfoV2& info) const;
       int update_block_version(const int8_t step = common::VERSION_INC_STEP_DEFAULT);
       int get_block_info(common::BlockInfoV2& info) const;
-      int get_block_info_in_memory(common::BlockInfoV2& info) const;
       int get_index_header(common::IndexHeaderV2& header) const;
-      int get_index_header_in_memory(common::IndexHeaderV2& header) const;
       int set_index_header(const common::IndexHeaderV2& header);
       int flush();
       virtual int check_block_intact() { return common::TFS_SUCCESS;}
@@ -73,10 +71,6 @@ namespace tfs
       int get_avail_offset(int32_t& size) const;
       int get_marshalling_offset(int32_t& offset) const;
       int set_marshalling_offset(const int32_t size);
-      int get_last_check_time(int32_t& timestamp) const;
-      int set_last_check_time(const int32_t timestamp);
-      int get_data_crc(uint32_t& crc) const;
-      int set_data_crc(const uint32_t crc);
       int write_file_infos(const common::IndexHeaderV2& header, std::vector<common::FileInfoV2>& infos,
           const uint64_t logic_block_id, const bool partial, const int32_t reserved_space_ratio);
       virtual int write(uint64_t& fileid, DataFile& datafile, const uint64_t logic_block_id, const bool tmp);

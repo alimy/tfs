@@ -69,11 +69,6 @@ namespace tfs
         {
           TBSYS_LOG(WARN, "create family : %"PRI64_PREFIX"d error: call tair put error, ret: %d, pkey: %s, skey: %s", family_info.family_id_, ret, pkey, skey);
         }
-        // always try to delete after ns put tair timout, avoid tair put successfully itself finally
-        if (TAIR_RETURN_TIMEOUT == ret)
-        {
-          del_(pkey, skey);
-        }
         ret = (TAIR_RETURN_SUCCESS == ret) ? TFS_SUCCESS : EXIT_OP_TAIR_ERROR;
       }
       return ret;
@@ -108,12 +103,11 @@ namespace tfs
       char suffix[64] = {'\0'};
       if (del)
         snprintf(suffix, 64, "_del_%"PRI64_PREFIX"u",own_ipport);
-      snprintf(pkey, 128, "%s%06d%s", key_prefix_.c_str(), del ? DELETE_FAMILY_CHUNK_DEFAULT_VALUE : get_bucket(family_id), del ? suffix : "");
+      snprintf(pkey, 128, "%s%06d%s", key_prefix_.c_str(), get_bucket(family_id), del ? suffix : "");
       snprintf(skey, 128, "%020"PRI64_PREFIX"d", family_id);
       data_entry tair_pkey(pkey, false);
       data_entry tair_skey(skey, false);
       int32_t ret = del_(pkey, skey);
-      ret = TAIR_RETURN_DATA_NOT_EXIST == ret ? TAIR_RETURN_SUCCESS : ret;
       if (TAIR_RETURN_SUCCESS != ret)
       {
         TBSYS_LOG(WARN, "del family : %"PRI64_PREFIX"d error: call tair put error, ret: %d, pkey: %s, skey: %s", family_id, ret, pkey, skey);
@@ -159,8 +153,9 @@ namespace tfs
       return TFS_SUCCESS;
     }
 
-    int TairHelper::scan(std::vector<FamilyInfo>& family_infos, const int64_t start_family_id, const int32_t chunk, const bool del, const uint64_t peer_ipport, const int32_t limit)
+    int TairHelper::scan(std::vector<FamilyInfo>& family_infos, const int64_t start_family_id, const int32_t chunk, const bool del, const uint64_t peer_ipport)
     {
+      const int32_t ROW_LIMIT = 0;
       char pkey[128] = {'\0'};
       char start_key[128] = {'\0'};
       char end_key[128] = {'\0'};
@@ -181,7 +176,7 @@ namespace tfs
       {
         tbutil::Mutex::Lock lock(mutex_);
         ret = tair_client_.get_range(area_, tair_pkey, tair_start_key, tair_end_key,
-            0, limit, values, CMD_RANGE_VALUE_ONLY);
+            0, ROW_LIMIT, values, CMD_RANGE_VALUE_ONLY);
       }
       while (TAIR_RETURN_DATA_NOT_EXIST != ret
             && TAIR_HAS_MORE_DATA != ret
@@ -197,7 +192,7 @@ namespace tfs
         assert(TFS_SUCCESS == rt);
         tbsys::gDelete((*iter));
       }
-      TBSYS_LOG(DEBUG, "scan family information %d, start_family_id: %"PRI64_PREFIX"d, chunk: %d, pkey: %s, start_key: %s, end_key: %s , infos.size(): %zd",
+      TBSYS_LOG(INFO, "scan family information %d, start_family_id: %"PRI64_PREFIX"d, chunk: %d, pkey: %s, start_key: %s, end_key: %s , infos.size(): %zd",
         ret, start_family_id, chunk, pkey, start_key, end_key, family_infos.size());
       return ret;
     };

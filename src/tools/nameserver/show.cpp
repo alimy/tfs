@@ -387,14 +387,14 @@ namespace tfs
               map<uint64_t, MachineShow>::iterator iter = machine_map_.find(machine_id);
               if (iter != machine_map_.end())
               {
-                (iter->second).add(server, old_server, type);
+                (iter->second).add(server, old_server);
               }
               else
               {
                 MachineShow machine;
                 machine.machine_id_ = machine_id;
                 machine.init(server, old_server);
-                machine.add(server, old_server, type);
+                machine.add(server, old_server);
                 machine_map_.insert(make_pair<uint64_t, MachineShow> (machine_id, machine));
               }
             }
@@ -451,14 +451,6 @@ namespace tfs
         SSMScanParameter& param = msg.get_param();
         param.type_ = SSM_TYPE_BLOCK;//遍历ns上的block数据的类型
         param.child_type_ = SSM_CHILD_BLOCK_TYPE_INFO | SSM_CHILD_BLOCK_TYPE_SERVER;//TYPE_INFO只为取block_id, TYPE_SERVER为ds_list
-        if (worker->sub_type_ & BLOCK_TYPE_BLOCK_STATUS)
-        {
-          param.child_type_ |= SSM_CHILD_BLOCK_TYPE_STATUS;
-        }
-        if (worker->sub_type_ & BLOCK_TYPE_BLOCK_FULL) // additional condition: full block
-        {
-          param.child_type_ |= SSM_CHILD_BLOCK_TYPE_FULL;
-        }
 
         bool once = false;
         if (block_id > 0)
@@ -653,7 +645,12 @@ namespace tfs
               }
               if (once && (type & BLOCK_TYPE_SERVER_LIST))
               {
-                family.get_members_ds_list(ns_ip_);
+                ret = family.get_members_ds_list(ns_ip_);
+                if (TFS_SUCCESS != ret)
+                {
+                  put_file_handle(fp);
+                  return ret;
+                }
               }
               family.dump(type, fp);
               ++family_count;
