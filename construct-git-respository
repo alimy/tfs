@@ -1,0 +1,24 @@
+#!/bin/env bash
+
+function prepare_work() {
+  [ -d tfs ] && rm -rf tfs
+  mkdir tfs
+  cd tfs
+  git init .
+  git commit --allow-empty -m "first empty commit"
+  git tag initial
+}
+
+targets=$(cat release-list)
+prepare_work
+#now work in tfs
+for target in $targets
+do
+    release=$(echo $target | cut -d'@' -f1)
+    date=$(echo $target | cut -d'@' -f2)
+    rm -rf *
+    cp -rf ../$release/* .
+    git add --all .
+    git commit -m "$release [$date]"
+    git tag $release
+done
