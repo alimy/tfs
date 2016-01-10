@@ -42,7 +42,7 @@ namespace tfs
           return TFS_SUCCESS;
         }
 
-        //ResourceServerInfo 
+        //ResourceServerInfo
         virtual int select(const ResourceServerInfo& inparam, ResourceServerInfo& outparam)
         {
           UNUSED(inparam);
@@ -67,6 +67,31 @@ namespace tfs
           outparam.push_back(tmp);
           tmp.stat_ = 0;
           sprintf(tmp.addr_info_, "%s", "10.232.35.40:2123");
+          outparam.push_back(tmp);
+          return TFS_SUCCESS;
+        }
+        virtual int scan(IpReplaceHelper::VIpTransferItem& outparam)
+        {
+          return TFS_SUCCESS;
+        }
+        virtual int scan(std::map<int32_t, IpReplaceHelper::VIpTransferItem>& outparam)
+        {
+          return TFS_SUCCESS;
+        }
+        virtual int scan(VMetaRootServerInfo& outparam)
+        {
+          MetaRootServerInfo tmp;
+          tmp.app_id_ = 5;
+          tmp.stat_ = 0;
+          sprintf(tmp.addr_info_, "%s", "10.232.35.41:2123");
+          outparam.push_back(tmp);
+          tmp.app_id_ = 0;
+          tmp.stat_ = 1;
+          sprintf(tmp.addr_info_, "%s", "10.232.35.40:2123");
+          outparam.push_back(tmp);
+          tmp.app_id_ = 5;
+          tmp.stat_ = 1;
+          sprintf(tmp.addr_info_, "%s", "10.232.35.42:2123");
           outparam.push_back(tmp);
           return TFS_SUCCESS;
         }
@@ -207,6 +232,8 @@ namespace tfs
           outparam[tmp.id_] = tmp;
           return TFS_SUCCESS;
         }
+        virtual int scan_cache_info(std::vector<std::string>& outparam)
+        {UNUSED(outparam); return TFS_SUCCESS;}
         virtual int update_session_info(const std::vector<SessionBaseInfo>& session_infos)
         {UNUSED(session_infos); return TFS_SUCCESS;}
         virtual int update_session_stat(const std::map<std::string, SessionStat>& session_stats)

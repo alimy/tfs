@@ -73,13 +73,14 @@ namespace tfs
       return bret;
     }
 
-    bool BlockChunk::remove(const uint32_t block_id)
+    bool BlockChunk::remove(const uint32_t block_id, std::vector<GCObject*>& vec)
     {
       BLOCK_MAP::iterator iter = block_map_.find(block_id);
       if (iter != block_map_.end())
       {
+        vec.push_back(iter->second);
         iter->second->set_dead_time();
-        GFactory::get_gc_manager().add(iter->second);
+        //GFactory::get_gc_manager().add(iter->second);
         block_map_.erase(iter);
       }
       return true;
@@ -146,16 +147,22 @@ namespace tfs
         iter = block_map_.find(param.addition_param1_);
       }
 
-      TBSYS_LOG(DEBUG, "block_map_size: : %u", block_map_.size());
+      TBSYS_LOG(DEBUG, "block_map_size: : %zd", block_map_.size());
       bool has_block = iter != block_map_.end();
       if (has_block)
       {
-        for (; iter != block_map_.end() && actual < should ; ++iter, ++jump_count)
+        for (; iter != block_map_.end(); ++iter, ++jump_count)
         {
           if (iter->second->scan(param) == TFS_SUCCESS)
           {
             TBSYS_LOG(DEBUG, "BlockChunk scan block: %u", iter->second->id());
             ++actual;
+          }
+          if (actual == should)
+          {
+            ++iter;
+            ++jump_count;
+            break;
           }
         }
         end = iter == block_map_.end();

@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: compact_block_message.cpp 346 2011-05-26 01:18:07Z duanfei@taobao.com $
+ * Version: $Id: compact_block_message.cpp 983 2011-10-31 09:59:33Z duanfei $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -176,8 +176,8 @@ namespace tfs
         ipstr += tbsys::CNetUtil::addrToString(ds_list_[i]);
         ipstr += "/";
       }
-      TBSYS_LOG(DEBUG, "block(%u) success(%d) serverid(%lld) flag(%d) id(%u) version(%u)"
-          "file_count(%u) size(%u) delfile_count(%u) del_size(%u) seqno(%u), ds_list(%u), dataserver(%s)",
+      TBSYS_LOG(DEBUG, "block: %u success: %d serverid: %"PRI64_PREFIX"u flag: %d id: %u version: %u"
+          "file_count: %u size: %u delfile_count: %u del_size: %u seqno: %u, ds_list: %zd, dataserver(%s)",
           block_id_, success_, server_id_, flag_, block_info_.block_id_, block_info_.version_, block_info_.file_count_, block_info_.size_,
           block_info_.del_file_count_, block_info_.del_size_, block_info_.seq_no_, ds_list_.size(), ipstr.c_str());
     }

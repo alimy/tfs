@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: data_file.cpp 687 2011-08-09 02:08:35Z duanfei@taobao.com $
+ * Version: $Id: data_file.cpp 706 2011-08-12 08:24:41Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

@@ -6,14 +6,14 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: strategy.cpp 490 2011-06-14 03:11:02Z duanfei@taobao.com $
+ * Version: $Id: strategy.cpp 983 2011-10-31 09:59:33Z duanfei $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
  *      - initial release
- *   qushan<qushan@taobao.com> 
+ *   qushan<qushan@taobao.com>
  *      - modify 2009-03-27
- *   duanfei <duanfei@taobao.com> 
+ *   duanfei <duanfei@taobao.com>
  *      - modify 2010-04-23
  *
  */
@@ -32,6 +32,22 @@ namespace tfs
   namespace nameserver
   {
     static const int8_t BASE_MULTIPLE = 2;
+    double calc_capacity_percentage(const uint64_t capacity, const uint64_t total_capacity)
+    {
+      double ret = PERCENTAGE_MIN;
+      uint64_t unit = capacity > GB ? GB : MB;
+      uint64_t tmp_capacity = capacity / unit;
+      uint64_t tmp_total_capacity = total_capacity / unit;
+      if (0 == tmp_total_capacity)
+        ret = PERCENTAGE_MAX;
+      if ((tmp_capacity != 0)
+          && (tmp_total_capacity != 0))
+      {
+        ret = (double)tmp_capacity / (double)tmp_total_capacity;
+      }
+      return ret;
+    }
+
     template<typename T1, typename T2>
       int32_t percent(T1 v, T2 total)
       {
@@ -45,16 +61,16 @@ namespace tfs
     {
       if (alive_ds_count == 0)
       {
-#if defined(TFS_NS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
+#if defined(TFS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
         TBSYS_LOG(DEBUG, "alive dataserver not found alive_ds_count: %"PRI64_PREFIX"d", alive_ds_count);
 #endif
         return false;
       }
       int64_t average_load = total_load / alive_ds_count;
       int64_t average_use = total_use_capacity / alive_ds_count;
-#if defined(TFS_NS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
+#if defined(TFS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
       TBSYS_LOG(DEBUG, "alive_ds_count: %"PRI64_PREFIX"d, total_load: %d, average_load: %"PRI64_PREFIX"d current_load: %d, total_use_capacity: %"PRI64_PREFIX"d,average_use: %"PRI64_PREFIX"d",
-          alive_ds_count, total_load, average_load, current_load, total_use_capacity, average_use); 
+          alive_ds_count, total_load, average_load, current_load, total_use_capacity, average_use);
 #endif
 
       return (((current_load < average_load * BASE_MULTIPLE) || (total_load == 0)) && ((use_capacity <= average_use * BASE_MULTIPLE)
@@ -63,11 +79,11 @@ namespace tfs
 
     bool BaseStrategy::check(const ServerCollect* server) const
     {
-      bool bret = !server->in_safe_mode_time();
+      bool bret = server->is_report_block_complete();
       if (!bret)
       {
-#if defined(TFS_NS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
-        TBSYS_LOG(DEBUG, "dataserver: %s in SAFE_MODE_TIME status , can't join ",
+#if defined(TFS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
+        TBSYS_LOG(DEBUG, "dataserver: %s in report block status , can't join ",
             CNetUtil::addrToString(server->id()).c_str());
 #endif
       }
@@ -76,7 +92,7 @@ namespace tfs
         bret = server->is_alive();
         if (!bret)
         {
-#if defined(TFS_NS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
+#if defined(TFS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
           TBSYS_LOG(DEBUG, "dataserver: %s is dead, can't join ",
             CNetUtil::addrToString(server->id()).c_str());
 #endif
@@ -84,7 +100,7 @@ namespace tfs
       }
       if (bret)
       {
-#if defined(TFS_NS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
+#if defined(TFS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
       TBSYS_LOG(DEBUG, "server: %s,elect_seq_num: %"PRI64_PREFIX"d",
           tbsys::CNetUtil::addrToString(server->id()).c_str(), server->get_elect_num());
 #endif
@@ -100,32 +116,28 @@ namespace tfs
 
       primary_writable_block_count_ = percent(primary_writable_block_count, SYSPARAM_NAMESERVER.max_write_file_count_);
 
-      //seqno_average_num_ = percent(server->get_elect_seq(), total_elect_num_);
       elect_average_num_ = percent(server->get_elect_num(), total_elect_num_);
 
-      if (global_info_.max_block_count_ == 0)
-        use_ = percent(server->use_capacity(), server->total_capacity());
-      else
-        use_ = percent(server->block_count(), global_info_.max_block_count_);
+      use_ = static_cast<int32_t>(calc_capacity_percentage(server->use_capacity(), server->total_capacity()) *  PERCENTAGE_MAGIC);
 
       if (global_info_.max_load_ < 10)
         load_ = percent(server->load(), 3000);
       else
         load_ = percent(server->load(), global_info_.max_load_);
-#if defined(TFS_NS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
+#if defined(TFS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
       TBSYS_LOG(DEBUG, "server: %s, elect_seq_num: %"PRI64_PREFIX"d, load: %d, use_: %d, elect_average_num_: %"PRI64_PREFIX"d, seqno_average_num_: %"PRI64_PREFIX"d",
           tbsys::CNetUtil::addrToString(server->id()).c_str(), server->get_elect_num(), load_, use_,elect_average_num_, seqno_average_num_);
 #endif
     }
 
     //---------------------------------------------------------
-    // WriteStrategy 
+    // WriteStrategy
     //---------------------------------------------------------
     int64_t WriteStrategy::calc(const ServerCollect* server) const
     {
       if (server->is_full())
       {
-#if defined(TFS_NS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
+#if defined(TFS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
         TBSYS_LOG(INFO, "dataserver: %s is full , can't join elect list", CNetUtil::addrToString(
               server->id()).c_str());
 #endif
@@ -133,12 +145,15 @@ namespace tfs
       }
       if (!BaseStrategy::check(server))
       {
-#if defined(TFS_NS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
+#if defined(TFS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
         TBSYS_LOG(INFO, "server: %s can't join elect list", CNetUtil::addrToString(server->id()).c_str());
 #endif
         return 0;
       }
-      return server->get_elect_num();
+      BaseStrategy::normalize(server);
+      return random() % 0xFFFFFFF;
+      /*return server->get_elect_num() * SYSPARAM_NAMESERVER.strategy_write_elect_num_weigth_ +
+            use_ * SYSPARAM_NAMESERVER.strategy_write_capacity_weigth_;*/
     }
 
     // ReplicateDestStrategy
@@ -147,7 +162,7 @@ namespace tfs
     {
       if (server->is_full())
       {
-#if defined(TFS_NS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
+#if defined(TFS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
         TBSYS_LOG(INFO, "dataserver: %s is full , can't join elect list", CNetUtil::addrToString(
               server->id()).c_str());
 #endif
@@ -155,13 +170,15 @@ namespace tfs
       }
       if (!BaseStrategy::check(server))
       {
-#if defined(TFS_NS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
+#if defined(TFS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
         TBSYS_LOG(INFO, "server: %s can't join elect list", CNetUtil::addrToString(server->id()).c_str());
 #endif
         return 0;
       }
       BaseStrategy::normalize(server);
-      return elect_average_num_ * 80 + use_ * 15 + load_ * 5;
+      return elect_average_num_ * SYSPARAM_NAMESERVER.strategy_replicate_elect_num_weigth_
+              + use_ * SYSPARAM_NAMESERVER.strategy_replicate_capacity_weigth_
+              + load_ * SYSPARAM_NAMESERVER.strategy_replicate_load_weigth_;
     }
 
     //---------------------------------------------------------
@@ -175,7 +192,7 @@ namespace tfs
 
     void dump_weigths(const DS_WEIGHT& weights)
     {
-      TBSYS_LOG(INFO,"-----------------------dump_weigths: %"PRI64_PREFIX"u----------------------\n", weights.size());
+      TBSYS_LOG(DEBUG,"-----------------------dump_weigths: %"PRI64_PREFIX"u----------------------\n", weights.size());
       DS_WEIGHT::const_iterator it = weights.begin();
       while (it != weights.end())
       {
@@ -222,7 +239,7 @@ namespace tfs
 
       DS_WEIGHT::const_iterator iter = weights.begin();
       int32_t need_elect_count = elect_count;
-      TBSYS_LOG(DEBUG, "weights.size: %u, need_elect_count: %d", weights.size(), need_elect_count);
+      TBSYS_LOG(DEBUG, "weights.size: %zd, need_elect_count: %d", weights.size(), need_elect_count);
       while (iter != weights.end() && need_elect_count > 0)
       {
         uint32_t dlan = Func::get_lan(iter->second->id(), SYSPARAM_NAMESERVER.group_mask_);
@@ -268,7 +285,7 @@ namespace tfs
     {
       std::vector<ServerCollect*> except;
       WriteStrategy strategy(GFactory::get_global_info().get_elect_seq_num(), GFactory::get_global_info());
-      return elect_ds(strategy, ExcludeGroupElectOperation(), meta, except, elect_count,false, result);
+      return elect_ds(strategy, ExcludeGroupElectOperation(), meta, except, elect_count, false, result);
     }
 
     int elect_replicate_source_ds(LayoutManager& meta, vector<ServerCollect*>& source, vector<ServerCollect*>& except, int32_t elect_count, vector<ServerCollect*>& result)
@@ -288,7 +305,7 @@ namespace tfs
       return elect_ds(strategy, NormalElectOperation(), meta, source, except, elect_count, true, result);
     }
 
-    int elect_replicate_dest_ds(LayoutManager& meta, vector<ServerCollect*>& except, int32_t elect_count, vector<ServerCollect*> & result) 
+    int elect_replicate_dest_ds(LayoutManager& meta, vector<ServerCollect*>& except, int32_t elect_count, vector<ServerCollect*> & result)
     {
       ReplicateDestStrategy strategy(GFactory::get_global_info().get_elect_seq_num(), GFactory::get_global_info());
       return elect_ds(strategy, ExcludeGroupElectOperation(), meta, except, elect_count,true, result);
@@ -339,7 +356,7 @@ namespace tfs
         lan = Func::get_lan(id, SYSPARAM_NAMESERVER.group_mask_);
         TBSYS_LOG(DEBUG, "server: %s find: %d", tbsys::CNetUtil::addrToString(id).c_str(),
             existlan.find(lan) == existlan.end()/*, exist_server.find(iter->second) == exist_server.end()*/);
-        if ((first_result == NULL) 
+        if ((first_result == NULL)
             && (existlan.find(lan) == existlan.end()))
           //&& (exist_server.find(iter->second) == exist_server.end()))
         {
@@ -368,9 +385,10 @@ namespace tfs
       return (*result != NULL);
     }
 
-    int delete_excess_backup(const std::vector<ServerCollect*> & source, int32_t count, std::vector<ServerCollect*> & result, DeleteExcessBackupStrategy flag)
+    int delete_excess_backup(const std::vector<ServerCollect*> & source, const std::vector<ServerCollect*> & except,
+                             int32_t count, std::vector<ServerCollect*> & result, DeleteExcessBackupStrategy flag)
     {
-      bool bret = flag == DELETE_EXCESS_BACKUP_STRATEGY_BY_GROUP ? SYSPARAM_NAMESERVER.group_mask_ == 0 ? false : true : true; 
+      bool bret = flag == DELETE_EXCESS_BACKUP_STRATEGY_BY_GROUP ? SYSPARAM_NAMESERVER.group_mask_ == 0 ? false : true : true;
       if (bret)
       {
         if (flag == DELETE_EXCESS_BACKUP_STRATEGY_BY_GROUP)
@@ -381,10 +399,16 @@ namespace tfs
         std::multimap<int32_t, ServerCollect*> tmp;
         std::multimap<int32_t, ServerCollect*> middle_result;
 
+        ServerCollect* server = NULL;
         std::vector<ServerCollect*>::const_iterator r_iter = source.begin();
         for (; r_iter != source.end(); ++r_iter)
         {
-          tmp.insert(std::multimap<int32_t, ServerCollect*>::value_type((*r_iter)->block_count(), (*r_iter)));
+          server = (*r_iter);
+          if (server->total_capacity() > 0)
+          {
+            int32_t use = static_cast<int32_t>(calc_capacity_percentage(server->use_capacity(), server->total_capacity()) *  PERCENTAGE_MAGIC);
+            tmp.insert(std::multimap<int32_t, ServerCollect*>::value_type(use, server));
+          }
         }
 
         if (SYSPARAM_NAMESERVER.group_mask_ == 0)
@@ -394,31 +418,58 @@ namespace tfs
         else
         {
           uint32_t lanip = 0;
-          std::set<uint32_t> groups;
+          std::map<uint32_t, ServerCollect*> groups;
           std::multimap<int32_t, ServerCollect*>::const_reverse_iterator iter = tmp.rbegin();
           for (; iter != tmp.rend(); ++iter)
           {
             lanip = Func::get_lan(iter->second->id(), SYSPARAM_NAMESERVER.group_mask_);
-            std::pair<std::set<uint32_t>::iterator, bool> res = groups.insert(lanip);
+            std::pair<std::map<uint32_t, ServerCollect*>::iterator, bool> res = groups.insert(pair<uint32_t, ServerCollect*>(lanip, iter->second));
+            // ds in the same lan already exist
             if (!res.second)
             {
-              result.push_back(iter->second);
+              std::vector<ServerCollect*>::const_iterator e_iter = std::find(except.begin(), except.end(), (iter->second));
+              // if itself not in plan
+              if (e_iter == except.end())
+              {
+                result.push_back(iter->second);
+              }
+              else
+              {
+                // we should push ds in the same lan either he is in plan or not, or the guy in the other lan will be picked
+                // remove it from middle_result first
+                ServerCollect* ds_in_lan = res.first->second;
+                std::multimap<int32_t, ServerCollect*>::iterator tmp_iter = middle_result.begin();
+                for (; tmp_iter != middle_result.end(); ++tmp_iter)
+                {
+                  if (tmp_iter->second == ds_in_lan)
+                  {
+                    middle_result.erase(tmp_iter);
+                    break;
+                  }
+                }
+                result.push_back(ds_in_lan);
+              }
             }
             else
             {
-              middle_result.insert(std::multimap<int32_t, ServerCollect*>::value_type(iter->second->block_count(), iter->second));
+              if (iter->second->total_capacity() > 0)
+              {
+                int32_t use = static_cast<int32_t>(calc_capacity_percentage(iter->second->use_capacity(), iter->second->total_capacity()) *  PERCENTAGE_MAGIC);
+                middle_result.insert(std::multimap<int32_t, ServerCollect*>::value_type(use, iter->second));
+              }
             }
           }
         }
 
         count -= result.size();
-        if (count <= 0)
-          return result.size();;
 
-        std::multimap<int32_t, ServerCollect*>::const_reverse_iterator iter = middle_result.rbegin();
-        for (; iter != middle_result.rend() && count > 0; ++iter, count--)
+        if (count > 0)
         {
-          result.push_back(iter->second);
+          std::multimap<int32_t, ServerCollect*>::const_reverse_iterator iter = middle_result.rbegin();
+          for (; iter != middle_result.rend() && count > 0; ++iter, count--)
+          {
+            result.push_back(iter->second);
+          }
         }
       }
       return result.size();;

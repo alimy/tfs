@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: nameserver.cpp 556 2011-06-27 07:12:00Z duanfei@taobao.com $
+ * Version: $Id: nameserver.cpp 983 2011-10-31 09:59:33Z duanfei $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -69,7 +69,7 @@ namespace tfs
               && (ngi.owner_status_ == NS_STATUS_INITIALIZED)
               && current < end.toMicroSeconds())
           {
-            bret = server_->push(message);
+            bret = server_->push(message, false);
             if (!bret)
             {
               current = tbutil::Time::now().toMicroSeconds();
@@ -99,13 +99,13 @@ namespace tfs
     }
 
     NameServer::NameServer() :
-      meta_mgr_(),
+      meta_mgr_(*this),
       master_heart_task_(0),
       slave_heart_task_(0),
       owner_check_task_(0),
       check_owner_is_master_task_(0),
       master_slave_heart_mgr_(&meta_mgr_, get_timer()),
-      heart_mgr_(meta_mgr_)
+      heart_mgr_(*this)
     {
 
     }
@@ -132,7 +132,7 @@ namespace tfs
 
       if (TFS_SUCCESS == iret)
       {
-        const char *dev_name = get_dev();                                                          
+        const char *dev_name = get_dev();
         if (NULL == dev_name)//get dev name
         {
           iret =  EXIT_CONFIG_ERROR;
@@ -183,9 +183,11 @@ namespace tfs
 
       if (TFS_SUCCESS == iret)
       {
-        int32_t heart_thread_count = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_HEART_THREAD_COUNT, 2);
-        int32_t heart_max_queue_size = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_HEART_MAX_QUEUE_SIZE, 10);
-        iret = heart_mgr_.initialize(heart_thread_count, heart_max_queue_size);
+        int32_t heart_thread_count = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_HEART_THREAD_COUNT, 1);
+        int32_t heart_max_queue_size = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_HEART_MAX_QUEUE_SIZE, 10240);
+        int32_t report_thread_count = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_REPORT_BLOCK_THREAD_COUNT, 2);
+        int32_t report_max_queue_size = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_REPORT_BLOCK_MAX_QUEUE_SIZE, 2);
+        iret = heart_mgr_.initialize(heart_thread_count, heart_max_queue_size, report_thread_count, report_max_queue_size);
         if (TFS_SUCCESS != iret)
         {
           TBSYS_LOG(ERROR, "initialize heart manager failed, must be exit, ret: %d", iret);
@@ -218,7 +220,7 @@ namespace tfs
           iret = EXIT_GENERAL_ERROR;
         }
       }
-     
+
       if (TFS_SUCCESS == iret)
       {
         NsRuntimeGlobalInformation& ngi = GFactory::get_runtime_info();
@@ -232,7 +234,7 @@ namespace tfs
         {
           //if we're the slave ns, we must sync data from the master ns.
           ngi.owner_status_ = NS_STATUS_ACCEPT_DS_INFO;
-          iret = wait_for_ds_report();//in wait_for_ds_report,someone killed me, 
+          iret = wait_for_ds_report();//in wait_for_ds_report,someone killed me,
                                       //the signal handler have already called stop()
           if (TFS_SUCCESS == iret)
             ngi.owner_status_ = NS_STATUS_INITIALIZED;
@@ -341,7 +343,7 @@ namespace tfs
 
           if (bpacket->is_enable_dump())
           {
-            bpacket->dump(); 
+            bpacket->dump();
           }
           int32_t pcode = bpacket->getPCode();
           int32_t iret = common::TFS_ERROR;
@@ -360,14 +362,15 @@ namespace tfs
               break;
             case MASTER_AND_SLAVE_HEART_MESSAGE:
             case HEARTBEAT_AND_NS_HEART_MESSAGE:
-              master_slave_heart_mgr_.push(bpacket);
+              master_slave_heart_mgr_.push(bpacket, 0, false);
               break;
             case OPLOG_SYNC_MESSAGE:
               meta_mgr_.get_oplog_sync_mgr().push(bpacket, 0, false);
               break;
             default:
-              if (!main_workers_.push(bpacket, work_queue_size_))
+              if (!main_workers_.push(bpacket, work_queue_size_, false))
               {
+                hret = tbnet::IPacketHandler::FREE_CHANNEL;
                 bpacket->reply_error_packet(TBSYS_LOG_LEVEL(ERROR),STATUS_MESSAGE_ERROR, "%s, task message beyond max queue size, discard", get_ip_addr());
                 bpacket->free();
               }
@@ -517,7 +520,7 @@ namespace tfs
           if(iret == EXIT_NO_DATASERVER)
           {
             iret = message->reply_error_packet(TBSYS_LOG_LEVEL(ERROR), EXIT_NO_DATASERVER,
-                            "not found dataserver, dataserver size equal 0");
+                            "got error, when get block: %u mode: %d, result: %d information", block_id, mode, iret);
           }
           else if (iret == EXIT_ACCESS_PERMISSION_ERROR)
           {
@@ -526,7 +529,7 @@ namespace tfs
           }
           else
           {
-            iret = message->reply_error_packet(TBSYS_LOG_LEVEL(ERROR), iret, 
+            iret = message->reply_error_packet(TBSYS_LOG_LEVEL(ERROR), iret,
                             "got error, when get block: %u mode: %d, result: %d information", block_id, mode, iret);
           }
         }
@@ -781,7 +784,7 @@ namespace tfs
           {
             uint32_t local_ip = 0;
             bool bfind_flag = false;
-            std::vector<uint32_t>::iterator iter = ns_ip_list.begin(); 
+            std::vector<uint32_t>::iterator iter = ns_ip_list.begin();
             for (; iter != ns_ip_list.end(); ++iter)
             {
               bfind_flag = Func::is_local_addr((*iter));
@@ -808,7 +811,7 @@ namespace tfs
                   ngi.other_side_ip_port_ = tbsys::CNetUtil::ipToAddr((*iter), get_port());
               }
 
-              ngi.switch_time_ = time(NULL);
+              ngi.set_switch_time();
               ngi.owner_status_ = NS_STATUS_UNINITIALIZE;
               ngi.vip_ = Func::get_addr(get_ip_addr());
               ngi.owner_role_ = Func::is_local_addr(ngi.vip_) == true ? NS_ROLE_MASTER : NS_ROLE_SLAVE;
@@ -938,7 +941,7 @@ namespace tfs
               VUINT64 peer_list(response->get_ds_list()->begin(), response->get_ds_list()->end());
               VUINT64 local_list;
               meta_mgr_.get_alive_server(local_list);
-              TBSYS_LOG(DEBUG, "local size:%u,peer size:%u", local_list.size(), peer_list.size());
+              TBSYS_LOG(DEBUG, "local size: %zd, peer size: %zd", local_list.size(), peer_list.size());
               complete = peer_list.size() == 0U;
               if (!complete)
               {
@@ -1011,6 +1014,7 @@ namespace tfs
             && pcode != MASTER_AND_SLAVE_HEART_MESSAGE
             && pcode != HEARTBEAT_AND_NS_HEART_MESSAGE
             && pcode != MASTER_AND_SLAVE_HEART_RESPONSE_MESSAGE
+            && pcode != SET_DATASERVER_MESSAGE
             && pcode != CLIENT_CMD_MESSAGE)
           {
             if (ngi.owner_status_ <= NS_STATUS_ACCEPT_DS_INFO)
@@ -1025,7 +1029,7 @@ namespace tfs
                 && pcode != GET_BLOCK_INFO_MESSAGE
                 && pcode != GET_BLOCK_INFO_MESSAGE
                 && pcode != SET_DATASERVER_MESSAGE
-                && pcode != BATCH_GET_BLOCK_INFO_MESSAGE 
+                && pcode != BATCH_GET_BLOCK_INFO_MESSAGE
                 && pcode != SHOW_SERVER_INFORMATION_MESSAGE)
               {
                 iret = common::TFS_ERROR;

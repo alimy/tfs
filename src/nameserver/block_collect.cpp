@@ -51,12 +51,12 @@ namespace nameserver
     bool bret = server != NULL;
     if (bret)
     {
-      dump();
+      dump(TBSYS_LOG_LEVEL(DEBUG));
       last_update_time_ = now;
       writable = !is_full();
-      bool can_be_master = ((writable && hold_master_ == HOLD_MASTER_FLAG_NO 
+      bool can_be_master = ((writable && hold_master_ == HOLD_MASTER_FLAG_NO
                 && server->can_be_master(SYSPARAM_NAMESERVER.max_write_file_count_)) );
-      TBSYS_LOG(DEBUG, "server: %s can_be_master: %d, block: %u writable: %d", tbsys::CNetUtil::addrToString(server->id()).c_str(), can_be_master, id(), writable);
+      //TBSYS_LOG(DEBUG, "server: %s can_be_master: %d, block: %u writable: %d", tbsys::CNetUtil::addrToString(server->id()).c_str(), can_be_master, id(), writable);
       std::vector<ServerCollect*>::iterator where = 
           std::find(hold_.begin(), hold_.end(), server);
       if (force 
@@ -65,13 +65,12 @@ namespace nameserver
       {
         assert(hold_[0] != NULL);
         hold_[0]->remove_master(this);
-        in_master_set_ = BLOCK_IN_MASTER_SET_YES;
       }
       if (can_be_master || force)
       {
         if (where != hold_.end())
         {
-          TBSYS_LOG(DEBUG,"server: %p: %s object is exist", server, CNetUtil::addrToString(server->id()).c_str());
+          TBSYS_LOG(WARN,"server: %p: %s object is exist", server, CNetUtil::addrToString(server->id()).c_str());
           hold_.erase(where);
         }
         hold_.insert(hold_.begin(), server);
@@ -85,7 +84,7 @@ namespace nameserver
         }
         else
         {
-          TBSYS_LOG(DEBUG,"server: %p: %s object is exist", server, CNetUtil::addrToString(server->id()).c_str());
+          TBSYS_LOG(WARN,"server: %p: %s object is exist", server, CNetUtil::addrToString(server->id()).c_str());
         }
 
       }
@@ -103,6 +102,7 @@ namespace nameserver
 
   bool BlockCollect::remove(ServerCollect* server, const time_t now, const bool remove)
   {
+    UNUSED(remove);
     TBSYS_LOG(DEBUG, "remove block: %u" , info_.block_id_);
     if (server != NULL && !hold_.empty())
     {
@@ -116,18 +116,12 @@ namespace nameserver
         if (where == hold_.begin())//master
         {
           hold_master_ = HOLD_MASTER_FLAG_NO;
-          if (remove)
-          {
-            in_master_set_ = BLOCK_IN_MASTER_SET_YES;
-            server->remove_master(this);
-          }
+          in_master_set_ = BLOCK_IN_MASTER_SET_NO;
+          server->remove_master(this);
         }
-        if (remove)
+        if (is_full())
         {
-          if (is_full())
-          {
-            server->remove_writable(this);
-          }
+          server->remove_writable(this);
         }
 
         TBSYS_LOG(DEBUG, "block: %u remove server: %s, hold_master: %d", 
@@ -180,71 +174,32 @@ namespace nameserver
     return ((!is_full())
         && (hold_master_ == HOLD_MASTER_FLAG_YES)
         && (static_cast<int32_t>(hold_.size()) >= common::SYSPARAM_NAMESERVER.min_replication_));
-    /*if (bret)
-    {
-      std::vector<ServerCollect*>::const_iterator iter = hold_.begin();
-      for (; iter != hold_.end(); ++iter)
-      {
-        assert ((*iter) != NULL);
-        if ((*iter)->is_full())
-        {
-          bret = false;
-          break;
-        }
-      }
-    }
-    return bret;*/
   }
 
   bool BlockCollect::is_relieve_writable_relation() const
   {
-    bool bret = hold_.empty() 
+    return hold_.empty() 
       || is_full() 
       || (static_cast<int32_t>(hold_.size()) < SYSPARAM_NAMESERVER.min_replication_);
-    /*if (!bret)
-    {
-      bool all_server_writable = true;
-      std::vector<ServerCollect*>::const_iterator iter = hold_.begin();
-      for (; iter != hold_.end(); ++iter)
-      {
-        assert(*iter != NULL);
-        if ((*iter)->is_full())
-        {
-          all_server_writable = false;
-          break;
-        }
-      }
-      bret = !all_server_writable;
-      TBSYS_LOG(DEBUG,"we will check whether the relationship between lift write, is_full: %d, all_writable: %d, hold size: %u", is_full(), all_server_writable, hold_.size());
-    }*/
-    return bret;
   }
 
   bool BlockCollect::relieve_relation(const bool remove)
   {
+    UNUSED(remove);
     std::vector<ServerCollect*>::iterator iter = hold_.begin();
-    for (; iter != hold_.end(); ++iter)
+    for (; is_full() && iter != hold_.end(); ++iter)
     {
-      if (remove)
-      {
-        assert(*iter != NULL);
-        if (is_full())
-        {
-          (*iter)->remove_writable(this);//remove block form server's writable_
-        }
-      }
+      assert(*iter != NULL);
+      (*iter)->remove_writable(this);//remove block form server's writable_
     }
 
     if (hold_master_ != HOLD_MASTER_FLAG_NO)//
     {
+      assert (!hold_.empty());
+      assert (hold_[0] != NULL);
+      hold_[0]->remove_master(this);
       hold_master_ = HOLD_MASTER_FLAG_NO;
-      if (remove)
-      {
-        assert (!hold_.empty());
-        assert (hold_[0] != NULL);
-        in_master_set_ = BLOCK_IN_MASTER_SET_YES;
-        hold_[0]->remove_master(this);
-      }
+      in_master_set_ = BLOCK_IN_MASTER_SET_NO;
     }
     return true;
   }
@@ -263,7 +218,7 @@ namespace nameserver
         if ((info_.file_count_ > new_block_info.file_count_)
             || (info_.size_ != new_block_info.size_)) 
         {
-          TBSYS_LOG(WARN, "block: %u info not match");
+          TBSYS_LOG(WARN, "block: %u info not match", id());
           if (role == NS_ROLE_MASTER)
           {
             register_expire_block(expires, server, this);
@@ -290,7 +245,7 @@ namespace nameserver
           {
             TBSYS_LOG(WARN, "block: %u in dataserver: %s version error %d:%d",
                 new_block_info.block_id_, tbsys::CNetUtil::addrToString(server->id()).c_str(),
-                info_.version_, new_block_info.block_id_);
+                info_.version_, new_block_info.version_);
             if (role == NS_ROLE_MASTER)
             {
               register_expire_block(expires, server, this);
@@ -301,7 +256,7 @@ namespace nameserver
           {
             TBSYS_LOG(WARN, "block: %u in dataserver: %s version error %d:%d, but not found dataserver",
                 new_block_info.block_id_, tbsys::CNetUtil::addrToString(server->id()).c_str(),
-                info_.version_, new_block_info.block_id_);
+                info_.version_, new_block_info.version_);
             memcpy(&info_,&new_block_info, sizeof(info_));
           }
         }
@@ -379,7 +334,7 @@ namespace nameserver
     else
     {
       int32_t size = static_cast<int32_t>(hold_.size());
-      TBSYS_LOG(DEBUG, "size: %d, block: %u", size, this->info_.block_id_);
+      //TBSYS_LOG(DEBUG, "size: %d, block: %u", size, this->info_.block_id_);
       if (size <= 0)
       {
         TBSYS_LOG(ERROR, "block: %u has been lost, do not replicate", info_.block_id_);
@@ -388,10 +343,10 @@ namespace nameserver
       {
         if (size < SYSPARAM_NAMESERVER.min_replication_)// 1 ~ min_replication_
         {
-          TBSYS_LOG(DEBUG, "last update time: %"PRI64_PREFIX"d, now: %"PRI64_PREFIX"d", last_update_time_, now);
+          //TBSYS_LOG(DEBUG, "last update time: %"PRI64_PREFIX"d, now: %"PRI64_PREFIX"d", last_update_time_, now);
           if ((last_update_time_ + SYSPARAM_NAMESERVER.replicate_wait_time_) <= now)
           {
-            TBSYS_LOG(DEBUG, "emergency replicate block: %u", info_.block_id_);
+            TBSYS_LOG(INFO, "emergency replicate block: %u", info_.block_id_);
             priority = PLAN_PRIORITY_EMERGENCY;
           }
         } 
@@ -404,7 +359,7 @@ namespace nameserver
           if ((last_update_time_ + SYSPARAM_NAMESERVER.replicate_wait_time_) <= now
               && replicate)
           {
-            TBSYS_LOG(DEBUG, "replicate block: %u", info_.block_id_);
+            TBSYS_LOG(INFO, "replicate block: %u", info_.block_id_);
             priority = PLAN_PRIORITY_NORMAL;
           }
         }
@@ -500,19 +455,23 @@ namespace nameserver
     return has_dump ? TFS_SUCCESS : TFS_ERROR;
   }
 
-  void BlockCollect::dump() const
+  void BlockCollect::dump(int32_t level, const char* file, const int32_t line, const char* function) const
   {
-#ifndef TFS_NS_DEBUG
-    std::string str;
-    std::vector<ServerCollect*>::const_iterator iter = hold_.begin();
-    for (; iter != hold_.end(); ++iter)
+    if (level >= TBSYS_LOGGER._level)
     {
-      str += CNetUtil::addrToString((*iter)->id());
-      str += "/";
+      std::string str;
+      std::vector<ServerCollect*>::const_iterator iter = hold_.begin();
+      for (; iter != hold_.end(); ++iter)
+      {
+        str += CNetUtil::addrToString((*iter)->id());
+        str += "/";
+      }
+      TBSYS_LOGGER.logMessage(level, file, line, function,
+          "block_id: %u, version: %d, file_count: %d, size: %d, del_file_count: %d, del_size: %d, seq_no: %d, servers: %s, hold_master: %d",
+          info_.block_id_, info_.version_, info_.file_count_,
+          info_.size_, info_.del_file_count_, info_.del_size_,
+          info_.seq_no_, str.c_str(), hold_master_);
     }
-    TBSYS_LOG(INFO, "block_id: %u, version: %d, file_count: %d, size: %d, del_file_count: %d, del_size: %d, seq_no: %d, servers: %s, hold_master: %d",
-        info_.block_id_, info_.version_, info_.file_count_, info_.size_, info_.del_file_count_, info_.del_size_, info_.seq_no_, str.c_str(), hold_master_);
-#endif
   }
 }
 }

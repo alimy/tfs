@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: func.cpp 504 2011-06-15 05:11:59Z duanfei@taobao.com $
+ * Version: $Id: func.cpp 983 2011-10-31 09:59:33Z duanfei $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -114,6 +114,50 @@ namespace tfs
       }
       return TFS_SUCCESS;
     }
+
+		int Func::get_parent_dir(const char* file_path, char* dir_path, const int32_t dir_buf_len)
+		{
+			int ret = TFS_SUCCESS;
+			if (NULL == file_path || NULL == dir_path || dir_buf_len <= 1) // at least .
+			{
+				ret = EXIT_PARAMETER_ERROR;
+			}
+			else
+			{
+ 				int length = strlen(file_path);
+				while (length > 0 && '/' == file_path[length-1])  // trailing slash
+				{
+					length--;
+				}
+
+      	for (; length > 0; length--)        // find slash
+      	{
+        	if ('/' ==file_path[length - 1])
+        	{
+          	length--;
+          	break;
+        	}
+      	}
+
+
+      	if (0 == length)
+      	{
+					strncpy(dir_path, ".", dir_buf_len);
+      	}
+     	  else
+      	{
+					if (dir_buf_len <= length)
+					{
+						ret = EXIT_PARAMETER_ERROR;
+					}
+					else
+					{
+        		strncpy(dir_path, file_path, dir_buf_len);
+					}
+     		}
+			}
+			return ret;
+		}
 
     // get self ip
     uint32_t Func::get_local_addr(const char* dev_name)
@@ -302,6 +346,19 @@ namespace tfs
       adr->port_ = port;
       return ipport;
     }
+    std::string Func::addr_to_str(const uint64_t ipport, bool with_port)
+    {
+      char str[32];
+      uint32_t ip = (uint32_t)(ipport & 0xffffffff);
+      int port = (int)((ipport >> 32 ) & 0xffff);
+      unsigned char *bytes = (unsigned char *) &ip;
+      if (port > 0 && with_port) {
+        sprintf(str, "%d.%d.%d.%d:%d", bytes[0], bytes[1], bytes[2], bytes[3], port);
+      } else {
+        sprintf(str, "%d.%d.%d.%d", bytes[0], bytes[1], bytes[2], bytes[3]);
+      }
+      return str;
+    }
 
     //  port + inc
     /*uint64_t Func::addr_inc_port(const uint64_t ipport, const int32_t inc)
@@ -313,21 +370,21 @@ namespace tfs
 
     uint64_t Func::get_host_ip(const char *s)
     {
-     char addr[100];
-     strncpy(addr, s, 100);
-     addr[99] = '\0';
-     char* pos = strchr(addr, ':');
+      char addr[100];
+      strncpy(addr, s, 100);
+      addr[99] = '\0';
+      char* pos = strchr(addr, ':');
 
-     if (pos)
-     {
-         *pos++ = '\0';
-     }
-     else
-     {
-       return 0;
-     }
+      if (pos)
+      {
+          *pos++ = '\0';
+      }
+      else
+      {
+        return 0;
+      }
 
-     return Func::str_to_addr(addr, atoi(pos));
+      return Func::str_to_addr(addr, atoi(pos));
     }
 
     // convert to lower
@@ -432,7 +489,7 @@ namespace tfs
     {
       if (len <= 0 || len > TFS_MALLOC_MAX_SIZE)
       {
-        TBSYS_LOG(ERROR, "allocate to large memory: len: %u > maxlen: %u", len, TFS_MALLOC_MAX_SIZE);
+        TBSYS_LOG(ERROR, "allocate to large memory: len: %d > maxlen: %"PRI64_PREFIX"d", len, TFS_MALLOC_MAX_SIZE);
         return NULL;
       }
       if (data == NULL)
@@ -447,6 +504,17 @@ namespace tfs
 
     // sleep
     void Func::sleep(const float f_heart_interval, bool& stop)
+    {
+      TBSYS_LOG(DEBUG, "stop: %d", stop);
+      int32_t heart_interval = static_cast<int32_t>(((f_heart_interval + 0.01) * 10));
+      while (!stop && heart_interval > 0)
+      {
+        usleep(100000);
+        heart_interval--;
+      }
+    }
+
+    void Func::sleep(const float f_heart_interval, int32_t& stop)
     {
       TBSYS_LOG(DEBUG, "stop: %d", stop);
       int32_t heart_interval = static_cast<int32_t>(((f_heart_interval + 0.01) * 10));
@@ -544,18 +612,18 @@ namespace tfs
         p = strchr(start, del);
         if (p != NULL)
         {
-          memset(buffer, 0, BUFSIZ);
+          //memset(buffer, 0, BUFSIZ);
+          assert(p - start < BUFSIZ);
           strncpy(buffer, start, p - start);
-          if (strlen(buffer) > 0)
+          buffer[p - start] = 0;
+          if (buffer[0] != '\0')
             fields.push_back(buffer);
           start = p + 1;
         }
         else
         {
-          memset(buffer, 0, BUFSIZ);
-          strcpy(buffer, start);
-          if (strlen(buffer) > 0)
-            fields.push_back(buffer);
+          if (start[0] != '\0')
+            fields.push_back(start);
           break;
         }
       }
@@ -611,7 +679,7 @@ namespace tfs
       return pid;
     }
 
-    void Func::hex_dump(const void* data, const int32_t size, 
+    void Func::hex_dump(const void* data, const int32_t size,
         const bool char_type /*= true*/, const int32_t log_level /*= TBSYS_LOG_LEVEL_DEBUG*/)
     {
       if (TBSYS_LOGGER._level < log_level) return;
@@ -629,9 +697,9 @@ namespace tfs
       char hexstr[ 16*3 + 5] = {0};
       char charstr[16*1 + 5] = {0};
 
-      for(n = 1; n <= size; n++) 
+      for(n = 1; n <= size; n++)
       {
-        if (n%16 == 1) 
+        if (n%16 == 1)
         {
           /* store address for this line */
           snprintf(addrstr, sizeof(addrstr), "%.4x",
@@ -639,32 +707,32 @@ namespace tfs
         }
 
         c = *p;
-        if (isprint(c) == 0) 
+        if (isprint(c) == 0)
         {
           c = '.';
         }
 
         /* store hex str (for left side) */
         snprintf(bytestr, sizeof(bytestr), "%02X ", *p);
-        strncat(hexstr, bytestr, sizeof(hexstr)-strlen(hexstr)-1); 
+        strncat(hexstr, bytestr, sizeof(hexstr)-strlen(hexstr)-1);
 
         /* store char str (for right side) */
         snprintf(bytestr, sizeof(bytestr), "%c", c);
         strncat(charstr, bytestr, sizeof(charstr)-strlen(charstr)-1);
 
         if (n % 16 == 0)
-        { 
+        {
           /* line completed */
-          if (char_type) 
-            TBSYS_LOGGER.logMessage(TBSYS_LOG_NUM_LEVEL(log_level), "[%4.4s]   %-50.50s  %s\n", 
+          if (char_type)
+            TBSYS_LOGGER.logMessage(TBSYS_LOG_NUM_LEVEL(log_level), "[%4.4s]   %-50.50s  %s\n",
                 addrstr, hexstr, charstr);
-          else 
-            TBSYS_LOGGER.logMessage(TBSYS_LOG_NUM_LEVEL(log_level), "[%4.4s]   %-50.50s\n", 
+          else
+            TBSYS_LOGGER.logMessage(TBSYS_LOG_NUM_LEVEL(log_level), "[%4.4s]   %-50.50s\n",
                 addrstr, hexstr);
           hexstr[0] = 0;
           charstr[0] = 0;
-        } 
-        else if(n % 8 == 0) 
+        }
+        else if(n % 8 == 0)
         {
           /* half line: add whitespaces */
           strncat(hexstr, "  ", sizeof(hexstr)-strlen(hexstr)-1);
@@ -673,18 +741,31 @@ namespace tfs
         p++; /* next byte */
       }
 
-      if (strlen(hexstr) > 0) 
+      if (strlen(hexstr) > 0)
       {
         /* print rest of buffer if not empty */
-        if (char_type) 
-          TBSYS_LOGGER.logMessage(TBSYS_LOG_NUM_LEVEL(log_level), "[%4.4s]   %-50.50s  %s\n", 
+        if (char_type)
+          TBSYS_LOGGER.logMessage(TBSYS_LOG_NUM_LEVEL(log_level), "[%4.4s]   %-50.50s  %s\n",
               addrstr, hexstr, charstr);
-        else 
-          TBSYS_LOGGER.logMessage(TBSYS_LOG_NUM_LEVEL(log_level), "[%4.4s]   %-50.50s\n", 
+        else
+          TBSYS_LOGGER.logMessage(TBSYS_LOG_NUM_LEVEL(log_level), "[%4.4s]   %-50.50s\n",
               addrstr, hexstr);
       }
     }
- 
 
-  }
-}
+    int32_t Func::set_bit(int32_t& data, int32_t index)
+    {
+      return (data |= (1 << index));
+    }
+
+    int32_t Func::clr_bit(int32_t& data, int32_t index)
+    {
+      return (data &= ~(1 << index));
+    }
+
+    int32_t Func::test_bit(int32_t data, int32_t index)
+    {
+      return (data & (1 << index));
+    }
+  }/** common **/
+}/** tfs **/

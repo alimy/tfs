@@ -89,7 +89,7 @@ class TranBlock
 {
   public:
     TranBlock(const uint32_t blockid, const std::string& dest_ns_addr,
-        const uint64_t dest_ds_addr, const int64_t traffic, tfs::client::TfsSession* src_session);
+        const uint64_t dest_ds_addr, const int64_t traffic, tfs::client::TfsSession* src_session, tfs::client::TfsSession* dest_session);
     ~TranBlock();
 
     int run();
@@ -103,9 +103,12 @@ class TranBlock
     int read_index();
     int read_data();
     int recombine_data();
+    int check_dest_blk();
     int write_data();
     int write_index();
     int check_integrity();
+    int rm_block_from_ns(uint64_t ds_id);
+    int rm_block_from_ds(uint64_t ds_id);
 
   private:
     static const int64_t WAIT_TIME_OUT;
@@ -113,14 +116,16 @@ class TranBlock
     static const int64_t RETRY_TIMES;
 
   private:
-    uint32_t block_id_;
+    //uint32_t block_id_;
     std::string dest_ns_addr_;
     uint64_t dest_ds_id_;
     int32_t cur_offset_;
     int64_t total_tran_size_;
     int64_t traffic_;
     tfs::client::TfsSession* src_session_;
-    tfs::common::VUINT64 rds_;
+    tfs::client::TfsSession* dest_session_;
+    tfs::client::SegmentData seg_data_;
+    //tfs::common::VUINT64 rds_;
     FileInfoSet file_set_;
     tbnet::DataBuffer src_content_buf_;
     tbnet::DataBuffer dest_content_buf_;

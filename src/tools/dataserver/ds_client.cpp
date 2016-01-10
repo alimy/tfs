@@ -41,7 +41,6 @@ enum CmdSet
 {
   CMD_GET_SERVER_STATUS,
   CMD_GET_PING_STATUS,
-  CMD_NEW_BLOCK,
   CMD_REMOVE_BlOCK,
   CMD_LIST_BLOCK,
   CMD_GET_BLOCK_INFO,
@@ -191,7 +190,6 @@ void init()
 {
   cmd_map["get_server_status"] = CMD_GET_SERVER_STATUS;
   cmd_map["get_ping_status"] = CMD_GET_PING_STATUS;
-  cmd_map["new_block"] = CMD_NEW_BLOCK;
   cmd_map["remove_block"] = CMD_REMOVE_BlOCK;
   cmd_map["list_block"] = CMD_LIST_BLOCK;
   cmd_map["get_block_info"] = CMD_GET_BLOCK_INFO;
@@ -301,7 +299,7 @@ int switch_cmd(const int cmd, VSTRING & param)
       if (param.size() != 1)
       {
         printf("Usage:get_server_status nums\n");
-        printf("get the blocks visited most frequently in dataserver.\n");
+        printf("get the nums most frequently visited blocks in dataserver.\n");
         break;
       }
       int num_row = atoi(const_cast<char*>(param[0].c_str()));
@@ -318,19 +316,6 @@ int switch_cmd(const int cmd, VSTRING & param)
         break;
       }
       ret = DsLib::get_ping_status(ds_task);
-      break;
-    }
-  case CMD_NEW_BLOCK:
-    {
-      if (param.size() != 1)
-      {
-        printf("Usage:new_block block_id\n");
-        printf("create a new block in dataserver.\n");
-        break;
-      }
-      uint32_t ds_block_id = strtoul(const_cast<char*> (param[0].c_str()), reinterpret_cast<char**> (NULL), 10);
-      ds_task.block_id_ = ds_block_id;
-      ret = DsLib::new_block(ds_task);
       break;
     }
   case CMD_REMOVE_BlOCK:
@@ -351,6 +336,9 @@ int switch_cmd(const int cmd, VSTRING & param)
       if (param.size() != 1)
       {
         printf("Usage:list_block type\n");
+        printf("      type  1|2|4,  1          => show all blockid\n\
+                                    2          => show the map between logical and physical blockid\n\
+                                    4          => show detail info of block on this dataserver\n");
         printf("list all the blocks in a dataserver.\n");
         break;
       }
@@ -390,7 +378,7 @@ int switch_cmd(const int cmd, VSTRING & param)
       if (param.size() != 2)
       {
         printf("Usage:create_file_id block_id file_id\n");
-        printf("add a new fileID.\n");
+        printf("add a new file_id.\n");
         break;
       }
       uint32_t ds_block_id = strtoul(const_cast<char*> (param[0].c_str()), reinterpret_cast<char**> (NULL), 10);
@@ -428,6 +416,14 @@ int switch_cmd(const int cmd, VSTRING & param)
       ds_task.new_file_id_ = ds_file_id;
       snprintf(ds_task.local_file_, MAX_PATH_LENGTH, "%s", param[2].c_str());
       ret = DsLib::read_file_data(ds_task);
+      if (TFS_SUCCESS == ret)
+      {
+        printf("download tfs file %u, %"PRI64_PREFIX "u to local file %s success.\n", ds_task.block_id_, ds_task.new_file_id_, ds_task.local_file_);
+      }
+      else
+      {
+        printf("download tfs file %u, %"PRI64_PREFIX "u to local file %s fail.\n", ds_task.block_id_, ds_task.new_file_id_, ds_task.local_file_);
+      }
       break;
     }
   case CMD_WRITE_FILE_DATA:
@@ -435,7 +431,7 @@ int switch_cmd(const int cmd, VSTRING & param)
       if (param.size() != 3)
       {
         printf("Usage:write_file_data block_id file_id local_file_name\n");
-        printf("upload a local file to a dataserver.\n");
+        printf("upload a local file to this dataserver.\n");
         break;
       }
       uint32_t ds_block_id = strtoul(const_cast<char*> (param[0].c_str()), reinterpret_cast<char**> (NULL), 10);
@@ -448,18 +444,33 @@ int switch_cmd(const int cmd, VSTRING & param)
     }
   case CMD_UNLINK_FILE:
     {
-      if (param.size() != 5)
+      if (param.size() < 2 || param.size() > 5)
       {
-        printf("Usage:unlink_file block_id file_id unlink_type option_flag is_master\n");
+        printf("Usage:unlink_file block_id file_id [unlink_type] [option_flag] [is_master]\n");
+        printf("      unlink_type  0|2|4|6,  0(default) => delete, 2 => undelete, 4 => conceal, 6 => reveal\n");
+        printf("      option_flag  0|1,  0(default) => this unlink action will sync to mirror cluster if is_master is set to 1\n\
+                                         1          => this unlink action will not sync to mirror cluster\n");
+        printf("      is_master    0|1,  0(default) => this ds is not master ds, 1 => this ds is master ds\n");
         printf("delete a file.\n");
         break;
       }
       uint32_t ds_block_id = strtoul(const_cast<char*> (param[0].c_str()), reinterpret_cast<char**> (NULL), 10);
       uint64_t ds_file_id = strtoul(const_cast<char*> (param[1].c_str()), reinterpret_cast<char**> (NULL), 10);
-
-      int32_t unlink_type = atoi(const_cast<char*> (param[2].c_str()));
-      int32_t option_flag = atoi(const_cast<char*> (param[3].c_str()));
-      int32_t is_master = atoi(const_cast<char*> (param[4].c_str()));
+      int32_t unlink_type = 0;
+      int32_t option_flag = 0;
+      int32_t is_master = 0;
+      if (param.size() > 2)
+      {
+        unlink_type = atoi(const_cast<char*> (param[2].c_str()));
+      }
+      if (param.size() > 3)
+      {
+        option_flag = atoi(const_cast<char*> (param[3].c_str()));
+      }
+      if (param.size() > 4)
+      {
+        is_master = atoi(const_cast<char*> (param[4].c_str()));
+      }
       ds_task.block_id_ = ds_block_id;
       ds_task.new_file_id_ = ds_file_id;
       ds_task.unlink_type_ = unlink_type;
@@ -487,15 +498,21 @@ int switch_cmd(const int cmd, VSTRING & param)
     }
   case CMD_READ_FILE_INFO:
     {
-      if (param.size() != 3)
+      if (param.size() < 2 || param.size() > 3)
       {
-        printf("Usage:read_file_info block_id file_id ds_mode\n");
+        printf("Usage:read_file_info block_id file_id [ds_mode]\n");
+        printf("      ds_mode  0|1,  0          => exclude deleted file\n\
+                                     1(default) => include deleted file\n");
         printf("get the file information.\n");
         break;
       }
       uint32_t ds_block_id = strtoul(const_cast<char*> (param[0].c_str()), reinterpret_cast<char**> (NULL), 10);
       uint64_t ds_file_id = strtoull(const_cast<char*> (param[1].c_str()), reinterpret_cast<char**> (NULL), 10);
-      int32_t ds_mode = atoi(const_cast<char*> (param[2].c_str()));
+      int32_t ds_mode = 1;
+      if (3 == param.size())
+      {
+        ds_mode = atoi(const_cast<char*> (param[2].c_str()));
+      }
       ds_task.block_id_ = ds_block_id;
       ds_task.new_file_id_ = ds_file_id;
       ds_task.mode_ = ds_mode;
@@ -506,8 +523,10 @@ int switch_cmd(const int cmd, VSTRING & param)
     {
       if (param.size() < 3)
       {
-        printf("Usage: send_crc_error block_id file_id crc [error_flag] [serverid1 server_id2 ...]\n");
-        printf("send crc error \n");
+        printf("Usage: send_crc_error block_id file_id crc [error_flag] [ds_addr1 ds_addr2 ...]\n");
+        printf("       error_flag  0|1|2,  0(default)          0 => crc partial error, 1 => crc all error, 2 => block eio error\n");
+        printf("       ds_addr1   xx.xx.xx.xx:xxxx,       this_ds(default)\n");
+        printf("label file crc error or block eio error, will repair file or block \n");
         break;
       }
 
@@ -522,31 +541,29 @@ int switch_cmd(const int cmd, VSTRING & param)
       }
 
       int32_t ds_snum = 1;
-      VUINT64 *fail_servers;
+      VUINT64 fail_servers;
       if (param.size() > 4)
       {
         ds_snum = param.size() - 4;
-        fail_servers = new VUINT64(ds_snum);
         int32_t i = 0;
         int32_t param_size = param.size();
         for (i = 4; i < param_size; i++)
         {
-          fail_servers->push_back(strtoull(const_cast<char*> (param[i].c_str()), reinterpret_cast<char**> (NULL), 10));
+
+          fail_servers.push_back(Func::get_host_ip(param[i].c_str()));
         }
       }
       else
       {
-        fail_servers = new VUINT64();
-        fail_servers->push_back(ds_ip);
+        fail_servers.push_back(ds_ip);
       }
 
       ds_task.block_id_ = ds_block_id;
       ds_task.new_file_id_ = ds_file_id;
       ds_task.crc_ = ds_crc;
       ds_task.option_flag_ = ds_error_flag;
-      ds_task.failed_servers_ = *fail_servers;
+      ds_task.failed_servers_ = fail_servers;
       ret = DsLib::send_crc_error(ds_task);
-      delete[] fail_servers;
       break;
     }
   case CMD_LIST_BITMAP:
@@ -554,6 +571,8 @@ int switch_cmd(const int cmd, VSTRING & param)
       if (param.size() != 1)
       {
         printf("Usage:list_bitmap type\n");
+        printf("      type  0|1,  0          => normal bitmap\n\
+                                  1          => error bitmap\n");
         printf("list the bitmap of the server.\n");
         break;
       }
@@ -617,16 +636,22 @@ int main_loop()
 int show_help(VSTRING &)
 {
   printf("COMMAND SET:\n"
-    "get_server_status            get the information of blocks that were visited most frequently in dataserver.\n"
-    "get_ping_status              get the ping status of dataServer.\n"
-    "list_block                   list all the blocks in a dataserver.\n"
-    "get_block_info               get the information of a block in the dataserver.\n"
-    "list_file                    list all the files in a block.\n"
-    "read_file_data               download a tfs file to local.\n"
-    "unlink_file                  delete a file.\n"
-    "read_file_info               get the file information.\n"
-    "list_bitmap                  list the bitmap of the server\n"
-    "quit                         quit console.\n"
-    "help                         show help.\n\n");
+    "get_server_status  nums                                                     get the information of the nums most frequently visited blocks in dataserver.\n"
+    "get_ping_status                                                             get the ping status of dataServer.\n"
+    "list_block  type                                                            list all the blocks in a dataserver.\n"
+    "get_block_info  block_id                                                    get the information of a block in the dataserver.\n"
+    "list_file  block_id                                                         list all the files in a block.\n"
+    "read_file_data  blockid fileid local_file_name                              download a tfs file to local.\n"
+    "write_file_data block_id file_id local_file_name                            upload a local file to tfs\n"
+    "unlink_file  block_id file_id [unlink_type] [option_flag] [is_master]       delete a file.\n"
+    "read_file_info  block_id file_id [ds_mode]                                  get the file information.\n"
+    "list_bitmap  type                                                           list the bitmap of the server\n"
+    "create_file_id block_id file_id                                             create a new file_id\n"
+    "remove_block block_id                                                       remove a block\n"
+    "reset_block_version block_id                                                 reset block version to 1, will not affect files in the block\n"
+    "rename_file block_id old_file_id new_file_id                                rename old file_id to a new file_id\n"
+    "send_crc_error  block_id file_id crc [error_flag] [ds_addr1 ds_addr2 ...]   label file crc error or block eio error, will repair file or block\n"
+    "quit                                                                        quit console.\n"
+    "help                                                                        show help.\n\n");
   return TFS_SUCCESS;
 }

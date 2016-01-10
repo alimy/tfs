@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: resource_manager.h 523 2011-06-20 07:06:21Z daoan@taobao.com $
+ * Version: $Id: resource_manager.h 868 2011-09-29 05:07:38Z duanfei@taobao.com $
  *
  * Authors:
  *   zongdai <zongdai@taobao.com>
@@ -76,6 +76,9 @@ namespace tfs
         virtual int login(const std::string& app_key, int32_t& app_id, common::BaseInfo& base_info);
         virtual int check_update_info(const int32_t app_id,
             const int64_t modify_time, bool& update_flag, common::BaseInfo& base_info);
+        virtual int sort_ns_by_distance(const int32_t app_id, const std::string& app_ip,
+            common::BaseInfo& in_base_info, common::BaseInfo& out_base_info);
+
         virtual int get_app_name(const int32_t app_id, std::string& app_name) const;
 
         virtual int update_session_info(const std::vector<common::SessionBaseInfo>& session_infos);
@@ -85,7 +88,7 @@ namespace tfs
         bool need_reload();
 
       private:
-        int get_base_info(const int32_t app_id, common::BaseInfo& base_info);
+        int get_base_info(const int32_t app_id, const int64_t modify_time, common::BaseInfo& base_info);
         void clean_resource();
 
       protected:

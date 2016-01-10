@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: file_repair.cpp 687 2011-08-09 02:08:35Z duanfei@taobao.com $
+ * Version: $Id: file_repair.cpp 746 2011-09-06 07:27:59Z daoan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -51,21 +51,28 @@ namespace tfs
       }
 
       TBSYS_LOG(INFO, "file repair init ns address: %s:%d",
-                SYSPARAM_DATASERVER.local_ns_ip_ != NULL ? SYSPARAM_DATASERVER.local_ns_ip_ : "none",
+                SYSPARAM_DATASERVER.local_ns_ip_.length() > 0 ? SYSPARAM_DATASERVER.local_ns_ip_.c_str() : "none",
                 SYSPARAM_DATASERVER.local_ns_port_);
 
       int ret = false;
-      if (SYSPARAM_DATASERVER.local_ns_ip_ != NULL &&
-          strlen(SYSPARAM_DATASERVER.local_ns_ip_) > 0 &&
+      if (SYSPARAM_DATASERVER.local_ns_ip_.length() > 0 &&
           SYSPARAM_DATASERVER.local_ns_port_ > 0)
       {
         snprintf(src_addr_, MAX_ADDRESS_LENGTH, "%s:%d",
-                 SYSPARAM_DATASERVER.local_ns_ip_,
+                 SYSPARAM_DATASERVER.local_ns_ip_.c_str(),
                  SYSPARAM_DATASERVER.local_ns_port_);
 
         dataserver_id_ = dataserver_id;
         init_status_ = true;
-        ret = true;
+      
+        tfs_client_ = TfsClientImpl::Instance();
+        ret =
+          tfs_client_->initialize(NULL, DEFAULT_BLOCK_CACHE_TIME, DEFAULT_BLOCK_CACHE_ITEMS, false) == TFS_SUCCESS ?
+          true : false;
+        if (ret)
+        {
+          init_status_ = true;
+        }
       }
 
       return ret;
@@ -172,7 +179,8 @@ namespace tfs
       }
 
       FSName fsname(crc_check_record.block_id_, crc_check_record.file_id_);
-      int ret = tfs_client_->save_file(tmp_file, fsname.get_name()) < 0 ? TFS_ERROR : TFS_SUCCESS;
+      int ret = tfs_client_->save_file_update(tmp_file, T_DEFAULT, fsname.get_name(), NULL, src_addr_) < 0 ? TFS_ERROR : TFS_SUCCESS;
+      // int ret = tfs_client_->save_file(tmp_file, fsname.get_name()) < 0 ? TFS_ERROR : TFS_SUCCESS;
 
       if (TFS_SUCCESS != ret)
       {
@@ -181,7 +189,7 @@ namespace tfs
       }
       else
       {
-        TBSYS_LOG(INFO, "%s repair file fail, blockid: %u fileid: %" PRI64_PREFIX "u",
+        TBSYS_LOG(INFO, "%s repair file success, blockid: %u fileid: %" PRI64_PREFIX "u",
                   fsname.get_name(), crc_check_record.block_id_, crc_check_record.file_id_);
       }
 

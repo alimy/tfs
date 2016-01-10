@@ -48,6 +48,21 @@ namespace tfs
       }
     };
     typedef std::vector<ResourceServerInfo> VResourceServerInfo;
+    struct MetaRootServerInfo
+    {
+      int32_t app_id_;
+      int32_t stat_;
+      char addr_info_[ADDR_INFO_LEN];
+      char rem_[REM_LEN];
+      MetaRootServerInfo()
+      {
+        app_id_ = -1;
+        stat_ = -1;
+        addr_info_[0] = '\0';
+        rem_[0] = '\0';
+      }
+    };
+    typedef std::vector<MetaRootServerInfo> VMetaRootServerInfo;
 
     struct ClusterRackInfo
     {
@@ -156,12 +171,12 @@ namespace tfs
         {
           if (common::OPER_WRITE == sit->first || common::OPER_UNIQUE_WRITE == sit->first)
           {
-            file_count_ += sit->second.oper_times_;
+            file_count_ += sit->second.oper_succ_;
             used_capacity_ += sit->second.oper_size_;
           }
           else if (common::OPER_UNLINK == sit->first || common::OPER_UNIQUE_UNLINK == sit->first)
           {
-            file_count_ -= sit->second.oper_times_;
+            file_count_ -= sit->second.oper_succ_;
             used_capacity_ -= sit->second.oper_size_;
           }
         }

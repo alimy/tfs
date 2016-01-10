@@ -13,8 +13,8 @@
  *          zongdai(zongdai@taobao.com)
  *
  */
-#ifndef TFS_RC_DEFINE_H_
-#define TFS_RC_DEFINE_H_
+#ifndef TFS_COMMON_RC_DEFINE_H_
+#define TFS_COMMON_RC_DEFINE_H_
 
 #include <vector>
 #include <map>
@@ -77,7 +77,7 @@ namespace tfs
 
     struct BaseInfo
     {
-      BaseInfo() : report_interval_(0)
+      BaseInfo() : report_interval_(0), modify_time_(0), meta_root_server_(0)
       {
       }
 
@@ -89,12 +89,20 @@ namespace tfs
       std::vector<uint64_t> rc_server_infos_;
       std::vector<ClusterRackData> cluster_infos_;
       int32_t report_interval_;
+      int64_t modify_time_;
+      int64_t meta_root_server_;
+      std::string ns_cache_info_;
+      std::vector<ClusterData> cluster_infos_for_update_;
 
       BaseInfo& operator= (const BaseInfo& right)
       {
         rc_server_infos_ = right.rc_server_infos_;
         cluster_infos_ = right.cluster_infos_;
         report_interval_ = right.report_interval_;
+        modify_time_ = right.modify_time_;
+        meta_root_server_ = right.meta_root_server_;
+        ns_cache_info_ = right.ns_cache_info_;
+        cluster_infos_for_update_ = right.cluster_infos_for_update_;
         return *this;
       }
     };

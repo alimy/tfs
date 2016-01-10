@@ -18,7 +18,7 @@
 #include "common/status_message.h"
 #include "common/base_service.h"
 #include "message/client_cmd_message.h"
-#include "client_request_server.h"
+#include "nameserver.h"
 #include "layout_manager.h"
 #include "strategy.h"
 
@@ -29,21 +29,23 @@ namespace tfs
     using namespace common;
     using namespace tbsys;
     using namespace message;
-    ClientRequestServer::ClientRequestServer(LayoutManager& lay_out_manager)
-      :lay_out_manager_(lay_out_manager)
+    ClientRequestServer::ClientRequestServer(LayoutManager& lay_out_manager, NameServer& manager)
+      :ref_count_(0), lay_out_manager_(lay_out_manager),
+       manager_(manager)
     {
 
     }
 
-    int ClientRequestServer::keepalive(const common::DataServerStatInfo& ds_info,
-        const common::HasBlockFlag flag,
-        common::BLOCK_INFO_LIST& blocks, common::VUINT32& expires,
-        bool& need_sent_block)
+    int ClientRequestServer::keepalive(const common::DataServerStatInfo& ds_info, const time_t now, bool& need_sent_block)
     {
+      need_sent_block = false;
       int32_t iret = TFS_ERROR;
-      time_t now = time(NULL);
+      DataServerLiveStatus status = ds_info.status_;
+
+      manager_.get_heart_management().cleanup_expired_report_server(now);
+
       //check dataserver status
-      if (ds_info.status_ == DATASERVER_STATUS_DEAD)//dataserver dead
+      if (DATASERVER_STATUS_DEAD== status)//dataserver dead
       {
         iret = lay_out_manager_.remove_server(ds_info.id_, now);
         lay_out_manager_.interrupt(INTERRUPT_ALL, now);//interrupt
@@ -56,100 +58,126 @@ namespace tfs
         {
           if (isnew) //new dataserver
           {
-            TBSYS_LOG(INFO, "dataserver: %s join: use capacity: %" PRI64_PREFIX "u, total capacity: %" PRI64_PREFIX "u, has_block: %s",
+            TBSYS_LOG(INFO, "dataserver: %s join: use capacity: %" PRI64_PREFIX "u, total capacity: %" PRI64_PREFIX "u",
                 tbsys::CNetUtil::addrToString(ds_info.id_).c_str(), ds_info.use_capacity_,
-                ds_info.total_capacity_,flag == HAS_BLOCK_FLAG_YES ? "Yes" : "No");
+                ds_info.total_capacity_);
             lay_out_manager_.interrupt(INTERRUPT_ALL, now);//interrupt
           }
           ServerCollect* server = lay_out_manager_.get_server(ds_info.id_);
           iret = NULL == server ? TFS_ERROR : TFS_SUCCESS;
           if (TFS_SUCCESS == iret)
           {
-            #if defined(TFS_NS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
+            #if defined(TFS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
             server->dump();
             #endif
-            NsRuntimeGlobalInformation& ngi = GFactory::get_runtime_info();
-            if (flag == HAS_BLOCK_FLAG_NO)
+            bool report_complete = false;
             {
-              int32_t block_count = server->block_count();
-              need_sent_block = (isnew || block_count <= 0);
-
-              //switching occurred between master and slave
-              if ((!need_sent_block)
-                  && (block_count != ds_info.block_count_))
-              {
-                //dataserver need to re-report if complete switch
-                if (now < ngi.switch_time_)
-                {
-                  need_sent_block = true;
-                }
-              }
+              RWLock::Lock lock(*server, READ_LOCKER);
+              report_complete = server->is_report_block_complete();
             }
-            else//have blocks list
+            if (!report_complete)
             {
-              //update all relations of blocks belongs to it
-              EXPIRE_BLOCK_LIST current_expires;
-              #if defined(TFS_NS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
-              TBSYS_LOG(DEBUG, "server: %s update_relation, flag: %s", tbsys::CNetUtil::addrToString(ds_info.id_).c_str(), flag == HAS_BLOCK_FLAG_YES ? "Yes" : "No");
+              need_sent_block = manager_.get_heart_management().add_report_server(ds_info.id_, now);
+            }
+            else
+            {
+              #if !defined(TFS_GTEST) && !defined(TFS_NS_INTEGRATION)
+              lay_out_manager_.touch(server,now);
               #endif
-              iret = lay_out_manager_.update_relation(server, blocks, current_expires, now);
-              if (TFS_SUCCESS == iret)
-              {
-                if (ngi.owner_role_ == NS_ROLE_MASTER)//i'm master, we're going to expire blocks
-                {
-                  std::vector<uint32_t> rm_list;
-                  EXPIRE_BLOCK_LIST::iterator iter = current_expires.begin();
-                  for (; iter != current_expires.end(); ++iter)
-                  {
-                    std::vector<BlockCollect*>& expires_blocks = iter->second;
-                    std::vector<BlockCollect*>::iterator r_iter = expires_blocks.begin();
-                    rm_list.clear();
-                    if (iter->first->id() == ds_info.id_)
-                    {
-                      for (; r_iter != expires_blocks.end(); ++r_iter)
-                      {
-                        if (!lay_out_manager_.find_block_in_plan((*r_iter)->id()))
-                        {
-                          expires.push_back((*r_iter)->id());
-                        }
-                      }
-                    }
-                    else
-                    {
-                      for (; r_iter != expires_blocks.end(); ++r_iter)
-                      {
-                        //TODO rm_list will cause ds core for now
-                        rm_list.push_back((*r_iter)->id());
-                      }
-                    }
-                    if (!rm_list.empty())
-                    {
-                      std::vector<stat_int_t> stat(1, rm_list.size());
-                      GFactory::get_stat_mgr().update_entry(GFactory::tfs_ns_stat_block_count_, stat, false);
-                      lay_out_manager_.rm_block_from_ds(iter->first->id(), rm_list);
-                    }
-                  }//end for
-                  #if !defined(TFS_NS_GTEST) && !defined(TFS_NS_INTEGRATION)
-                  lay_out_manager_.touch(server,now);
-                  #endif
-                }
-              }
-              else
-              {
-                TBSYS_LOG(ERROR, "%s", "update relationship failed between block and dataserver");
-              }
             }
-          }
-          else
-          {
-            TBSYS_LOG(ERROR, "ServerCollect object not found by : %s", CNetUtil::addrToString(ds_info.id_).c_str());
           }
         }
         else
         {
-          TBSYS_LOG(ERROR, "%s", "update information failed in keepalive fuction");
+          TBSYS_LOG(ERROR, "ServerCollect object not found by : %s", CNetUtil::addrToString(ds_info.id_).c_str());
         }
       }
+      TBSYS_LOG(DEBUG, "dataserver: %s %s %s, iret: %d, need sent block: %s",
+          CNetUtil::addrToString(ds_info.id_).c_str(),
+          DATASERVER_STATUS_DEAD == status ? "logout" :
+          DATASERVER_STATUS_ALIVE  == status ? "keepalive" :
+          "unknow", TFS_SUCCESS == iret ? "successful" : "failed", iret,
+          need_sent_block ? "yes" : "no");
+      return iret;
+    }
+
+    int ClientRequestServer::report_block(const common::DataServerStatInfo& ds_info, const time_t now,
+        common::BLOCK_INFO_LIST& blocks, common::VUINT32& expires)
+    {
+      int32_t iret = TFS_ERROR;
+      ServerCollect* server = lay_out_manager_.get_server(ds_info.id_);
+      iret = NULL == server ? EIXT_SERVER_OBJECT_NOT_FOUND : TFS_SUCCESS;
+      if (TFS_SUCCESS == iret)
+      {
+        #if defined(TFS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
+        server->dump();
+        #endif
+        //update all relations of blocks belongs to it
+        EXPIRE_BLOCK_LIST current_expires;
+        #if defined(TFS_GTEST) || defined(TFS_NS_INTEGRATION) || defined(TFS_NS_DEBUG)
+        TBSYS_LOG(DEBUG, "server: %s update_relation", tbsys::CNetUtil::addrToString(ds_info.id_).c_str());
+        #endif
+        iret = lay_out_manager_.update_relation(server, blocks, current_expires, now);
+        if (TFS_SUCCESS == iret)
+        {
+          NsRuntimeGlobalInformation& ngi = GFactory::get_runtime_info();
+          if (ngi.owner_role_ == NS_ROLE_MASTER)//i'm master, we're going to expire blocks
+          {
+            std::vector<uint32_t> rm_list;
+            EXPIRE_BLOCK_LIST::iterator iter = current_expires.begin();
+            for (; iter != current_expires.end(); ++iter)
+            {
+              std::vector<BlockCollect*>& expires_blocks = iter->second;
+              std::vector<BlockCollect*>::iterator r_iter = expires_blocks.begin();
+              rm_list.clear();
+              if (iter->first->id() == ds_info.id_)
+              {
+                for (; r_iter != expires_blocks.end(); ++r_iter)
+                {
+                  if (!lay_out_manager_.find_block_in_plan((*r_iter)->id()))
+                  {
+                    expires.push_back((*r_iter)->id());
+                  }
+                }
+              }
+              else
+              {
+                for (; r_iter != expires_blocks.end(); ++r_iter)
+                {
+                  //TODO rm_list will cause ds core for now
+                  rm_list.push_back((*r_iter)->id());
+                }
+              }
+              if (!rm_list.empty())
+              {
+                std::vector<stat_int_t> stat(1, rm_list.size());
+                GFactory::get_stat_mgr().update_entry(GFactory::tfs_ns_stat_block_count_, stat, false);
+                lay_out_manager_.rm_block_from_ds(iter->first->id(), rm_list);
+              }
+            }//end for
+            #if !defined(TFS_GTEST) && !defined(TFS_NS_INTEGRATION)
+            lay_out_manager_.touch(server,now);
+            #endif
+          }
+
+          iret = NULL == server ? EIXT_SERVER_OBJECT_NOT_FOUND : TFS_SUCCESS;
+          if (TFS_SUCCESS == iret)
+            server->set_report_block_complete_satus();
+          manager_.get_heart_management().del_report_server(ds_info.id_);
+        }
+        else
+        {
+          iret = EXIT_UPDATE_RELATION_ERROR;
+          TBSYS_LOG(ERROR, "%s", "update relationship failed between block and dataserver");
+        }
+      }
+      else
+      {
+        TBSYS_LOG(ERROR, "ServerCollect object not found by : %s", CNetUtil::addrToString(ds_info.id_).c_str());
+      }
+      TBSYS_LOG(INFO, "dataserver: %s report block %s, iret: %d, blocks: %zd, expires: %zd",
+          CNetUtil::addrToString(ds_info.id_).c_str(),
+          TFS_SUCCESS == iret ? "successful" : "fail", iret, blocks.size(), expires.size());
       return iret;
     }
 
@@ -290,7 +318,7 @@ namespace tfs
         if (!GFactory::get_lease_factory().commit(block_id, parameter.lease_id_, commit_status))
         {
           iret = EXIT_COMMIT_ERROR;
-          snprintf(parameter.error_msg_, 256, "close block: %u successful,but lease: %u commit fail", block_id, parameter.lease_id_);
+          snprintf(parameter.error_msg_, 256, "close block: %u successful,but lease: %u commit fail, iret: %d", block_id, parameter.lease_id_, iret);
         }
 
         std::vector<stat_int_t> stat(6,0);
@@ -305,7 +333,7 @@ namespace tfs
           if (!GFactory::get_lease_factory().commit(block_id, parameter.lease_id_, commit_status))
           {
             iret = EXIT_COMMIT_ERROR;
-            snprintf(parameter.error_msg_, 256, "close block: %u successful,but lease: %u commit fail", block_id, parameter.lease_id_);
+            snprintf(parameter.error_msg_, 256, "close block: %u successful,but lease: %u commit fail, iret: %d", block_id, parameter.lease_id_, iret);
           }
         }
         else
@@ -320,7 +348,7 @@ namespace tfs
             if (block == NULL)
             {
               iret = EXIT_BLOCK_NOT_FOUND;
-              snprintf(parameter.error_msg_, 256, "close block: %u fail, block not exist", block_id);
+              snprintf(parameter.error_msg_, 256, "close block: %u fail, block not exist, iret: %d", block_id, iret);
             }
             else
             {
@@ -335,7 +363,7 @@ namespace tfs
             {//version errro
               if (!GFactory::get_lease_factory().commit(block_id, parameter.lease_id_, LEASE_STATUS_FAILED))
               {
-                snprintf(parameter.error_msg_, 256, "close block: %u successful, but lease: %u commit fail", block_id, parameter.lease_id_);
+                snprintf(parameter.error_msg_, 256, "close block: %u successful, but lease: %u commit fail, iret: %d", block_id, parameter.lease_id_, iret);
               }
               iret = EXIT_COMMIT_ERROR;
             }
@@ -355,7 +383,7 @@ namespace tfs
               if (!GFactory::get_lease_factory().commit(block_id, parameter.lease_id_, commit_status))
               {
                 iret = EXIT_COMMIT_ERROR;
-                snprintf(parameter.error_msg_, 256, "close block: %u successful,but lease: %u commit fail", block_id, parameter.lease_id_);
+                snprintf(parameter.error_msg_, 256, "close block: %u successful,but lease: %u commit fail, iret: %d", block_id, parameter.lease_id_, iret);
               }
             }
 
@@ -365,7 +393,7 @@ namespace tfs
               iret = lay_out_manager_.update_block_info(parameter.block_info_, parameter.id_, now, false);
               if (iret != TFS_SUCCESS)
               {
-                snprintf(parameter.error_msg_,256,"close block: %u successful, but update block information fail", block_id);
+                snprintf(parameter.error_msg_,256,"close block: %u successful, but update block information fail, iret: %d", block_id, iret);
               }
             }
           }
@@ -401,8 +429,9 @@ namespace tfs
         BlockCollect* block = NULL;
         if (mode & T_CREATE)
         {
-          iret = 0 != block_id ? TFS_ERROR : TFS_SUCCESS;
-          if (TFS_SUCCESS == iret)
+          //iret = 0 != block_id ? TFS_ERROR : TFS_SUCCESS;
+          //if (TFS_SUCCESS == iret)
+          if (0 == block_id)
           {
             //elect a writable block
             block = lay_out_manager_.elect_write_block();
@@ -417,20 +446,27 @@ namespace tfs
             }
           }
         }
-        else if (mode & T_NEWBLK)
+        if ((mode & T_NEWBLK)
+           && (NULL == block))
         {
           iret = 0 == block_id ? TFS_ERROR : TFS_SUCCESS;
           if (TFS_SUCCESS == iret)
           {
-            //create new block by block_id
-            iret = lay_out_manager_.open_helper_create_new_block_by_id(block_id);
-            if (iret != TFS_SUCCESS)
+            NsRuntimeGlobalInformation& ngi = GFactory::get_runtime_info();
+            iret = ngi.in_discard_newblk_safe_mode_time(time(NULL)) || is_discard() ? EXIT_DISCARD_NEWBLK_ERROR: TFS_SUCCESS;
+            if (TFS_SUCCESS == iret)
             {
-              TBSYS_LOG(ERROR, "create new block by block id: %u failed", block_id);
+              //create new block by block_id
+              iret = lay_out_manager_.open_helper_create_new_block_by_id(block_id);
+              if (iret != TFS_SUCCESS)
+              {
+                TBSYS_LOG(ERROR, "create new block by block id: %u failed", block_id);
+              }
             }
           }
         }
-        if (TFS_SUCCESS == iret)
+        if (TFS_SUCCESS == iret
+          || EXIT_DISCARD_NEWBLK_ERROR == iret)
         {
           iret = block_id == 0 ? EXIT_NO_BLOCK : TFS_SUCCESS;
           if (TFS_SUCCESS == iret)
@@ -469,7 +505,7 @@ namespace tfs
               }
               else
               {
-                TBSYS_LOG(ERROR, "block is invalid because there's any dataserver was found", block_id);
+                TBSYS_LOG(ERROR, "block: %u is invalid because there's any dataserver was found", block_id);
               }
             }
             else
@@ -555,6 +591,7 @@ namespace tfs
 
     int ClientRequestServer::handle_control_load_block(const common::ClientCmdInformation& info, common::BasePacket* message, const int64_t buf_length, char* buf)
     {
+      std::vector<GCObject*> rms;
       int32_t iret = NULL != buf && buf_length > 0 ? TFS_SUCCESS : TFS_ERROR;
       if (TFS_SUCCESS == iret)
       {
@@ -569,14 +606,11 @@ namespace tfs
           if (TFS_SUCCESS == iret)
           {
             uint64_t id = info.value1_;
-            ServerCollect* server = NULL;
-            {
-              server = lay_out_manager_.get_server(id);
-            }
+            ServerCollect* server = lay_out_manager_.get_server(id);
             iret = NULL == server ? TFS_ERROR : TFS_SUCCESS;
             if (TFS_SUCCESS == iret)
             {
-#if !defined(TFS_NS_GTEST) && !defined(TFS_NS_INTEGRATION)
+#if !defined(TFS_GTEST) && !defined(TFS_NS_INTEGRATION)
               int32_t status = STATUS_MESSAGE_ERROR;
               iret = send_msg_to_server(id, message, status);
               if (STATUS_MESSAGE_OK != status
@@ -592,7 +626,7 @@ namespace tfs
 
               if (TFS_SUCCESS == iret)
               {
-                iret = lay_out_manager_.build_relation(block, server, time(NULL));
+                iret = lay_out_manager_.build_relation(block, server, rms, time(NULL));
                 if (TFS_SUCCESS != iret)
                 {
                   snprintf(buf, buf_length, " build relation fail, block: %u dataserver: %s",
@@ -621,47 +655,112 @@ namespace tfs
           TBSYS_LOG(ERROR, "%s", buf);
         }
       }
+
+      GFactory::get_gc_manager().add(rms);
       return iret;
     }
 
     int ClientRequestServer::handle_control_delete_block(const time_t now, const common::ClientCmdInformation& info,const int64_t buf_length, char* buf)
     {
-      UNUSED(buf);
-      UNUSED(buf_length);
+      int32_t iret = TFS_ERROR;
       uint64_t id = info.value1_;
       uint32_t block_id = info.value3_;
-      ServerCollect* server = lay_out_manager_.get_server(id);
+      uint32_t flag     = info.value4_;
+      TBSYS_LOG(INFO, "delete block : %u, flag: %d", block_id, flag);
+      std::vector<GCObject*> rms;
       BlockChunkPtr ptr = lay_out_manager_.get_chunk(block_id);
-      RWLock::Lock lock(*ptr, WRITE_LOCKER);
-      BlockCollect* block = ptr->find(block_id);
-      int32_t iret = TFS_SUCCESS;
-      if (NULL != block)
+      if (flag & 1)
       {
-        if (block->get_hold_size() <= 0)
+        std::vector<ServerCollect*> runer;
         {
-          ptr->remove(block_id);
-        }
-        else
-        {
-          if (NULL != server)
+          RWLock::Lock lock(*ptr, WRITE_LOCKER);
+          BlockCollect* block = ptr->find(block_id);
+          iret = NULL != block ? TFS_SUCCESS : EXIT_NO_BLOCK;
+          if (TFS_SUCCESS == iret)
           {
-            iret = lay_out_manager_.relieve_relation(block, server, now) ? TFS_SUCCESS : TFS_ERROR;
+            runer = block->get_hold();
+          }
+          else
+          {
+            snprintf(buf, buf_length, " block: %u no exist", block_id);
+            TBSYS_LOG(ERROR, "%s", buf);
+          }
+        }
+        if (TFS_SUCCESS == iret)
+        {
+          if (!runer.empty())
+          {
+            LayoutManager::DeleteBlockTaskPtr task = new LayoutManager::DeleteBlockTask(&lay_out_manager_, PLAN_PRIORITY_NORMAL, block_id, now, now, runer, 0);
+            if (!lay_out_manager_.add_task(task))
+            {
+              task = 0;
+              iret = TFS_ERROR;
+              snprintf(buf, buf_length, " add task(delete) failed, block: %u", block_id);
+              TBSYS_LOG(ERROR, "%s", buf);
+            }
+          }
+          else
+          {
+            RWLock::Lock lock(*ptr, WRITE_LOCKER);
+            ptr->remove(block_id, rms);
           }
         }
       }
+      else
+      {
+        RWLock::Lock lock(*ptr, WRITE_LOCKER);
+        BlockCollect* block = ptr->find(block_id);
+        iret = NULL != block ? TFS_SUCCESS : EXIT_NO_BLOCK;
+        if (TFS_SUCCESS == iret)
+        {
+          if (flag & 2 )
+          {
+            block->relieve_relation();
+            ptr->remove(block_id, rms);
+          }
+          else
+          {
+            ServerCollect* server = lay_out_manager_.get_server(id);
+            if (NULL != server)
+               iret = lay_out_manager_.relieve_relation(block, server, now) ? TFS_SUCCESS : TFS_ERROR;
+             if (block->get_hold_size() <= 0)
+               ptr->remove(block_id, rms);
+          }
+        }
+        else
+        {
+          snprintf(buf, buf_length, " block: %u no exist", block_id);
+          TBSYS_LOG(ERROR, "%s", buf);
+        }
+      }
+      GFactory::get_gc_manager().add(rms);
       return iret;
     }
 
     int ClientRequestServer::handle_control_compact_block(const time_t now, const common::ClientCmdInformation& info, const int64_t buf_length, char* buf)
     {
+      std::vector<ServerCollect*> runer;
       uint32_t block_id = info.value3_;
+      int32_t iret  = TFS_ERROR;
       BlockChunkPtr ptr = lay_out_manager_.get_chunk(block_id);
-      RWLock::Lock lock(*ptr, READ_LOCKER);
-      BlockCollect* block = ptr->find(block_id);
-      int32_t iret = NULL == block ? TFS_ERROR : TFS_SUCCESS;
-      if (TFS_SUCCESS == iret)
       {
-        LayoutManager::CompactTaskPtr task = new LayoutManager::CompactTask(&lay_out_manager_, PLAN_PRIORITY_NORMAL, block_id, now, now, block->get_hold(), 0);
+        RWLock::Lock lock(*ptr, READ_LOCKER);
+        BlockCollect* block = ptr->find(block_id);
+        iret = NULL == block ? TFS_ERROR : TFS_SUCCESS;
+        if (TFS_SUCCESS == iret)
+        {
+          runer = block->get_hold();
+        }
+        else
+        {
+          snprintf(buf, buf_length, " block: %u no exist", block_id);
+          TBSYS_LOG(ERROR, "%s", buf);
+        }
+      }
+      if (TFS_SUCCESS == iret
+          && !runer.empty())
+      {
+        LayoutManager::CompactTaskPtr task = new LayoutManager::CompactTask(&lay_out_manager_, PLAN_PRIORITY_NORMAL, block_id, now, now, runer, 0);
         if (!lay_out_manager_.add_task(task))
         {
           task = 0;
@@ -669,11 +768,6 @@ namespace tfs
           snprintf(buf, buf_length, " add task(compact) failed, block: %u", block_id);
           TBSYS_LOG(ERROR, "%s", buf);
         }
-      }
-      else
-      {
-        snprintf(buf, buf_length, " block: %u no exist", block_id);
-        TBSYS_LOG(ERROR, "%s", buf);
       }
       return iret;
     }
@@ -691,28 +785,7 @@ namespace tfs
       int32_t iret = NULL == block ? TFS_ERROR : TFS_SUCCESS;
       if (TFS_SUCCESS == iret)
       {
-        bool bret = false;
-        if (REPLICATE_BLOCK_MOVE_FLAG_YES == flag)
-        {
-          if ( 0 != source
-              && 0 != target
-              && 0 != block_id
-              && target != source)
-          {
-            bret = true;
-          }
-        }
-        else
-        {
-          if ((0 != block_id)
-              && ((source != target)
-                || ((source == target)
-                  && (0 == target))))
-          {
-            bret = true;
-          }
-        }
-        iret = bret ? TFS_SUCCESS : TFS_ERROR;
+        iret = 0 != block_id ? TFS_SUCCESS : TFS_ERROR;
         if (TFS_SUCCESS == iret)
         {
           ServerCollect* source_collect = NULL;
@@ -821,11 +894,32 @@ namespace tfs
       return TFS_SUCCESS;
     }
 
-
     int ClientRequestServer::handle_control_set_runtime_param(const common::ClientCmdInformation& info, const int64_t buf_length, char* buf)
     {
       UNUSED(buf_length);
       return lay_out_manager_.set_runtime_param(info.value3_, info.value4_, buf);
+    }
+
+    int ClientRequestServer::handle_control_get_balance_percent(const int64_t buf_length, char* buf)
+    {
+      snprintf(buf, buf_length, "%.6f", SYSPARAM_NAMESERVER.balance_percent_);
+      return TFS_SUCCESS;
+    }
+
+    int ClientRequestServer::handle_control_set_balance_percent(const common::ClientCmdInformation& info, const int64_t buf_length, char* buf)
+    {
+      int32_t iret = info.value3_ > 1 || info.value3_ < 0 || info.value4_ < 0 ? EXIT_PARAMETER_ERROR : TFS_SUCCESS;
+      if (TFS_SUCCESS != iret)
+      {
+        snprintf(buf, buf_length, "parameter is invalid, value3: %d, value4: %d", info.value3_, info.value4_);
+      }
+      else
+      {
+        char data[32] = {'\0'};
+        snprintf(data, 32, "%d.%06d", info.value3_, info.value4_);
+        SYSPARAM_NAMESERVER.balance_percent_ = strtod(data, NULL);
+      }
+      return iret;
     }
 
     int ClientRequestServer::handle_control_cmd(const ClientCmdInformation& info, common::BasePacket* msg, const int64_t buf_length, char* buf)
@@ -854,6 +948,12 @@ namespace tfs
           break;
         case CLIENT_CMD_ROTATE_LOG:
           iret = handle_control_rotate_log();
+          break;
+        case CLIENT_CMD_GET_BALANCE_PERCENT:
+          iret = handle_control_get_balance_percent(buf_length, buf);
+          break;
+        case CLIENT_CMD_SET_BALANCE_PERCENT:
+          iret = handle_control_set_balance_percent(info, buf_length, buf);
           break;
         default:
           snprintf(buf, buf_length, "unknow client cmd: %d", info.cmd_);
@@ -888,6 +988,17 @@ namespace tfs
     int ClientRequestServer::dump_plan(tbnet::DataBuffer& output)
     {
       return lay_out_manager_.dump_plan(output);
+    }
+
+    bool ClientRequestServer::is_discard(void)
+    {
+      bool ret = true;
+      if (atomic_inc(&ref_count_) >= static_cast<uint32_t>(SYSPARAM_NAMESERVER.discard_max_count_))
+      {
+        ret = false;
+        atomic_exchange(&ref_count_, 0);
+      }
+      return ret;
     }
   }
 }

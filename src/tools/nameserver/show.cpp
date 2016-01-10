@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: show.cpp 659 2011-08-04 05:59:13Z mingyan.zc@taobao.com $
+ * Version: $Id: show.cpp 868 2011-09-29 05:07:38Z duanfei@taobao.com $
  *
  * Authors:
  *   chuyu <chuyu@taobao.com>
@@ -391,7 +391,7 @@ namespace tfs
 
     }
 
-    int ShowInfo::show_block(const int8_t type, const int32_t num, const uint32_t block_id, int32_t count, const int32_t interval, const string& filename)
+    int ShowInfo::show_block(const int8_t type, const int32_t num, const uint32_t block_id, const int32_t block_chunk_num, int32_t count, const int32_t interval, const string& filename)
     {
       interrupt_ = false;
       is_loop_ = (count == 0);
@@ -400,7 +400,6 @@ namespace tfs
       {
         return TFS_ERROR;
       }
-      int32_t block_chunk_num = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_BLOCK_CHUNK_NUM, 32);
 
       while ((count > 0 || is_loop_) && !interrupt_)
       {

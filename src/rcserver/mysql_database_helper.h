@@ -35,6 +35,8 @@ namespace tfs
         virtual int remove(const ResourceServerInfo& inparam);
         virtual int scan(VResourceServerInfo& outparam);
 
+        virtual int scan(VMetaRootServerInfo& outparam);
+
         //ClusterRackInfo
         virtual int select(const ClusterRackInfo& inparam, ClusterRackInfo& outparam);
         virtual int update(const ClusterRackInfo& inparam);
@@ -43,6 +45,12 @@ namespace tfs
 
         //ClusterRackGroup
         virtual int scan(VClusterRackGroup& outparam);
+
+        //ip transfer info
+        virtual int scan(IpReplaceHelper::VIpTransferItem& outparam);
+
+        //app ip turn info
+        virtual int scan(std::map<int32_t, IpReplaceHelper::VIpTransferItem>& outparam);
 
         //ClusterRackDuplicateServer
         virtual int scan(VClusterRackDuplicateServer& outparam);
@@ -60,6 +68,8 @@ namespace tfs
         virtual int update_session_info(const std::vector<common::SessionBaseInfo>& session_infos);
         virtual int update_session_stat(const std::map<std::string, common::SessionStat>& session_stats);
         virtual int update_app_stat(const MIdAppStat& app_stats);
+
+        virtual int scan_cache_info(std::vector<std::string>& outparam);
 
       private:
         int exect_update_sql(const char* sql);

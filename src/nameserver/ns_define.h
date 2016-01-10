@@ -6,19 +6,19 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: ns_define.h 626 2011-08-01 03:52:41Z duanfei@taobao.com $
+ * Version: $Id: ns_define.h 983 2011-10-31 09:59:33Z duanfei $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
  *      - initial release
- *   qushan<qushan@taobao.com> 
+ *   qushan<qushan@taobao.com>
  *      - modify 2009-03-27
- *   duanfei <duanfei@taobao.com> 
+ *   duanfei <duanfei@taobao.com>
  *      - modify 2010-04-23
  *
  */
 #ifndef TFS_NAMESERVER_DEFINE_H_
-#define TFS_NAMESERVER_DEFINE_H_ 
+#define TFS_NAMESERVER_DEFINE_H_
 
 #include <Mutex.h>
 #include <tbsys.h>
@@ -28,7 +28,7 @@
 #include "common/parameter.h"
 #include "common/new_client.h"
 
-//#define TFS_NS_GTEST
+//#define TFS_GTEST
 //#define TFS_NS_DEBUG
 
 namespace tfs
@@ -61,14 +61,20 @@ namespace tfs
 
     enum NsDestroyFlag
     {
-      NS_DESTROY_FLAGS_NO = 0x00,
-      NS_DESTROY_FLAGS_YES
+      NS_DESTROY_FLAGS_YES = 0x00,
+      NS_DESTROY_FLAGS_NO
     };
 
     enum NsSwitchFlag
     {
       NS_SWITCH_FLAG_NO = 0x00,
       NS_SWITCH_FLAG_YES
+    };
+
+    enum ReportBlockStatus
+    {
+      REPORT_BLOCK_STATUS_COMPLETE = 0x00,
+      REPORT_BLOCK_STATUS_UNCOMPLETE
     };
     class LayoutManager;
     class GCObject
@@ -129,18 +135,24 @@ namespace tfs
       uint64_t owner_ip_port_;
       uint64_t other_side_ip_port_;
       int64_t switch_time_;
+      int64_t discard_newblk_safe_mode_time_;
       int64_t last_owner_check_time_;
       int64_t last_push_owner_check_packet_time_;
       uint32_t vip_;
-      NsDestroyFlag destroy_flag_;
+      int32_t destroy_flag_;
+      //NsDestroyFlag destroy_flag_;
       NsRole owner_role_;
       NsRole other_side_role_;
       NsStatus owner_status_;
       NsStatus other_side_status_;
       NsSyncDataFlag sync_oplog_flag_;
+      bool in_safe_mode_time(const int64_t now) const;
+      bool in_discard_newblk_safe_mode_time(const int64_t now) const;
+      void set_switch_time(const int64_t now = time(NULL));
       void initialize();
       void dump(int32_t level, const char* file = __FILE__, const int32_t line = __LINE__, const char* function =
           __FUNCTION__) const;
+      NsRuntimeGlobalInformation();
       static NsRuntimeGlobalInformation& instance();
       static NsRuntimeGlobalInformation instance_;
     };
@@ -160,4 +172,4 @@ namespace tfs
   }/** nameserver **/
 }/** tfs **/
 
-#endif 
+#endif

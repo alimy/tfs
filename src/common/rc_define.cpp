@@ -64,7 +64,7 @@ namespace tfs
     void ClusterData::dump() const
     {
       TBSYS_LOG(DEBUG, "cluster_stat: %d, access_type: %d, cluster_id: %s, ns_vip: %s",
-          cluster_stat_, access_type_, cluster_id_.c_str(), ns_vip_.c_str()); 
+          cluster_stat_, access_type_, cluster_id_.c_str(), ns_vip_.c_str());
     }
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     int ClusterRackData::serialize(char* data, const int64_t data_len, int64_t& pos) const
@@ -142,6 +142,22 @@ namespace tfs
       {
         ret = Serialization::set_int32(data, data_len, pos, report_interval_);
       }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int64(data, data_len, pos, modify_time_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int64(data, data_len, pos, meta_root_server_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_string(data, data_len, pos, ns_cache_info_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::serialize_list(data, data_len, pos, cluster_infos_for_update_);
+      }
       return ret;
     }
 
@@ -160,12 +176,29 @@ namespace tfs
       {
         ret = Serialization::get_int32(data, data_len, pos, &report_interval_);
       }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int64(data, data_len, pos, &modify_time_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int64(data, data_len, pos, &meta_root_server_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_string(data, data_len, pos, ns_cache_info_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::deserialize_list(data, data_len, pos, cluster_infos_for_update_);
+      }
       return ret;
     }
 
     int64_t BaseInfo::length() const
     {
-      int64_t length = INT_SIZE + Serialization::get_vint64_length(rc_server_infos_) + Serialization::get_list_length(cluster_infos_);
+      int64_t length = INT_SIZE + INT64_SIZE + Serialization::get_vint64_length(rc_server_infos_) + Serialization::get_list_length(cluster_infos_) + INT64_SIZE +
+        Serialization::get_string_length(ns_cache_info_) + Serialization::get_list_length(cluster_infos_for_update_);
       //TBSYS_LOG(DEBUG, "BaseInfo::length: %"PRI64_PREFIX"d, rc_server_infos_ length: %"PRI64_PREFIX"d, cluster_infos_ length: %"PRI64_PREFIX"d",
       //    length, Serialization::get_vint64_length(rc_server_infos_), Serialization::get_list_length(cluster_infos_));
       return length;
@@ -176,13 +209,20 @@ namespace tfs
     {
       for (size_t i = 0; i < rc_server_infos_.size(); ++i)
       {
-        TBSYS_LOG(DEBUG, "rc_server %u: %"PRI64_PREFIX"u", i, rc_server_infos_[i]);
+        TBSYS_LOG(DEBUG, "rc_server %zd: %s", i, tbsys::CNetUtil::addrToString(rc_server_infos_[i]).c_str());
       }
       for (size_t i = 0; i < cluster_infos_.size(); ++i)
       {
         cluster_infos_[i].dump();
       }
       TBSYS_LOG(DEBUG, "report_interval: %d", report_interval_);
+      TBSYS_LOG(DEBUG, "modify_time: %"PRI64_PREFIX"d", modify_time_);
+      TBSYS_LOG(DEBUG, "root_server: %s", tbsys::CNetUtil::addrToString(meta_root_server_).c_str());
+      TBSYS_LOG(DEBUG, "ns_cache_info: %s", ns_cache_info_.c_str());
+      for (size_t i = 0; i < cluster_infos_for_update_.size(); ++i)
+      {
+        cluster_infos_for_update_[i].dump();
+      }
     }
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 

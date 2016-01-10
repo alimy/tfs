@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: parameter.cpp 544 2011-06-23 02:32:20Z duanfei@taobao.com $
+ * Version: $Id: parameter.cpp 1000 2011-11-03 02:40:09Z mingyan.zc@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -21,6 +21,7 @@
 #include "error_msg.h"
 #include "func.h"
 #include "internal.h"
+#include "rts_define.h"
 namespace
 {
   const int PORT_PER_PROCESS = 2;
@@ -33,11 +34,14 @@ namespace tfs
     FileSystemParameter FileSystemParameter::fs_parameter_;
     DataServerParameter DataServerParameter::ds_parameter_;
     RcServerParameter RcServerParameter::rc_parameter_;
+    NameMetaServerParameter NameMetaServerParameter::meta_parameter_;
+    RtServerParameter RtServerParameter::rt_parameter_;
 
     int NameServerParameter::initialize(void)
     {
+      discard_max_count_ = 0;
       const char* index = TBSYS_CONFIG.getString(CONF_SN_NAMESERVER, CONF_CLUSTER_ID);
-      if (index == NULL 
+      if (index == NULL
           || strlen(index) < 1
           || !isdigit(index[0]))
       {
@@ -112,7 +116,7 @@ namespace tfs
       max_wait_write_lease_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_MAX_WAIT_WRITE_LEASE, 5);
       if (max_wait_write_lease_ >= thread_count)
         max_wait_write_lease_ = thread_count / 2;
-        
+
       add_primary_block_count_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_ADD_PRIMARY_BLOCK_COUNT, 3);
       if (add_primary_block_count_ <= 0)
         add_primary_block_count_ = 3;
@@ -141,60 +145,95 @@ namespace tfs
       balance_max_diff_block_num_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_BALANCE_MAX_DIFF_BLOCK_NUM, 5);//s
       if (balance_max_diff_block_num_ <= 0)
         balance_max_diff_block_num_ = 5;
+      const char* percent = TBSYS_CONFIG.getString(CONF_SN_NAMESERVER, CONF_BALANCE_PERCENT,"0.00001");
+      balance_percent_ = strtod(percent, NULL);
+      group_count_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_GROUP_COUNT, 1);
+      if (group_count_ < 0)
+      {
+        TBSYS_LOG(ERROR, "%s in [%s] is invalid, value: %d", CONF_GROUP_COUNT, CONF_SN_NAMESERVER, group_count_);
+        return EXIT_SYSTEM_PARAMETER_ERROR;
+      }
+      group_seq_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_GROUP_SEQ, 0);
+      if ((group_seq_ < 0)
+        || (group_seq_ >= group_count_))
+      {
+        TBSYS_LOG(ERROR, "%s in [%s] is invalid, value: %d", CONF_GROUP_SEQ, CONF_SN_NAMESERVER, group_seq_);
+        return EXIT_SYSTEM_PARAMETER_ERROR;
+      }
+      report_block_expired_time_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_REPORT_BLOCK_EXPIRED_TIME, heart_interval_ * 2);
+      discard_newblk_safe_mode_time_ = TBSYS_CONFIG.getInt(CONF_SN_NAMESERVER, CONF_DISCARD_NEWBLK_SAFE_MODE_TIME, safe_mode_time_ * 2);
+      strategy_write_capacity_weigth_ = 90;
+      strategy_write_elect_num_weigth_ = 10;
+      strategy_replicate_capacity_weigth_ = 80;
+      strategy_replicate_load_weigth_ = 10;
+      strategy_replicate_elect_num_weigth_ = 10;
       return TFS_SUCCESS;
     }
 
-    int DataServerParameter::initialize(const std::string& index)
+    int DataServerParameter::initialize(const std::string& config_file, const std::string& index)
     {
-      heart_interval_ = TBSYS_CONFIG.getInt(CONF_SN_DATASERVER, CONF_HEART_INTERVAL, 5);
-      check_interval_ = TBSYS_CONFIG.getInt(CONF_SN_DATASERVER, CONF_CHECK_INTERVAL, 2);
-      expire_data_file_time_ = TBSYS_CONFIG.getInt(CONF_SN_DATASERVER, CONF_EXPIRE_DATAFILE_TIME, 20);
-      expire_cloned_block_time_
-        = TBSYS_CONFIG.getInt(CONF_SN_DATASERVER, CONF_EXPIRE_CLONEDBLOCK_TIME, 300);
-      expire_compact_time_ = TBSYS_CONFIG.getInt(CONF_SN_DATASERVER, CONF_EXPIRE_COMPACTBLOCK_TIME, 86400);
-      replicate_thread_count_ = TBSYS_CONFIG.getInt(CONF_SN_DATASERVER, CONF_REPLICATE_THREADCOUNT, 3);
-      //default use O_SYNC
-      sync_flag_ = TBSYS_CONFIG.getInt(CONF_SN_DATASERVER, CONF_WRITE_SYNC_FLAG, 1);
-      max_block_size_ = TBSYS_CONFIG.getInt(CONF_SN_DATASERVER, CONF_BLOCK_MAX_SIZE);
-      dump_vs_interval_ = TBSYS_CONFIG.getInt(CONF_SN_DATASERVER, CONF_VISIT_STAT_INTERVAL, -1);
+      tbsys::CConfig config;
+      int32_t ret = config.load(config_file.c_str());
+      if (EXIT_SUCCESS != ret)
+      {
+        return TFS_ERROR;
+      }
 
-      const char* max_io_time = TBSYS_CONFIG.getString(CONF_SN_DATASERVER, CONF_IO_WARN_TIME, "0");
+      heart_interval_ = config.getInt(CONF_SN_DATASERVER, CONF_HEART_INTERVAL, 5);
+      check_interval_ = config.getInt(CONF_SN_DATASERVER, CONF_CHECK_INTERVAL, 2);
+      expire_data_file_time_ = config.getInt(CONF_SN_DATASERVER, CONF_EXPIRE_DATAFILE_TIME, 20);
+      expire_cloned_block_time_
+        = config.getInt(CONF_SN_DATASERVER, CONF_EXPIRE_CLONEDBLOCK_TIME, 300);
+      expire_compact_time_ = config.getInt(CONF_SN_DATASERVER, CONF_EXPIRE_COMPACTBLOCK_TIME, 86400);
+      replicate_thread_count_ = config.getInt(CONF_SN_DATASERVER, CONF_REPLICATE_THREADCOUNT, 3);
+      //default use O_SYNC
+      sync_flag_ = config.getInt(CONF_SN_DATASERVER, CONF_WRITE_SYNC_FLAG, 1);
+      max_block_size_ = config.getInt(CONF_SN_DATASERVER, CONF_BLOCK_MAX_SIZE);
+      dump_vs_interval_ = config.getInt(CONF_SN_DATASERVER, CONF_VISIT_STAT_INTERVAL, -1);
+
+      const char* max_io_time = config.getString(CONF_SN_DATASERVER, CONF_IO_WARN_TIME, "0");
       max_io_warn_time_ = strtoll(max_io_time, NULL, 10);
       if (max_io_warn_time_ < 200000 || max_io_warn_time_ > 2000000)
         max_io_warn_time_ = 1000000;
 
-      tfs_backup_type_ = TBSYS_CONFIG.getInt(CONF_SN_DATASERVER, CONF_BACKUP_TYPE, 1);
-      local_ns_ip_ = TBSYS_CONFIG.getString(CONF_SN_DATASERVER, CONF_IP_ADDR);
-      if (NULL == local_ns_ip_)
+      tfs_backup_type_ = config.getInt(CONF_SN_DATASERVER, CONF_BACKUP_TYPE, 1);
+      local_ns_ip_ = config.getString(CONF_SN_DATASERVER, CONF_IP_ADDR, "");
+      if (local_ns_ip_.length() <= 0)
       {
         TBSYS_LOG(ERROR, "can not find %s in [%s]", CONF_IP_ADDR, CONF_SN_DATASERVER);
         return EXIT_SYSTEM_PARAMETER_ERROR;
       }
-      local_ns_port_ = TBSYS_CONFIG.getInt(CONF_SN_DATASERVER, CONF_PORT);
-      ns_addr_list_ = TBSYS_CONFIG.getString(CONF_SN_DATASERVER, CONF_IP_ADDR_LIST);
-      if (NULL == ns_addr_list_)
+      local_ns_port_ = config.getInt(CONF_SN_DATASERVER, CONF_PORT);
+      ns_addr_list_ = config.getString(CONF_SN_DATASERVER, CONF_IP_ADDR_LIST, "");
+      if (ns_addr_list_.length() <= 0)
       {
         TBSYS_LOG(ERROR, "can not find %s in [%s]", CONF_IP_ADDR_LIST, CONF_SN_DATASERVER);
         return EXIT_SYSTEM_PARAMETER_ERROR;
       }
-      slave_ns_ip_ = TBSYS_CONFIG.getString(CONF_SN_DATASERVER, CONF_SLAVE_NSIP);
+      slave_ns_ip_ = config.getString(CONF_SN_DATASERVER, CONF_SLAVE_NSIP, "");
       /*if (NULL == slave_ns_ip_)
       {
         TBSYS_LOG(ERROR, "can not find %s in [%s]", CONF_SLAVE_NSIP, CONF_SN_DATASERVER);
         return EXIT_SYSTEM_PARAMETER_ERROR;
       }*/
-      //config_log_file_ = TBSYS_CONFIG.getString(CONF_SN_DATASERVER, CONF_LOG_FILE);
-      max_datafile_nums_ = TBSYS_CONFIG.getInt(CONF_SN_DATASERVER, CONF_DATA_FILE_NUMS, 50);
-      max_crc_error_nums_ = TBSYS_CONFIG.getInt(CONF_SN_DATASERVER, CONF_MAX_CRCERROR_NUMS, 4);
-      max_eio_error_nums_ = TBSYS_CONFIG.getInt(CONF_SN_DATASERVER, CONF_MAX_EIOERROR_NUMS, 6);
+      //config_log_file_ = config.getString(CONF_SN_DATASERVER, CONF_LOG_FILE);
+      max_datafile_nums_ = config.getInt(CONF_SN_DATASERVER, CONF_DATA_FILE_NUMS, 50);
+      max_crc_error_nums_ = config.getInt(CONF_SN_DATASERVER, CONF_MAX_CRCERROR_NUMS, 4);
+      max_eio_error_nums_ = config.getInt(CONF_SN_DATASERVER, CONF_MAX_EIOERROR_NUMS, 6);
       expire_check_block_time_
-        = TBSYS_CONFIG.getInt(CONF_SN_DATASERVER, CONF_EXPIRE_CHECKBLOCK_TIME, 86400);
-      max_cpu_usage_ = TBSYS_CONFIG.getInt(CONF_SN_DATASERVER, CONF_MAX_CPU_USAGE, 60);
-      dump_stat_info_interval_ = TBSYS_CONFIG.getInt(CONF_SN_DATASERVER, CONF_DUMP_STAT_INFO_INTERVAL, 60000000);
+        = config.getInt(CONF_SN_DATASERVER, CONF_EXPIRE_CHECKBLOCK_TIME, 86400);
+      max_cpu_usage_ = config.getInt(CONF_SN_DATASERVER, CONF_MAX_CPU_USAGE, 60);
+      dump_stat_info_interval_ = config.getInt(CONF_SN_DATASERVER, CONF_DUMP_STAT_INFO_INTERVAL, 60000000);
+      object_dead_max_time_ = config.getInt(CONF_SN_DATASERVER, CONF_OBJECT_DEAD_MAX_TIME, 86400);
+      if (object_dead_max_time_ <=  0)
+        object_dead_max_time_ = 86400;
+      object_clear_max_time_ = config.getInt(CONF_SN_DATASERVER, CONF_OBJECT_CLEAR_MAX_TIME, 300);
+      if (object_clear_max_time_ <= 0)
+        object_clear_max_time_ = 300;
       return SYSPARAM_FILESYSPARAM.initialize(index);
     }
 
-    std::string DataServerParameter::get_real_file_name(const std::string& src_file, 
+    std::string DataServerParameter::get_real_file_name(const std::string& src_file,
         const std::string& index, const std::string& suffix)
     {
       return src_file + "_" + index + "." + suffix;
@@ -278,6 +317,128 @@ namespace tfs
       stat_interval_ = TBSYS_CONFIG.getInt(CONF_SN_RCSERVER, CONF_RC_STAT_INTERVAL, 120);
       update_interval_ = TBSYS_CONFIG.getInt(CONF_SN_RCSERVER, CONF_RC_UPDATE_INTERVAL, 30);
       return TFS_SUCCESS;
+    }
+
+    int NameMetaServerParameter::initialize(void)
+    {
+      int ret = TFS_SUCCESS;
+      max_pool_size_ = TBSYS_CONFIG.getInt(CONF_SN_NAMEMETASERVER, CONF_MAX_SPOOL_SIZE, 10);
+      max_cache_size_ = TBSYS_CONFIG.getInt(CONF_SN_NAMEMETASERVER, CONF_MAX_CACHE_SIZE, 1024);
+      max_mutex_size_ = TBSYS_CONFIG.getInt(CONF_SN_NAMEMETASERVER, CONF_MAX_MUTEX_SIZE, 16);
+      free_list_count_ = TBSYS_CONFIG.getInt(CONF_SN_NAMEMETASERVER, CONF_FREE_LIST_COUNT, 256);
+      max_sub_files_count_ = TBSYS_CONFIG.getInt(CONF_SN_NAMEMETASERVER, CONF_MAX_SUB_FILES_COUNT, 1000);
+      max_sub_dirs_count_ = TBSYS_CONFIG.getInt(CONF_SN_NAMEMETASERVER, CONF_MAX_SUB_DIRS_COUNT, 100);
+      max_sub_dirs_deep_ = TBSYS_CONFIG.getInt(CONF_SN_NAMEMETASERVER, CONF_MAX_SUB_DIRS_DEEP, 10);
+      const char* gc_ratio = TBSYS_CONFIG.getString(CONF_SN_NAMEMETASERVER, CONF_GC_RATIO, "0.1");
+      gc_ratio_ = strtod(gc_ratio, NULL);
+      if (gc_ratio_ <= 0 || gc_ratio_ >= 1.0)
+      {
+        TBSYS_LOG(ERROR, "gc ration error %f set it to 0.1", gc_ratio_);
+        gc_ratio_ = 0.1;
+      }
+      std::string db_infos = TBSYS_CONFIG.getString(CONF_SN_NAMEMETASERVER, CONF_META_DB_INFOS, "");
+      std::vector<std::string> fields;
+      Func::split_string(db_infos.c_str(), ';', fields);
+      TBSYS_LOG(DEBUG, "fields.size = %zd", fields.size());
+      for (size_t i = 0; i < fields.size(); i++)
+      {
+        std::vector<std::string> items;
+        Func::split_string(fields[i].c_str(), ',', items);
+        TBSYS_LOG(DEBUG, "items.size = %zd", items.size());
+        DbInfo tmp_db_info;
+        if (items.size() >= 3)
+        {
+          tmp_db_info.conn_str_ = items[0];
+          tmp_db_info.user_ = items[1];
+          tmp_db_info.passwd_ = items[2];
+          tmp_db_info.hash_value_ = db_infos_.size();
+          db_infos_.push_back(tmp_db_info);
+        }
+      }
+      if (db_infos_.size() == 0)
+      {
+        TBSYS_LOG(ERROR, "can not find dbinfos");
+        ret = TFS_ERROR;
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        std::string ips = TBSYS_CONFIG.getString(CONF_SN_NAMEMETASERVER, CONF_IP_ADDR, "");
+        std::vector<std::string> items;
+        Func::split_string(ips.c_str(), ':', items);
+        if (items.size() != 2U)
+        {
+          TBSYS_LOG(ERROR, "%s is invalid", ips.c_str());
+          ret = TFS_ERROR;
+        }
+        else
+        {
+          int32_t port = atoi(items[1].c_str());
+          if (port <= 1024 || port >= 65535)
+          {
+            TBSYS_LOG(ERROR, "%s is invalid", ips.c_str());
+            ret = TFS_ERROR;
+          }
+          else
+          {
+            rs_ip_port_ = tbsys::CNetUtil::strToAddr(items[0].c_str(), atoi(items[1].c_str()));
+          }
+          TBSYS_LOG(INFO, "root server ip addr: %s", ips.c_str());
+        }
+      }
+      return ret;
+    }
+
+    int RtServerParameter::initialize(void)
+    {
+      int32_t iret = TFS_SUCCESS;
+      mts_rts_lease_expired_time_ =
+        TBSYS_CONFIG.getInt(CONF_SN_ROOTSERVER, CONF_MTS_RTS_LEASE_EXPIRED_TIME,
+          RTS_MS_LEASE_EXPIRED_TIME_DEFAULT);
+      if (mts_rts_lease_expired_time_ <= 0)
+      {
+        TBSYS_LOG(ERROR, "mts_rts_lease_expired_time: %d is invalid", mts_rts_lease_expired_time_);
+        iret = TFS_ERROR;
+      }
+      if (TFS_SUCCESS == iret)
+      {
+        mts_rts_renew_lease_interval_
+        = TBSYS_CONFIG.getInt(CONF_SN_ROOTSERVER, CONF_MTS_RTS_LEASE_INTERVAL,
+            RTS_MS_RENEW_LEASE_INTERVAL_TIME_DEFAULT);
+        if (mts_rts_renew_lease_interval_ > mts_rts_lease_expired_time_ / 2 )
+        {
+          TBSYS_LOG(ERROR, "mts_rts_lease_expired_interval: %d is invalid, less than: %d",
+            mts_rts_renew_lease_interval_, mts_rts_lease_expired_time_ / 2 + 1);
+          iret = TFS_ERROR;
+        }
+        if (TFS_SUCCESS == iret)
+        {
+          safe_mode_time_ = TBSYS_CONFIG.getInt(CONF_SN_ROOTSERVER, CONF_SAFE_MODE_TIME, 60);
+        }
+      }
+      if (TFS_SUCCESS == iret)
+      {
+        rts_rts_lease_expired_time_ =
+          TBSYS_CONFIG.getInt(CONF_SN_ROOTSERVER, CONF_RTS_RTS_LEASE_EXPIRED_TIME,
+            RTS_RS_LEASE_EXPIRED_TIME_DEFAULT);
+        if (rts_rts_lease_expired_time_ <= 0)
+        {
+          TBSYS_LOG(ERROR, "rts_rts_lease_expired_time: %d is invalid", mts_rts_lease_expired_time_);
+          iret = TFS_ERROR;
+        }
+        if (TFS_SUCCESS == iret)
+        {
+          rts_rts_renew_lease_interval_
+            = TBSYS_CONFIG.getInt(CONF_SN_ROOTSERVER, CONF_RTS_RTS_LEASE_INTERVAL,
+                RTS_RS_RENEW_LEASE_INTERVAL_TIME_DEFAULT);
+          if (rts_rts_renew_lease_interval_ > rts_rts_lease_expired_time_ / 2 )
+          {
+            TBSYS_LOG(ERROR, "rts_rts_lease_expired_interval: %d is invalid, less than: %d",
+                rts_rts_renew_lease_interval_, rts_rts_lease_expired_time_ / 2 + 1);
+            iret = TFS_ERROR;
+          }
+        }
+      }
+      return iret;
     }
   }/** common **/
 }/** tfs **/

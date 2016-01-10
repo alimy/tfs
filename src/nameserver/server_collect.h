@@ -77,7 +77,6 @@ namespace tfs
         RWLock::Lock lock(*this, common::WRITE_LOCKER);
         elect_num_ <  NsGlobalStatisticsInfo::ELECT_SEQ_NO_INITIALIZE ? elect_num_ = GFactory::get_global_info().calc_elect_seq_num_average() : ++elect_num_;
       }
-      inline bool in_safe_mode_time(const time_t now = time(NULL)) const { return now - startup_time_ <= common::SYSPARAM_NAMESERVER.safe_mode_time_ ;}  
 #ifdef TFS_NS_DEBUG
       inline void total_elect_num_inc()
       {
@@ -90,6 +89,21 @@ namespace tfs
 
       void callback(LayoutManager* manager);
 
+      inline bool is_equal_group(const uint32_t id) const
+      {
+        return (static_cast<int32_t>((id % common::SYSPARAM_NAMESERVER.group_count_)) == common::SYSPARAM_NAMESERVER.group_seq_);
+      }
+
+      inline void set_report_block_complete_satus(const int8_t status = REPORT_BLOCK_STATUS_COMPLETE)
+      {
+        RWLock::Lock lock(*this, common::WRITE_LOCKER);
+        rb_status_ = status;
+      }
+
+      inline bool is_report_block_complete(void) const
+      {
+        return rb_status_ == REPORT_BLOCK_STATUS_COMPLETE;
+      } 
       static const int8_t MULTIPLE;
       static const int8_t MAX_LOAD_DOUBLE;
       static const int8_t DUMP_FLAG_HOLD;
@@ -99,7 +113,7 @@ namespace tfs
       static const int8_t AVERAGE_USED_CAPACITY_MULTIPLE;
       static const uint16_t DUMP_SLOTS_MAX;
 
-#if defined(TFS_NS_GTEST) || defined(TFS_NS_INTEGRATION)
+#if defined(TFS_GTEST) || defined(TFS_NS_INTEGRATION)
       public:
 #else
       private:
@@ -128,6 +142,7 @@ namespace tfs
       int32_t block_count_;
       int32_t write_index_;
       int8_t  status_;
+      int8_t  rb_status_;//report block complete status
       volatile uint8_t  elect_flag_;
     };
   }/** nameserver **/

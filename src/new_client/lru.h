@@ -19,7 +19,6 @@
 #include <list>
 #include <ext/hash_map>
 #include "client_config.h"
-#include "bg_task.h"
 #include "common/internal.h"
 
 namespace tfs
@@ -37,8 +36,7 @@ namespace tfs
       lru()
       {
         size_ = 1000;
-        index_.resize(size_);
-        list_.resize(size_);
+        resize(size_);
       }
 
       ~lru()
@@ -48,10 +46,10 @@ namespace tfs
 
       void resize(int32_t size)
       {
-        assert (size > 0);
-        size_ = size;
-        index_.resize(size_);
-        list_.resize(size_);
+        if (size > 0)
+        {
+          size_ = size;
+        }
       }
 
       T2* find(const T1& first)
@@ -60,12 +58,10 @@ namespace tfs
 
         if (i == index_.end())
         {
-          BgTask::get_stat_mgr().update_entry(StatItem::client_cache_stat_, StatItem::cache_miss_, 1);
           return NULL;
         }
         else
         {
-          BgTask::get_stat_mgr().update_entry(StatItem::client_cache_stat_, StatItem::cache_hit_, 1);
           typename List::iterator n = i->second;
           list_.splice(list_.begin(), list_, n);
           return &(list_.front().second);
@@ -77,7 +73,6 @@ namespace tfs
         typename Map::iterator i = index_.find(first);
         if (i != index_.end())
         {
-          BgTask::get_stat_mgr().update_entry(StatItem::client_cache_stat_, StatItem::remove_count_, 1);
           typename List::iterator n = i->second;
           list_.erase(n);
           index_.erase(i);
@@ -96,7 +91,7 @@ namespace tfs
           n->second = second;
           index_[first] = n;
         }
-        else if ((int) list_.size() >= size_)
+        else if (size() >= size_)
         { // erase the last element
           typename List::iterator n = list_.end();
           --n; // the last element

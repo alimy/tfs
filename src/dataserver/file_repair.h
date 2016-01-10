@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: file_repair.h 409 2011-06-02 08:32:14Z nayan@taobao.com $
+ * Version: $Id: file_repair.h 746 2011-09-06 07:27:59Z daoan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -23,7 +23,7 @@
 #include "dataserver_define.h"
 
 #include "common/internal.h"
-#include "new_client/tfs_client_api.h"
+#include "new_client/tfs_client_impl.h"
 
 namespace tfs
 {
@@ -48,7 +48,7 @@ namespace tfs
         bool init_status_;
         uint64_t dataserver_id_;
         char src_addr_[common::MAX_ADDRESS_LENGTH];
-        client::TfsClient* tfs_client_;
+        client::TfsClientImpl* tfs_client_;
     };
   }
 }

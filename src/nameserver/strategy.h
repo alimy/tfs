@@ -11,9 +11,9 @@
  * Authors:
  *   duolong <duolong@taobao.com>
  *      - initial release
- *   qushan<qushan@taobao.com> 
+ *   qushan<qushan@taobao.com>
  *      - modify 2009-03-27
- *   duanfei <duanfei@taobao.com> 
+ *   duanfei <duanfei@taobao.com>
  *      - modify 2010-04-23
  *
  */
@@ -30,6 +30,12 @@ namespace tfs
 {
   namespace nameserver
   {
+    static const uint64_t GB = 1 * 1024 * 1024 * 1024;
+    static const uint64_t MB = 1 * 1024 * 1024;
+    static const double PERCENTAGE_MIN = 0.000001;
+    static const double PERCENTAGE_MAX = 1.000000;
+    static const double PERCENTAGE_MAGIC = 1000000.0;
+    double calc_capacity_percentage(const uint64_t capacity, const uint64_t total_capacity);
     static bool exist(std::vector<ServerCollect*>& table,ServerCollect* except)
     {
       return table.empty() ? false : find(table.begin(), table.end(), except) != table.end();
@@ -52,13 +58,13 @@ namespace tfs
       }
     };
 
-    struct CompareBlockCount
+    /*struct CompareBlockCount
     {
       uint32_t operator()(const ServerCollect* l, const ServerCollect* r) const
       {
         return l->block_count() < r->block_count();
       }
-    };
+    };*/
 
     class BaseStrategy
     {
@@ -95,7 +101,7 @@ namespace tfs
         DISALLOW_COPY_AND_ASSIGN( WriteStrategy);
     };
 
-    class ReplicateDestStrategy: public BaseStrategy 
+    class ReplicateDestStrategy: public BaseStrategy
     {
       public:
         ReplicateDestStrategy(uint32_t seq, const NsGlobalStatisticsInfo& g):
@@ -106,7 +112,7 @@ namespace tfs
         DISALLOW_COPY_AND_ASSIGN( ReplicateDestStrategy);
     };
 
-    class ReplicateSourceStrategy: public BaseStrategy 
+    class ReplicateSourceStrategy: public BaseStrategy
     {
       public:
         ReplicateSourceStrategy(uint32_t seq, const NsGlobalStatisticsInfo& g) :
@@ -188,7 +194,7 @@ namespace tfs
         bool has_valid = false;
         DS_WEIGHT weights;
         StoreWeight<Strategy> store(strategy, weights);
-        const SERVER_MAP& ds_map = meta.servers_; 
+        const SERVER_MAP& ds_map = meta.servers_;
         SERVER_MAP::const_iterator iter = ds_map.begin();
         for (; iter != ds_map.end(); ++iter)
         {
@@ -207,9 +213,9 @@ namespace tfs
 
     int elect_write_server(LayoutManager& meta, const int32_t elect_count, std::vector<ServerCollect*> & result);
     int elect_replicate_source_ds(LayoutManager& meta, std::vector<ServerCollect*>& source, std::vector<ServerCollect*>& except, int32_t elect_count, std::vector<ServerCollect*>& result);
-    int elect_replicate_dest_ds(LayoutManager& meta, std::vector<ServerCollect*>& except, int32_t elect_count, std::vector<ServerCollect*> & result); 
+    int elect_replicate_dest_ds(LayoutManager& meta, std::vector<ServerCollect*>& except, int32_t elect_count, std::vector<ServerCollect*> & result);
     bool elect_move_dest_ds(const std::set<ServerCollect*>& targets, const std::vector<ServerCollect*> & source, const ServerCollect* mover, ServerCollect** result);
-    int delete_excess_backup(const std::vector<ServerCollect*> & ds_list, int32_t count, std::vector<ServerCollect*> & result, common::DeleteExcessBackupStrategy falg = common::DELETE_EXCESS_BACKUP_STRATEGY_NORMAL);
+    int delete_excess_backup(const std::vector<ServerCollect*> & ds_list, const std::vector<ServerCollect*> & except, int32_t count, std::vector<ServerCollect*> & result, common::DeleteExcessBackupStrategy falg = common::DELETE_EXCESS_BACKUP_STRATEGY_NORMAL);
   }
 }
-#endif 
+#endif

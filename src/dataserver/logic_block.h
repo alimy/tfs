@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: logic_block.h 552 2011-06-24 08:44:50Z duanfei@taobao.com $
+ * Version: $Id: logic_block.h 643 2011-08-02 07:38:33Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -34,11 +34,11 @@ namespace tfs
   namespace dataserver
   {
 
-    class LogicBlock
+    class LogicBlock: public GCObject
     {
       public:
-        LogicBlock(const uint32_t logic_block_id, const uint32_t main_blk_key, const std::string& base_path);
-        LogicBlock(const uint32_t logic_block_id);
+        LogicBlock(const uint32_t logic_block_id, const uint32_t main_blk_key, const std::string& base_path, const time_t now = time(NULL));
+        LogicBlock(const uint32_t logic_block_id, const time_t now = time(NULL));
 
         ~LogicBlock();
 
@@ -55,6 +55,7 @@ namespace tfs
         int load_block_file(const int32_t bucket_size, const common::MMapOption mmap_option);
         int init_block_file(const int32_t bucket_size, const common::MMapOption mmap_option, const BlockType block_type);
         int delete_block_file();
+        int rename_index_file();
 
         void add_physic_block(PhysicalBlock* physic_block);
 
@@ -75,6 +76,10 @@ namespace tfs
         int get_meta_infos(common::RawMetaVec& raw_metas);
         int get_sorted_meta_infos(common::RawMetaVec& meta_infos);
         int get_file_infos(std::vector<common::FileInfo>& fileinfos);
+
+        //gc callback
+        void callback();
+        void clear();
 
         common::BlockInfo* get_block_info() const
         {

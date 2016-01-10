@@ -26,7 +26,7 @@
 
 namespace tfs
 {
-  namespace common 
+  namespace common
   {
     //old structure
     #pragma pack(4)
@@ -169,11 +169,14 @@ namespace tfs
       DIRECTION_MASTER_SLAVE_NS = 4
     };
 
-    enum HeartMessageStatus                                                                        
+    enum HeartMessageStatus
     {
       HEART_MESSAGE_OK = 0,
       HEART_NEED_SEND_BLOCK_INFO = 1,
-      HEART_EXP_BLOCK_ID = 2
+      HEART_EXP_BLOCK_ID = 2,
+      HEART_MESSAGE_FAILED = 3,
+      HEART_REPORT_BLOCK_SERVER_OBJECT_NOT_FOUND = 4,
+      HEART_REPORT_UPDATE_RELATION_ERROR = 5 
     };
     enum TfsPacketVersion
     {
@@ -246,7 +249,7 @@ namespace tfs
       BATCH_SET_BLOCK_INFO_MESSAGE = 60,
       REMOVE_BLOCK_RESPONSE_MESSAGE = 61,
       READ_DATA_MESSAGE_V3 = 62,
-      RESP_READ_DATA_MESSAGE_V3 = 63, 
+      RESP_READ_DATA_MESSAGE_V3 = 63,
       DUMP_PLAN_MESSAGE = 64,
       DUMP_PLAN_RESPONSE_MESSAGE = 65,
       REQ_RC_LOGIN_MESSAGE = 66,
@@ -257,7 +260,21 @@ namespace tfs
       REQ_RC_RELOAD_MESSAGE = 71,
       GET_DATASERVER_INFORMATION_MESSAGE = 72,
       GET_DATASERVER_INFORMATION_RESPONSE_MESSAGE = 73,
-      LOCAL_PACKET = 500,
+      FILEPATH_ACTION_MESSAGE = 74,
+      WRITE_FILEPATH_MESSAGE = 75,
+      READ_FILEPATH_MESSAGE = 76,
+      RESP_READ_FILEPATH_MESSAGE = 77,
+      LS_FILEPATH_MESSAGE = 78,
+      RESP_LS_FILEPATH_MESSAGE = 79,
+      REQ_RT_UPDATE_TABLE_MESSAGE = 80,
+      RSP_RT_UPDATE_TABLE_MESSAGE = 81,
+      REQ_RT_MS_KEEPALIVE_MESSAGE = 82,
+      RSP_RT_MS_KEEPALIVE_MESSAGE = 83,
+      REQ_RT_GET_TABLE_MESSAGE = 84,
+      RSP_RT_GET_TABLE_MESSAGE = 85,
+      REQ_RT_RS_KEEPALIVE_MESSAGE = 86,
+      RSP_RT_RS_KEEPALIVE_MESSAGE = 87,
+      LOCAL_PACKET = 500
     };
 
     // StatusMessage status value

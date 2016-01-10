@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: message_factory.cpp 626 2011-08-01 03:52:41Z duanfei@taobao.com $
+ * Version: $Id: message_factory.cpp 864 2011-09-29 01:54:18Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -215,6 +215,48 @@ namespace tfs
             break;
           case common::GET_DATASERVER_INFORMATION_RESPONSE_MESSAGE:
             packet = new GetDataServerInformationResponseMessage();
+            break;
+          case common::FILEPATH_ACTION_MESSAGE:
+            packet = new FilepathActionMessage();
+            break;
+          case common::WRITE_FILEPATH_MESSAGE:
+            packet = new WriteFilepathMessage();
+            break;
+          case common::READ_FILEPATH_MESSAGE:
+            packet = new ReadFilepathMessage();
+            break;
+          case common::RESP_READ_FILEPATH_MESSAGE:
+            packet = new RespReadFilepathMessage();
+            break;
+          case common::LS_FILEPATH_MESSAGE:
+            packet = new LsFilepathMessage();
+            break;
+          case common::RESP_LS_FILEPATH_MESSAGE:
+            packet = new RespLsFilepathMessage();
+            break;
+          case common::REQ_RT_MS_KEEPALIVE_MESSAGE:
+            packet =  new RtsMsHeartMessage();
+            break;
+          case common::RSP_RT_MS_KEEPALIVE_MESSAGE:
+            packet = new RtsMsHeartResponseMessage();
+            break;
+          case common::REQ_RT_RS_KEEPALIVE_MESSAGE:
+            packet =  new RtsRsHeartMessage();
+            break;
+          case common::RSP_RT_RS_KEEPALIVE_MESSAGE:
+            packet = new RtsRsHeartResponseMessage();
+            break;
+          case common::REQ_RT_GET_TABLE_MESSAGE:
+            packet = new GetTableFromRtsMessage();
+            break;
+          case common::RSP_RT_GET_TABLE_MESSAGE:
+            packet = new GetTableFromRtsResponseMessage();
+            break;
+          case common::REQ_RT_UPDATE_TABLE_MESSAGE:
+            packet = new UpdateTableMessage();
+            break;
+          case common::RSP_RT_UPDATE_TABLE_MESSAGE:
+            packet = new UpdateTableResponseMessage();
             break;
           default:
             TBSYS_LOG(ERROR, "pcode: %d not found in message factory", real_pcode);

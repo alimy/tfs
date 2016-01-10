@@ -6,22 +6,22 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: mmap_file_op.h 552 2011-06-24 08:44:50Z duanfei@taobao.com $
+ * Version: $Id: mmap_file_op.h 764 2011-09-07 06:04:06Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
  *      - initial release
- *   qushan<qushan@taobao.com> 
+ *   qushan<qushan@taobao.com>
  *      - modify 2009-03-27
- *   zongdai <zongdai@taobao.com> 
+ *   zongdai <zongdai@taobao.com>
  *      - modify 2010-04-23
  *
  */
 #ifndef TFS_DATASERVER_MMAPFILE_OP_H_
 #define TFS_DATASERVER_MMAPFILE_OP_H_
 
-#include "file_op.h"
-#include "mmap_file.h"
+#include "common/file_op.h"
+#include "common/mmap_file.h"
 #include <Memory.hpp>
 
 namespace tfs
@@ -79,7 +79,7 @@ namespace tfs
         char* new_buf_;
     };
 
-    class MMapFileOperation: public FileOperation
+    class MMapFileOperation: public common::FileOperation
     {
       public:
         explicit MMapFileOperation(const std::string& file_name, int open_flags = O_RDWR | O_LARGEFILE) :
@@ -99,6 +99,7 @@ namespace tfs
 
         int mmap_file(const common::MMapOption& mmap_option);
         int munmap_file();
+        int rename_file();
         void* get_map_data() const;
         int flush_file();
 
@@ -107,7 +108,7 @@ namespace tfs
         DISALLOW_COPY_AND_ASSIGN(MMapFileOperation);
 
         bool is_mapped_;
-        MMapFile* map_file_;
+        common::MMapFile* map_file_;
     };
 
   }

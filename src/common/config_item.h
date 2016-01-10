@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: config_item.h 544 2011-06-23 02:32:20Z duanfei@taobao.com $
+ * Version: $Id: config_item.h 983 2011-10-31 09:59:33Z duanfei $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -28,6 +28,8 @@ namespace tfs
 #define CONF_SN_ADMINSERVER                           "adminserver"
 #define CONF_SN_MOCK_DATASERVER                       "mockdataserver"
 #define CONF_SN_RCSERVER                              "rcserver"
+#define CONF_SN_NAMEMETASERVER                        "metaserver"
+#define CONF_SN_ROOTSERVER                            "rootserver"
 
 #define CONF_CLUSTER_ID                               "cluster_id"
 #define CONF_LOCK_FILE                                "lock_file"
@@ -47,13 +49,16 @@ namespace tfs
 #define CONF_HEART_INTERVAL                           "heart_interval"
 #define CONF_HEART_MAX_QUEUE_SIZE                     "heart_max_queue_size"
 #define CONF_HEART_THREAD_COUNT												"heart_thread_count"
+#define CONF_REPORT_BLOCK_THREAD_COUNT                "report_block_thread_count"
+#define CONF_REPORT_BLOCK_MAX_QUEUE_SIZE              "report_block_max_queue_size"
 #define CONF_MAX_REPLICATION                          "max_replication"
 #define CONF_MIN_REPLICATION                          "min_replication"
 #define CONF_USE_CAPACITY_RATIO                       "use_capacity_ratio"
 #define CONF_TASK_MAX_QUEUE_SIZE                      "task_max_queue_size"
+#define CONF_DISCARD_NEWBLK_SAFE_MODE_TIME            "discard_newblk_safe_mode_time"
 
 
-  //adminserver, only monitor ds
+//adminserver, only monitor ds
 #define CONF_DS_SCRIPT                                "ds_script"
 #define CONF_DS_FKILL_WAITTIME                        "ds_fkill_waittime"
 #define CONF_CHECK_INTERVAL                           "check_interval"
@@ -91,9 +96,15 @@ namespace tfs
 #define CONF_CLEANUP_LEASE_THRESHOLD                  "cleanup_lease_threshold"
 
 #define CONF_BALANCE_MAX_DIFF_BLOCK_NUM               "balance_max_diff_block_num"
+#define CONF_BALANCE_PERCENT                          "balance_percent"
 
 
 #define CONF_DUMP_STAT_INFO_INTERVAL                  "dump_stat_info_interval"
+
+#define CONF_GROUP_SEQ                                "group_seq"
+#define CONF_GROUP_COUNT                              "group_count"
+#define CONF_TIME_REPORT_BLOCK_INTERVAL               "time_report_block_interval" //
+#define CONF_REPORT_BLOCK_EXPIRED_TIME                "report_block_expired_time"
 
   //dataserver
 #define CONF_DATA_THREAD_COUNT                        "data_thread_count"
@@ -138,6 +149,27 @@ namespace tfs
 #define CONF_RC_DB_INFO                               "rc_db_info"
 #define CONF_RC_DB_USER                               "rc_db_user"
 #define CONF_RC_DB_PWD                                "rc_db_pwd"
+
+//name_meta_server
+#define CONF_MAX_SPOOL_SIZE                            "max_spool_size"
+#define CONF_META_DB_INFOS                             "meta_db_infos"
+#define CONF_MAX_CACHE_SIZE                            "max_cache_size"
+#define CONF_MAX_MUTEX_SIZE                            "max_mutex_size"
+#define CONF_FREE_LIST_COUNT                           "free_list_count"
+#define CONF_MAX_SUB_DIRS_COUNT                        "max_sub_dirs_count"
+#define CONF_MAX_SUB_FILES_COUNT                       "max_sub_files_count"
+#define CONF_MAX_SUB_DIRS_DEEP                         "max_sub_dirs_deep"
+#define CONF_GC_RATIO                                  "gc_ratio"
+#define CONF_GC_INTERVAL                               "gc_interval"
+
+//root server
+#define CONF_MTS_RTS_LEASE_EXPIRED_TIME               "mts_rts_lease_expired_time" //(s)
+#define CONF_MTS_RTS_LEASE_INTERVAL                   "mts_rts_lease_interval" //(s)
+#define CONF_RTS_RTS_LEASE_EXPIRED_TIME               "rts_rts_lease_expired_time" //(s)
+#define CONF_RTS_RTS_LEASE_INTERVAL                   "rts_rts_lease_interval" //(s)
+
+#define CONF_RT_TABLE_FILE_PATH                       "table_file_path"
+#define CONF_UPDATE_TABLE_THREAD_COUNT                "update_table_thread_count"
   }
 }
 #endif //TFS_COMMON_CONFDEFINE_H_

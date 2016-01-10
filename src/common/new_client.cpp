@@ -55,6 +55,14 @@ namespace tfs
 
     bool NewClient::wait(const int64_t timeout_in_ms)
     {
+#ifdef TFS_TEST
+      tbnet::Packet* packet = NULL;
+      for (uint32_t i = 0 ; i < send_id_sign_.size(); i++)
+      {
+        success_response_.insert(RESPONSE_MSG_MAP::value_type(send_id_sign_[i].first,
+          std::pair<uint64_t, tbnet::Packet*>(send_id_sign_[i].second, packet)));
+      }
+#endif
       int64_t timeout_ms = timeout_in_ms;
       bool ret = true;
       if (timeout_ms <= 0)
@@ -103,6 +111,7 @@ namespace tfs
         }
         else
         {
+#ifndef TFS_TEST
           WaitId id;
           id.seq_id_ = seq_id_;
           id.send_id_= send_id;
@@ -130,11 +139,12 @@ namespace tfs
               monitor_.unlock();
             }
           }
+#endif
         }
       }
-      TBSYS_LOG(DEBUG, "send msg to server: %s %s, seq_id: %u, send_id: %d, pcode: %d", 
-                 tbsys::CNetUtil::addrToString(server).c_str(), TFS_SUCCESS == ret ? "successful" : "fail",
-                 seq_id_, send_id, packet->getPCode());
+      //TBSYS_LOG(DEBUG, "send msg to server: %s %s, seq_id: %u, send_id: %d, pcode: %d",
+      //           tbsys::CNetUtil::addrToString(server).c_str(), TFS_SUCCESS == ret ? "successful" : "fail",
+      //           seq_id_, send_id, packet->getPCode());
       return ret;
     }
 
@@ -353,6 +363,19 @@ namespace tfs
       return iret;
     }
 
+    int post_msg_to_server(uint64_t servers, NewClient* client, tbnet::Packet* msg,
+                          NewClient::callback_func func, const bool save_msg)
+    {
+      int32_t iret = servers > 0 && NULL != client && NULL != msg  && NULL != func? common::TFS_SUCCESS : common::TFS_ERROR;
+      if (TFS_SUCCESS == iret)
+      {
+        std::vector<uint64_t> tmp;
+        tmp.push_back(servers);
+        iret = client->async_post_request(tmp, msg, func, save_msg);
+      }
+      return iret;
+    }
+
     // test whether the DataServerStatInfo is still alive.
     int test_server_alive(const uint64_t server_id, const int64_t)
     {
@@ -379,7 +402,7 @@ namespace tfs
           if (!bret)
           {
             ret = common::TFS_ERROR;
-            TBSYS_LOG(ERROR, "%s", "new client wait server: %s response fail",
+            TBSYS_LOG(ERROR,"new client wait server: %s response fail",
               tbsys::CNetUtil::addrToString(server_id).c_str());
           }
           else

@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: index_handle.h 552 2011-06-24 08:44:50Z duanfei@taobao.com $
+ * Version: $Id: index_handle.h 764 2011-09-07 06:04:06Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -18,8 +18,9 @@
 #ifndef TFS_DATASERVER_INDEXHANDLE_H_
 #define TFS_DATASERVER_INDEXHANDLE_H_
 
-#include "mmap_file_op.h"
 #include "common/internal.h"
+#include "mmap_file_op.h"
+#include "dataserver_define.h"
 
 namespace tfs
 {
@@ -64,6 +65,8 @@ namespace tfs
         int load(const uint32_t logic_block_id, const int32_t bucket_size, const common::MMapOption map_option);
         // clear memory map, delete blockfile
         int remove(const uint32_t logic_block_id);
+        // rename index file ==> current idex file + "." + current time
+        int rename(const uint32_t logic_block_id);
         // flush file to disk
         int flush();
         int set_block_dirty_type(const DirtyFlag dirty_flag);
@@ -97,37 +100,77 @@ namespace tfs
 
         int get_block_data_offset() const
         {
-          return reinterpret_cast<IndexHeader*> (file_op_->get_map_data())->data_file_offset_;
+          int32_t offset = -1;
+          void* data = file_op_->get_map_data();
+          if (NULL != data)
+          {
+            offset = reinterpret_cast<IndexHeader*>(data)->data_file_offset_;
+          }
+          return offset;
         }
 
         void commit_block_data_offset(const int file_size)
         {
-          reinterpret_cast<IndexHeader*> (file_op_->get_map_data())->data_file_offset_ += file_size;
+          void* data = file_op_->get_map_data();
+          if (NULL != data)
+          {
+            reinterpret_cast<IndexHeader*> (data)->data_file_offset_ += file_size;
+          }
         }
 
         IndexHeader* index_header()
         {
-          return reinterpret_cast<IndexHeader*> (file_op_->get_map_data());
+          IndexHeader* header = NULL;
+          void* data = file_op_->get_map_data();
+          if (NULL != data)
+          {
+            header = reinterpret_cast<IndexHeader*>(data);
+          }
+          return header;
         }
 
         int32_t* bucket_slot()
         {
-          return reinterpret_cast<int32_t*> (reinterpret_cast<char*> (file_op_->get_map_data()) + sizeof(IndexHeader));
+          int32_t* slot = NULL;
+          void* data = file_op_->get_map_data();
+          if (NULL != data)
+          {
+            slot = reinterpret_cast<int32_t*> (reinterpret_cast<char*> (data) + sizeof(IndexHeader));
+          }
+          return slot;
         }
 
         int32_t bucket_size() const
         {
-          return reinterpret_cast<IndexHeader*> (file_op_->get_map_data())->bucket_size_;
+          int32_t size = -1;
+          void* data = file_op_->get_map_data();
+          if (NULL != data)
+          {
+            size = reinterpret_cast<IndexHeader*> (data)->bucket_size_;
+          }
+          return size;
         }
 
         common::BlockInfo* block_info()
         {
-          return reinterpret_cast<common::BlockInfo*> (file_op_->get_map_data());
+          common::BlockInfo* info = NULL;
+          void* data = file_op_->get_map_data();
+          if (NULL != data)
+          {
+            info = reinterpret_cast<common::BlockInfo*> (data);
+          }
+          return info;
         }
 
         int32_t data_file_size() const
         {
-          return reinterpret_cast<IndexHeader*> (file_op_->get_map_data())->data_file_offset_;
+          int32_t size= -1;
+          void* data = file_op_->get_map_data();
+          if (NULL != data)
+          {
+            size = reinterpret_cast<IndexHeader*>(data)->data_file_offset_;
+          }
+          return size;
         }
 
       private:

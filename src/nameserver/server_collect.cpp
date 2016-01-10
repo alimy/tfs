@@ -63,6 +63,7 @@ namespace tfs
       block_count_(info.block_count_),
       write_index_(0),
       status_(info.status_),
+      rb_status_(REPORT_BLOCK_STATUS_UNCOMPLETE),
       elect_flag_(1)
       {
       }
@@ -79,7 +80,8 @@ namespace tfs
           TBSYS_LOG(WARN, "block: %u is exist", block->id());
         }
 
-        if (writable)
+        if ((writable)
+            && is_equal_group(block->id()))
         {
           std::pair<std::set<BlockCollect*>::iterator, bool> res = writable_.insert(block);
           if (!res.second)
@@ -114,7 +116,8 @@ namespace tfs
         {
           RWLock::Lock lock(*this, WRITE_LOCKER);
           int32_t current = static_cast<int32_t>(hold_master_.size());
-          if (current < SYSPARAM_NAMESERVER.max_write_file_count_)
+          if (current < SYSPARAM_NAMESERVER.max_write_file_count_
+              && is_equal_group(block->id()))
           {
             TBSYS_LOG(DEBUG, "server: %s add master block: %u", tbsys::CNetUtil::addrToString(id()).c_str(), block->id());
             std::vector<BlockCollect*>::iterator iter = find(hold_master_.begin(), hold_master_.end(), block);
@@ -138,7 +141,8 @@ namespace tfs
       if (bret)
       {
         bret = !block->is_full();
-        if (bret)
+        if ((bret)
+            && (is_equal_group(block->id())))
         {
           RWLock::Lock lock(*this, WRITE_LOCKER);
           std::pair<std::set<BlockCollect*>::iterator, bool > res = writable_.insert(block);
@@ -247,7 +251,7 @@ namespace tfs
     {
       RWLock::Lock lock(*this, READ_LOCKER);
       BlockCollect* result = NULL;
-      TBSYS_LOG(DEBUG, "write_index: %d, hold_master size: %u", write_index_, hold_master_.size());
+      TBSYS_LOG(DEBUG, "write_index: %d, hold_master size: %zd", write_index_, hold_master_.size());
       uint32_t size = hold_master_.size();
       if (size > 0U)
       {
@@ -303,7 +307,7 @@ namespace tfs
 
       if (scan_flag & SSM_CHILD_SERVER_TYPE_MASTER)
       {
-        TBSYS_LOG(DEBUG,"server : %s, hold_master_: %u", CNetUtil::addrToString(id_).c_str(),hold_master_.size());
+        TBSYS_LOG(DEBUG,"server : %s, hold_master_: %zd", CNetUtil::addrToString(id_).c_str(),hold_master_.size());
         param.data_.writeInt32(hold_master_.size());
         std::vector<BlockCollect*>::const_iterator iter = hold_master_.begin();
         for (; iter != hold_master_.end(); ++iter)
@@ -342,7 +346,8 @@ namespace tfs
     bool ServerCollect::touch(LayoutManager& manager, const time_t now, bool& promote, int32_t& count)
     {
       bool bret = true;
-      if (in_safe_mode_time(now))
+      //if (in_safe_mode_time(now))
+      if (!is_report_block_complete())
       {
         count = 0;
       }
@@ -371,35 +376,34 @@ namespace tfs
               }
               else
               {
-                int32_t should = count * 16;
                 BlockCollect* block = NULL;
                 std::vector<BlockCollect*> writable;
                 {
                   RWLock::Lock lock(*this, READ_LOCKER);
                   std::set<BlockCollect*>::iterator iter = writable_.begin();
-                  while ( iter != writable_.end() && should > 0)
+                  while (iter != writable_.end())
                   {
                     block = *iter++;
                     std::vector<BlockCollect*>::iterator where 
                       = std::find(hold_master_.begin(), hold_master_.end(), block);
-                    if (where == hold_master_.end()
-                        && (block->is_writable()// block is writable
-                          && (!block->in_master_set())
-                          || block->is_need_master())) 
+                    if ((where == hold_master_.end())
+                        && ((block->is_need_master())
+                          || (block->is_writable() 
+                            && !block->in_master_set())))
                     {
-                      --should;
                       writable.push_back(block);
                     }
                   }
                 }
 
-                should = count;
+                int32_t should = count;
 
+                int32_t actual = 0;
                 ServerCollect* server = NULL;
                 std::vector<BlockCollect*> master;
                 BlockChunkPtr ptr = 0;
                 std::vector<BlockCollect*>::const_iterator iter = writable.begin();
-                while (iter != writable.end() && should > 0)
+                while (iter != writable.end() && should > 0 && actual < count)
                 {
                   block = *iter++;
                   ptr = manager.get_chunk(block->id());
@@ -408,33 +412,41 @@ namespace tfs
                   {
                     bool writable = false;
                     block->add(this, now, true, writable);
+                    server = block->find_master();
+                    if ((block->in_master_set())
+                        && (NULL != server)
+                        && (this == server))
+                    {
+                      --should;
+                      ++actual;
+                      continue;
+                    }
                   }
                   server = block->find_master();
-                  if ((block->is_writable())
+                  if ((block->is_writable()) 
                       && (!block->in_master_set())
-                      && (server != NULL)
-                      && (server == this))
+                      && (NULL != server)
+                      && (this == server))
                   {
                     --should;
                     master.push_back(block);
                   }
                 }
 
-                int32_t acutal = 0;
                 RWLock::Lock lock(*this, WRITE_LOCKER);
                 iter = master.begin();
-                while(iter != master.end())
+                while(iter != master.end() && actual < count)
                 {
                   block = *iter++;
                   std::vector<BlockCollect*>::iterator where 
                     = find(hold_master_.begin(), hold_master_.end(), block);
                   if (where == hold_master_.end())
                   {
-                    ++acutal;
+                    ++actual;
                     hold_master_.push_back(block);
                   }
                 }
-                count = !add_new_block ? 0 : count - acutal;
+                count = !add_new_block ? 0 : count - actual;
               }
             }
             else

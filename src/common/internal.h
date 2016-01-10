@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: internal.h 665 2011-08-05 09:24:26Z duanfei@taobao.com $
+ * Version: $Id: internal.h 868 2011-09-29 05:07:38Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -35,6 +35,8 @@
 #include "tbnet.h"
 
 #include "define.h"
+
+//#define TFS_GTEST
 
 #if __WORDSIZE == 32
 namespace __gnu_cxx
@@ -117,12 +119,13 @@ namespace tfs
     static const int32_t ADMIN_WARN_DEAD_COUNT = 1;
 
     static const int64_t DEFAULT_NETWORK_CALL_TIMEOUT  = 3000;//3s
+    static const int64_t DEFAULT_TAIR_TIMEOUT  = 15;//15ms
 
     static const int64_t MAX_META_SIZE = 1 << 21; // 2M
     static const int64_t INVALID_FILE_SIZE = -1;
 
     // client config
-    static const int64_t DEFAULT_CLIENT_RETRY_COUNT = 2;
+    static const int64_t DEFAULT_CLIENT_RETRY_COUNT = 3;
     // unit ms
     static const int64_t DEFAULT_STAT_INTERNAL = 60000; // 1min
     static const int64_t DEFAULT_GC_INTERNAL = 43200000; // 12h
@@ -258,7 +261,9 @@ namespace tfs
       CLIENT_CMD_SET_PARAM,
       CLIENT_CMD_UNLOADBLK,
       CLIENT_CMD_FORCE_DATASERVER_REPORT,
-      CLIENT_CMD_ROTATE_LOG
+      CLIENT_CMD_ROTATE_LOG,
+      CLIENT_CMD_GET_BALANCE_PERCENT,
+      CLIENT_CMD_SET_BALANCE_PERCENT
     };
 
     enum PlanInterruptFlag
@@ -755,6 +760,22 @@ namespace tfs
       int64_t length() const;
       void display() const;
     };
+
+    enum MetaActionOp
+    {
+      NON_ACTION = 0,
+      CREATE_DIR = 1,
+      CREATE_FILE = 2,
+      REMOVE_DIR = 3,
+      REMOVE_FILE = 4,
+      MOVE_DIR = 5,
+      MOVE_FILE = 6
+    };
+    typedef enum _RemoveBlockResponseFlag
+    {
+      REMOVE_BLOCK_RESPONSE_FLAG_NO = 0,
+      REMOVE_BLOCK_RESPONSE_FLAG_YES = 1
+    }RemoveBlockResponseFlag;
 
     // defined type typedef
     typedef std::vector<BlockInfo> BLOCK_INFO_LIST;

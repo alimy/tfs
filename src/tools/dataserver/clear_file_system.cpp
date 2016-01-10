@@ -68,7 +68,7 @@ int main(int argc, char* argv[])
     cerr << "load config error conf_file is " << conf_file;
     return TFS_ERROR;
   }
-  if ((ret = SYSPARAM_DATASERVER.initialize(server_index)) != TFS_SUCCESS)
+  if ((ret = SYSPARAM_DATASERVER.initialize(conf_file, server_index)) != TFS_SUCCESS)
   {
     cerr << "SysParam::load file system param failed:" << conf_file << endl;
     return ret;

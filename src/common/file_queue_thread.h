@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: file_queue_thread.h 504 2011-06-15 05:11:59Z duanfei@taobao.com $
+ * Version: $Id: file_queue_thread.h 746 2011-09-06 07:27:59Z daoan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -45,7 +45,7 @@ namespace tfs
         FileQueueThread *queue_thread_;
 
       private:
-        DISALLOW_COPY_AND_ASSIGN( QueueThreadParam);
+        DISALLOW_COPY_AND_ASSIGN(QueueThreadParam);
       };
 
       typedef int (*deal_func)(const void * const data, const int64_t len, const int32_t thread_index, void* arg);

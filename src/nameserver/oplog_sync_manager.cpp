@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: oplog_sync_manager.cpp 626 2011-08-01 03:52:41Z duanfei@taobao.com $
+ * Version: $Id: oplog_sync_manager.cpp 983 2011-10-31 09:59:33Z duanfei $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -228,7 +228,7 @@ namespace tfs
       if (oplog_->finish(now, true))
       {
         register_slots(oplog_->get_buffer(), oplog_->get_slots_offset());
-        TBSYS_LOG(DEBUG, "oplog size: %d", oplog_->get_slots_offset());
+        TBSYS_LOG(DEBUG, "oplog size: %"PRI64_PREFIX"d", oplog_->get_slots_offset());
         oplog_->reset(now);
       }
       return TFS_SUCCESS;
@@ -239,9 +239,10 @@ namespace tfs
       int iret = TFS_SUCCESS;
       NsRuntimeGlobalInformation& ngi = GFactory::get_runtime_info();
       if ((ngi.owner_role_ == NS_ROLE_MASTER)
-         && (ngi.owner_status_ == NS_STATUS_INITIALIZED))
+         && (ngi.owner_status_ == NS_STATUS_INITIALIZED)
+         && (ngi.sync_oplog_flag_ == NS_SYNC_DATA_FLAG_YES))
       {
-        #if !defined(TFS_NS_GTEST) && !defined(TFS_NS_INTEGRATION)
+        #if !defined(TFS_GTEST) && !defined(TFS_NS_INTEGRATION)
         int count = 0;
         tbutil::Mutex::Lock lock(mutex_);
         do
@@ -514,6 +515,7 @@ namespace tfs
           }
           else if (OPLOG_INSERT == oplog.cmd_)
           {
+            std::vector<GCObject*> rms;
             for (; iter != oplog.blocks_.end(); ++iter)
             {
               uint32_t block_id = (*iter);
@@ -561,24 +563,31 @@ namespace tfs
                         block_id, CNetUtil::addrToString((*s_iter)).c_str());
                   RWLock::Lock lock(*ptr, WRITE_LOCKER);
                   block = ptr->find(block_id);
-                  if (meta_mgr_.build_relation(block, server, now) != TFS_SUCCESS)
+                  iret = NULL == block ? EXIT_NO_BLOCK : TFS_SUCCESS;
+                  if (TFS_SUCCESS == iret)
                   {
-                    TBSYS_LOG(WARN, "build relation between block: %u and server: %s failed",
-                        block_id, CNetUtil::addrToString((*s_iter)).c_str());
+                    if (meta_mgr_.build_relation(block, server, rms, now) != TFS_SUCCESS)
+                    {
+                      TBSYS_LOG(WARN, "build relation between block: %u and server: %s failed",
+                          block_id, CNetUtil::addrToString((*s_iter)).c_str());
+                    }
                   }
                 }
               }
             }
+            GFactory::get_gc_manager().add(rms);
           }
           else if (OPLOG_REMOVE== oplog.cmd_)
           {
+            std::vector<GCObject*> rms;
             for (; iter != oplog.blocks_.end(); ++iter)
             {
               uint32_t block_id = (*iter);
               BlockChunkPtr ptr = meta_mgr_.get_chunk(block_id);
               RWLock::Lock lock(*ptr, WRITE_LOCKER);
-              ptr->remove(block_id);
+              ptr->remove(block_id, rms);
             }
+            GFactory::get_gc_manager().add(rms);
           }
           else if (OPLOG_RELIEVE_RELATION == oplog.cmd_)
           {
@@ -600,6 +609,11 @@ namespace tfs
 
                 RWLock::Lock lock(*ptr, WRITE_LOCKER);
                 block = ptr->find(block_id);
+                if (NULL == block)
+                {
+                  TBSYS_LOG(WARN, "block object not found by : %u", block_id);
+                  continue;
+                }
                 if (!meta_mgr_.relieve_relation(block, server, now))
                 {
                   TBSYS_LOG(WARN, "relieve relation between block: %u and server: %s failed",

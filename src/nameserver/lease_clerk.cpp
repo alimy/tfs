@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: lease_clerk.cpp 490 2011-06-14 03:11:02Z duanfei@taobao.com $
+ * Version: $Id: lease_clerk.cpp 983 2011-10-31 09:59:33Z duanfei $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -112,8 +112,15 @@ namespace tfs
       if (status_ > LEASE_STATUS_RUNNING)
         return true;
       Time time_out = expire_time_ - tbutil::Time::now();
-      tbutil::Monitor<tbutil::Mutex>::Lock lock(*this);
-      return timedWait(time_out);
+      if (time_out >= 0 )
+      {
+        tbutil::Monitor<tbutil::Mutex>::Lock lock(*this);
+        return timedWait(time_out);
+      }
+      else
+      {
+        return true;
+      }
     }
 
     void LeaseEntry::change(LeaseStatus status)
@@ -193,7 +200,7 @@ namespace tfs
         size = leases_.size();
      }
       tbutil::Time end = tbutil::Time::now();
-      TBSYS_LOG(INFO, "cleanup lease complete, current lease map size: %u, consume: %" PRI64_PREFIX "d",
+      TBSYS_LOG(INFO, "cleanup lease complete, current lease map size: %zd, consume: %" PRI64_PREFIX "d",
           leases_.size(), (end - now).toMicroSeconds());
     }
 
@@ -353,7 +360,7 @@ namespace tfs
       LeaseEntryPtr lease = find(id);
       if (lease == 0)
       {
-        TBSYS_LOG(ERROR, "lease not found by block id: %u", id);
+        TBSYS_LOG(ERROR, "lease not found by block id: %"PRI64_PREFIX"d", id);
         return false;
       }
       tbutil::Monitor<tbutil::Mutex>::Lock lock(*lease);
@@ -404,7 +411,7 @@ namespace tfs
 
       lease->change(status);
       lease->notifyAll();
-      TBSYS_LOG(DEBUG, "cancel ---------%"PRI64_PREFIX"d", lease->id());
+      TBSYS_LOG(DEBUG, "cancel ---------%u", lease->id());
       GFactory::get_timer()->cancel(lease);
       return true;
     }

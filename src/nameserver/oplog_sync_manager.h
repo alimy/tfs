@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: oplog_sync_manager.h 580 2011-07-18 09:22:08Z duanfei@taobao.com $
+ * Version: $Id: oplog_sync_manager.h 596 2011-07-21 10:03:24Z daoan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

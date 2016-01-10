@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: write_data_message.cpp 491 2011-06-14 03:11:29Z duanfei@taobao.com $
+ * Version: $Id: write_data_message.cpp 868 2011-09-29 05:07:38Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -217,7 +217,7 @@ namespace tfs
 
       if (common::TFS_SUCCESS == iret)
       {
-        if (have_block > 0)
+        if (1 == have_block)
         {
           pos = 0;
           iret = block_info_.deserialize(input.get_data(), input.get_data_length(), pos);
@@ -274,7 +274,7 @@ namespace tfs
     int WriteInfoBatchMessage::serialize(common::Stream& output) const
     {
       int64_t pos = 0;
-      int32_t have_block = (block_info_.block_id_ > 0) ? 0 : 1;
+      int32_t have_block = (block_info_.block_id_ > 0) ? 1 : 0;
       int32_t iret = write_data_info_.serialize(output.get_free(), output.get_free_length(), pos);
       if (common::TFS_SUCCESS == iret)
       {

@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: func.h 477 2011-06-10 08:15:48Z duanfei@taobao.com $
+ * Version: $Id: func.h 983 2011-10-31 09:59:33Z duanfei $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -52,10 +52,22 @@ namespace tfs
       static int make_directory(char* path);
       static int get_base_name(char* path, char* dirpath);
 
+			/**
+			 * @brief get parent dir by file_path
+			 *
+			 * @param file_path: file path
+			 * @param dir_path: result parent dir
+			 * @param dir_buf_len: dir path buffer length
+			 *
+			 * @return
+			 */
+			static int get_parent_dir(const char* file_path, char* dir_path, const int32_t dir_buf_len);
+
       static uint32_t get_local_addr(const char* dev_name = NULL);
       static bool is_local_addr(const uint32_t ip);
       static uint32_t get_addr(const char* ip);
       static uint64_t str_to_addr(const char* ip, const int32_t port);
+      static std::string addr_to_str(const uint64_t ipport, bool with_port);
       static uint64_t get_host_ip(const char *s);
       //static uint64_t addr_inc_port(const uint64_t ipport, const int32_t inc);
       static uint32_t get_lan(uint64_t ipport, uint32_t ipmask);
@@ -74,12 +86,17 @@ namespace tfs
       static std::string time_to_str(time_t t, int f = 0);
       static char* safe_malloc(const int32_t len, char* data = NULL);
       static void sleep(const float f_heart_interval, bool& stop);
+      static void sleep(const float f_heart_interval, int32_t& stop);
       static bool hour_range(int min, int max);
       static int32_t split_string(const char* line, const char del, std::vector<std::string>& fields);
 
       static int start_daemon(const char *pid_file, const char *log_file);
       static void hex_dump(const void* data, const int32_t size,
                            const bool char_type = true, const int32_t log_level = TBSYS_LOG_LEVEL_DEBUG);
+      /* bit opertion */
+      static int32_t set_bit(int32_t& data, int32_t index);
+      static int32_t clr_bit(int32_t& data, int32_t index);
+      static int32_t test_bit(int32_t data, int32_t index);
 #ifdef _syscall0
       static _syscall0(pid_t,gettid)
 #else

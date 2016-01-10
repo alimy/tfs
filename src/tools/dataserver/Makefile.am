@@ -8,21 +8,22 @@ AM_LDFLAGS=-lrt -lpthread -ldl $(READLINE_LIB)
 bin_PROGRAMS = clear_file_system\
                ds_client\
                format_file_system\
-               read_super_block
-
-noinst_PROGRAMS = convert_name\
-                  reloadconfig\
-                  read_index_tool\
-                  reverse_name\
-                  modify_super_block\
-                  replblk\
-                  tfsping\
-                  view_local_key
+               read_super_block\
+               recover_disk_data_to_cluster\
+               recover_sync_file_queue\
+							 convert_name\
+               reload_config\
+               read_index_tool\
+               reverse_name\
+               modify_super_block\
+               tfsping\
+               view_local_key
 
 LDADD =	$(top_builddir)/src/tools/util/libtfstoolsutil.a\
 				$(top_builddir)/src/dataserver/libdataserver.a\
 				$(top_builddir)/src/new_client/.libs/libtfsclient.a\
 				$(UNIQUE_STORE_LDFLAGS)\
+        $(TAIR_CACHE_LDFLAGS) \
 				$(top_builddir)/src/message/libtfsmessage.a\
         $(top_builddir)/src/common/libtfscommon.a\
         $(TBLIB_ROOT)/lib/libtbnet.a\
@@ -34,13 +35,11 @@ read_super_block_SOURCES = read_super_block.cpp
 
 convert_name_SOURCES = convert_name.cpp
 
-reloadconfig_SOURCES = reloadconfig.cpp
+reload_config_SOURCES = reload_config.cpp
 
 tfsping_SOURCES = tfsping.cpp
 
 ds_client_SOURCES = ds_client.cpp
-
-replblk_SOURCES = replblk.cpp
 
 modify_super_block_SOURCES = modify_super_block.cpp
 
@@ -51,3 +50,7 @@ format_file_system_SOURCES = format_file_system.cpp
 read_index_tool_SOURCES = read_index_tool.cpp
 
 view_local_key_SOURCES = view_local_key.cpp
+
+recover_disk_data_to_cluster_SOURCES = recover_disk_data_to_cluster.cpp
+
+recover_sync_file_queue_SOURCES = recover_sync_file_queue.cpp

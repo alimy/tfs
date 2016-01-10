@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: rc_api_cases.cpp 573 2011-07-18 06:49:57Z daoan@taobao.com $
+ * Version: $Id: rc_api_cases.cpp 575 2011-07-18 06:51:44Z daoan@taobao.com $
  *
  * Authors:
  *   qushan <qushan@taobao.com>

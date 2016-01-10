@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: dataserver_define.h 552 2011-06-24 08:44:50Z duanfei@taobao.com $
+ * Version: $Id: dataserver_define.h 643 2011-08-02 07:38:33Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -19,7 +19,10 @@
 #include <string>
 #include <assert.h>
 #include "common/internal.h"
+#include "common/parameter.h"
 #include "common/new_client.h"
+
+//#define TFS_GTEST
 
 namespace tfs
 {
@@ -72,7 +75,7 @@ namespace tfs
       C_OPER_UPDATE
     };
 
-    #pragma pack(4) 
+    #pragma pack(4)
     struct BlockPrefix
     {
       uint32_t logic_blockid_;
@@ -208,6 +211,27 @@ namespace tfs
       int32_t status_;
     };
     #pragma pack()
+
+    class GCObject
+    {
+    public:
+      explicit GCObject(const time_t now):
+        dead_time_(now) {}
+      virtual ~GCObject() {}
+      virtual void callback(){}
+      inline void free(){ delete this;}
+      inline void set_dead_time(const time_t now = time(NULL)) {dead_time_ = now;}
+      inline bool can_be_clear(const time_t now = time(NULL)) const
+      {
+        return now >= (dead_time_ + common::SYSPARAM_DATASERVER.object_clear_max_time_);
+      }
+      inline bool is_dead(const time_t now = time(NULL)) const
+      {
+        return now >= (dead_time_ + common::SYSPARAM_DATASERVER.object_dead_max_time_);
+      }
+    private:
+      time_t dead_time_;
+    };
 
     static const int32_t META_INFO_SIZE = sizeof(MetaInfo);
 

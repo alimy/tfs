@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: logic_block.cpp 563 2011-07-07 01:28:35Z nayan@taobao.com $
+ * Version: $Id: logic_block.cpp 746 2011-09-06 07:27:59Z daoan@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -25,8 +25,8 @@ namespace tfs
     using namespace common;
     using namespace std;
 
-    LogicBlock::LogicBlock(const uint32_t logic_block_id, const uint32_t main_blk_key, const std::string& base_path) :
-      logic_block_id_(logic_block_id), avail_data_size_(0), visit_count_(0), last_update_(time(NULL)),
+    LogicBlock::LogicBlock(const uint32_t logic_block_id, const uint32_t main_blk_key, const std::string& base_path, const time_t now) :
+      GCObject(now), logic_block_id_(logic_block_id), avail_data_size_(0), visit_count_(0), last_update_(now),
           last_abnorm_time_(0)
     {
       data_handle_ = new DataHandle(this);
@@ -34,9 +34,9 @@ namespace tfs
       physical_block_list_.clear();
     }
 
-    LogicBlock::LogicBlock(const uint32_t logic_block_id) :
-      logic_block_id_(logic_block_id), avail_data_size_(0), visit_count_(0),
-          last_update_(time(NULL)), last_abnorm_time_(0), data_handle_(NULL), index_handle_(NULL)
+    LogicBlock::LogicBlock(const uint32_t logic_block_id, const time_t now) :
+      GCObject(now), logic_block_id_(logic_block_id), avail_data_size_(0), visit_count_(0),
+          last_update_(now), last_abnorm_time_(0), data_handle_(NULL), index_handle_(NULL)
     {
     }
 
@@ -97,6 +97,11 @@ namespace tfs
         (*lit)->clear_block_prefix();
       }
       return TFS_SUCCESS;
+    }
+
+    int LogicBlock::rename_index_file()
+    {
+      return index_handle_->rename(logic_block_id_);
     }
 
     void LogicBlock::add_physic_block(PhysicalBlock* physic_block)
@@ -163,8 +168,8 @@ namespace tfs
         ret = data_handle_->read_segment_info(&old_file_info, file_meta.get_offset());
         if (TFS_SUCCESS != ret)
         {
-          TBSYS_LOG(ERROR, "read FileInfo fail, blockid: %u, fileid: %" PRI64_PREFIX "u, ret: %d", logic_block_id_,
-              inner_file_id, ret);
+          TBSYS_LOG(ERROR, "read FileInfo fail, blockid: %u, fileid: %" PRI64_PREFIX "u, ret: %d, offset: %d", logic_block_id_,
+              inner_file_id, ret, file_meta.get_offset());
         }
         else // read successful
         {
@@ -384,7 +389,7 @@ namespace tfs
       {
         if ((flag & READ_DATA_OPTION_FLAG_FORCE))
         {
-          if ((((FileInfo *) buf)->id_ != inner_file_id) 
+          if ((((FileInfo *) buf)->id_ != inner_file_id)
               || (((((FileInfo *) buf)->flag_) & (FI_DELETED | FI_INVALID )) != 0))
           {
             TBSYS_LOG(WARN,
@@ -395,7 +400,7 @@ namespace tfs
         }
         else
         {
-          if ((((FileInfo *) buf)->id_ != inner_file_id) 
+          if ((((FileInfo *) buf)->id_ != inner_file_id)
               || (((((FileInfo *) buf)->flag_) & (FI_DELETED | FI_INVALID | FI_CONCEAL)) != 0))
           {
             TBSYS_LOG(WARN,
@@ -733,8 +738,10 @@ namespace tfs
       {
         int ret = fit->next();
         if (TFS_SUCCESS != ret)
+        {
+          delete fit;
           return ret;
-
+        }
         const FileInfo* pfi = fit->current_file_info();
         fileinfos.push_back(*pfi);
       }
@@ -789,6 +796,23 @@ namespace tfs
         return EXIT_PHYSICALBLOCK_NUM_ERROR;
       }
       return TFS_SUCCESS;
+    }
+
+    void LogicBlock::clear()
+    {
+      // clean logic block associate stuff(index handle, physic block)
+      delete_block_file();
+
+      // clean physic block
+      for (list<PhysicalBlock*>::iterator lit = physical_block_list_.begin(); lit != physical_block_list_.end(); ++lit)
+      {
+        tbsys::gDelete(*lit);
+      }
+    }
+
+    void LogicBlock::callback()
+    {
+      clear();
     }
 
     FileIterator::FileIterator(LogicBlock* logic_block)

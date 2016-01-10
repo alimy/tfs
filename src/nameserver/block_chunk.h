@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <Shared.h>
 #include <Handle.h>
+#include "gc.h"
 #include "ns_define.h"
 #include "common/lock.h"
 #include "common/internal.h"
@@ -38,7 +39,7 @@ namespace tfs
       BlockCollect* add(const uint32_t block_id, const time_t now);
       static bool connect(BlockCollect* block, ServerCollect* server, const time_t now, const bool force, bool& writable);
 
-      bool remove(const uint32_t block_id);
+      bool remove(const uint32_t block_id, std::vector<GCObject*>& vec);
 
       BlockCollect* find(const uint32_t block_id);
 
@@ -49,7 +50,7 @@ namespace tfs
       uint32_t calc_size() const;
       int scan(common::SSMScanParameter& param, int32_t& actual, bool& end, int32_t should, bool cutover_chunk);
 
-#if defined(TFS_NS_GTEST) || defined(TFS_NS_INTEGRATION)
+#if defined(TFS_GTEST) || defined(TFS_NS_INTEGRATION)
       public:
 #else
       private:

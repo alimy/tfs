@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: requester.cpp 552 2011-06-24 08:44:50Z duanfei@taobao.com $
+ * Version: $Id: requester.cpp 868 2011-09-29 05:07:38Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -166,13 +166,13 @@ namespace tfs
         else
         {
           ret = TFS_ERROR;
-          TBSYS_LOG(ERROR, "rep block write complete, nsip: %s, error desc: %s, id: %u\n",
+          TBSYS_LOG(ERROR, "req block write complete, nsip: %s, error desc: %s, id: %u\n",
               tbsys::CNetUtil::addrToString(ns_ip_port_).c_str(), sm->get_error(), block_id);
         }
       }
       else
       {
-        TBSYS_LOG(ERROR, "rep block write complete, blockid: %u, msg type: %d error.\n", block_id,
+        TBSYS_LOG(ERROR, "req block write complete, blockid: %u, msg type: %d error.\n", block_id,
             return_msg->getPCode());
         ret = TFS_ERROR;
       }

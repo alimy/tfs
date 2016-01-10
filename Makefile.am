@@ -1,14 +1,14 @@
 AUTOMAKE_OPTIONS=foreign
 
-SUBDIRS = src conf scripts 
+SUBDIRS = src conf scripts  sql
 pkgdata_datadir=${prefix}/logs
 pkgdata_data_DATA=
 
-DIST_SUBDIRS = src conf scripts tests
+DIST_SUBDIRS = src conf scripts tests sql
 EXTRA_DIST=build.sh \
-	   conf/ns.conf conf/ds.conf conf/ads.conf conf/Makefile.am conf/Makefile.in \
-	   scripts/Makefile.am scripts/Makefile.in scripts/tfs.sh scripts/stfs.sh \
-	   libtool \
+	   conf/Makefile.am Makefile.am sql/Makefile.am\
+	   scripts/Makefile.am scripts/Makefile.in scripts/tfs.sh scripts/stfs.sh scripts/start_sync_log.sh scripts/sync.sh\
+	   libtool ax_lib_mysql.m4\
 	   packages/tfs.spec
 
 TMP_DIR := /tmp/tfs-tmp.$(shell echo $$$$)

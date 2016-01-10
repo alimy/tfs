@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: dataserver_message.h 626 2011-08-01 03:52:41Z duanfei@taobao.com $
+ * Version: $Id: dataserver_message.h 706 2011-08-12 08:24:41Z duanfei@taobao.com $
  *
  * Authors:
  *   duolong <duolong@taobao.com>

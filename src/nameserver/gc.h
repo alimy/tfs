@@ -32,6 +32,7 @@ namespace nameserver
     GCObjectManager();
     virtual ~GCObjectManager();
     int add(GCObject* object);
+    int add(const std::vector<GCObject*>& objects);
     void run();
     int initialize();
     int wait_for_shut_down();
@@ -41,19 +42,19 @@ namespace nameserver
     {
       return instance_;
     }
-  #if defined(TFS_NS_GTEST) || defined(TFS_NS_INTEGRATION)
+  #if defined(TFS_GTEST) || defined(TFS_NS_INTEGRATION)
   public:
   #else
   private:
   #endif
     DISALLOW_COPY_AND_ASSIGN(GCObjectManager);
-    std::list<GCObject*> object_list_;
+    std::set<GCObject*> object_list_;
     tbutil::Mutex mutex_;
     static GCObjectManager instance_;
     LayoutManager* manager_;
     bool destroy_;
 
-  #if defined(TFS_NS_GTEST) || defined(TFS_NS_INTEGRATION)
+  #if defined(TFS_GTEST) || defined(TFS_NS_INTEGRATION)
   public:
   #else
   private:

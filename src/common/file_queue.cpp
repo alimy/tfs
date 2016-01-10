@@ -6,7 +6,7 @@
  * published by the Free Software Foundation.
  *
  *
- * Version: $Id: file_queue.cpp 504 2011-06-15 05:11:59Z duanfei@taobao.com $
+ * Version: $Id: file_queue.cpp 983 2011-10-31 09:59:33Z duanfei $
  *
  * Authors:
  *   duolong <duolong@taobao.com>
@@ -31,7 +31,7 @@ int FileQueue::load_queue_head()
 {
   if (!DirectoryOp::create_full_path(queue_path_.c_str()))
   {
-    TBSYS_LOG(ERROR, "create directoy : %s filed", queue_path_.c_str());
+    TBSYS_LOG(ERROR, "create directoy : %s failed", queue_path_.c_str());
     return EXIT_MAKEDIR_ERROR;
   }
 
@@ -90,12 +90,12 @@ FileQueue::~FileQueue()
   write_header();
   if (information_fd_ != -1)
   {
-    close( information_fd_);
+    close(information_fd_);
     information_fd_ = -1;
   }
   if (read_fd_ != -1)
   {
-    close( read_fd_);
+    close(read_fd_);
     read_fd_ = -1;
   }
   if (write_fd_ != -1)
@@ -147,7 +147,7 @@ int FileQueue::push(const void* const data, const int64_t len)
 
   if (ret != size)
   {
-    TBSYS_LOG(WARN, "write filed, path: %s, fd: %d, lenght: %d, ret: %d, size: %d", queue_path_.c_str(), write_fd_,
+    TBSYS_LOG(WARN, "write filed, path: %s, fd: %d, lenght: %"PRI64_PREFIX"d, ret: %d, size: %d", queue_path_.c_str(), write_fd_,
         len, ret, size);
     ret = size - ret;
     if (ret > 0 && ret <= size)
@@ -238,7 +238,7 @@ QueueItem *FileQueue::pop(int index)
         item = NULL;
       }
       TBSYS_LOG(ERROR,
-          "read file failed length %d : %d form fd: %d, read_seqno_: %d, read_offset_: %d, current pos_tion: %d",
+          "read file failed length %d : %d form fd: %d, read_seqno_: %d, read_offset_: %d, current pos_tion: %"PRI64_PREFIX"d",
           iret, size, read_fd_, queue_information_header_.read_seqno_, queue_information_header_.read_offset_, curpos_);
       ::lseek(read_fd_, 0, SEEK_END);
       if (queue_information_header_.write_seqno_ > queue_information_header_.read_seqno_)
@@ -504,6 +504,7 @@ int FileQueue::recover_record()
   for (int32_t i = 0; i < FILE_QUEUE_MAX_THREAD_SIZE; ++i)
   {
     unsettle *pos_ = &(queue_information_header_.pos_[i]);
+    // finish
     if (pos_->seqno_ == 0)
       continue;
     if (pos_->seqno_ > queue_information_header_.read_seqno_)

@@ -103,15 +103,21 @@ namespace tfs
         tbutil::Mutex::Lock lock(mutex_);
         ++count_;
         if (id == 0)
+        {
           ret_id = ++global_id_;
+        }
         else
+        {
           ret_id = id;
+          global_id_ = std::max(global_id_, id);
+        }
         if (count_ >= SKIP_BLOCK_NUMBER)
         {
           update_flag = true;
           count_ = 0;
         }
       }
+#if !defined(TFS_GTEST)
       if (update_flag)
       {
         int32_t iret = update(ret_id);
@@ -121,6 +127,7 @@ namespace tfs
           ret_id = INVALID_BLOCK_ID;
         }
       }
+#endif
       return ret_id;
     }
 
@@ -135,6 +142,7 @@ namespace tfs
         int32_t offset = 0;
         int32_t length = 0;
         int32_t count  = 0;
+        ::lseek(fd_, 0, SEEK_SET);
         do
         {
           ++count;

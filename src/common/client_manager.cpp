@@ -117,7 +117,7 @@ namespace tfs
         if (call_wakeup)
         {
           WaitId id = (*(reinterpret_cast<WaitId*>(&args)));
-          TBSYS_LOG(DEBUG, "call_wakeup seq_id: %u, send_id: %d, pcode: %d", id.seq_id_, id.send_id_, packet->getPCode());
+          //TBSYS_LOG(DEBUG, "call_wakeup seq_id: %u, send_id: %d, pcode: %d", id.seq_id_, id.send_id_, packet->getPCode());
           handlePacket(id, packet);
         }
       }
@@ -127,12 +127,12 @@ namespace tfs
         {
           if (packet->isRegularPacket())//data packet
           {
-            TBSYS_LOG(INFO, "no client waiting this packet.code: %d", packet->getPCode());
+            TBSYS_LOG(WARN, "no client waiting this packet.code: %d", packet->getPCode());
             packet->free();
           }
           else
           {
-            TBSYS_LOG(DEBUG, "packet pcode: %d is not regular packet, command: %d, discard anyway. "
+            TBSYS_LOG(WARN, "packet pcode: %d is not regular packet, command: %d, discard anyway. "
                 "args is NULL, maybe post channel timeout packet ",
                 packet->getPCode(), dynamic_cast<tbnet::ControlPacket*>(packet)->getCommand());
           }
@@ -162,7 +162,7 @@ namespace tfs
           }
           else
           {
-            TBSYS_LOG(DEBUG, "add client id: %u", seq_id_);
+            //TBSYS_LOG(DEBUG, "add client id: %u", seq_id_);
             new_clients_.insert(std::make_pair(seq_id_, client));
           }
         }
@@ -193,7 +193,7 @@ namespace tfs
           {
             new_clients_.erase(iter);
             free_new_client_object(client);
-            TBSYS_LOG(DEBUG, "erase client id: %u", id);
+            //TBSYS_LOG(DEBUG, "erase client id: %u", id);
           }
           else
           {
@@ -245,7 +245,7 @@ namespace tfs
 
       if (!ret && response != NULL && response->isRegularPacket())
       {
-        TBSYS_LOG(DEBUG, "delete response message client id: %u", id.seq_id_);
+        //TBSYS_LOG(DEBUG, "delete response message client id: %u", id.seq_id_);
         response->free();
       }
       return ret;
