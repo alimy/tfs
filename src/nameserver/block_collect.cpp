@@ -36,7 +36,7 @@ namespace tfs
     {
       servers_ = new (std::nothrow)ServerCollect*[SYSPARAM_NAMESERVER.max_replication_];
       assert(servers_);
-      memset(servers_, 0, sizeof(servers_) * SYSPARAM_NAMESERVER.max_replication_);
+      memset(servers_, 0, sizeof(ServerCollect*) * SYSPARAM_NAMESERVER.max_replication_);
       memset(&info_, 0, sizeof(info_));
       info_.block_id_ = block_id;
       info_.seq_no_ = 1;
@@ -55,10 +55,11 @@ namespace tfs
       tbsys::gDeleteA(servers_);
     }
 
-    bool BlockCollect::add(bool& writable, bool& master, const ServerCollect* server)
+    bool BlockCollect::add(bool& writable, bool& master, ServerCollect*& invalid_server, const ServerCollect* server)
     {
       master = false;
       writable  = false;
+      invalid_server = NULL;
       bool complete = false;
       bool ret = server != NULL;
       if (ret)
@@ -72,7 +73,10 @@ namespace tfs
           //根据ID能查询到Server结构，说明这个Server才下线不久又上线了，Block与这个Server的关系
           //还没有解除，有可能是遗漏了，需要等待GC进回调清理,这里我们可以解简单的先进行清理
           if (NULL != result)
+          {
+            invalid_server = *result;
             *result = NULL;
+          }
           int8_t index = 0;
           int8_t random_index = random() % SYSPARAM_NAMESERVER.max_replication_;
           TBSYS_LOG(DEBUG, "random_index : %d, servers_size: %d", random_index, get_servers_size());
@@ -191,10 +195,11 @@ namespace tfs
     }
 
     bool BlockCollect::check_version(LayoutManager& manager, common::ArrayHelper<ServerCollect*>& removes,
-        bool& expire_self, common::ArrayHelper<ServerCollect*>& other_expires, const ServerCollect* server,
-        const int8_t role, const bool isnew, const common::BlockInfo& info, const time_t now)
+        bool& expire_self, common::ArrayHelper<ServerCollect*>& other_expires, ServerCollect*& invalid_server,
+        const ServerCollect* server,const int8_t role, const bool isnew, const common::BlockInfo& info, const time_t now)
     {
       expire_self = false;
+      invalid_server = NULL;
       bool ret = NULL != server && info_.block_id_ == info.block_id_;
       if (ret)
       {
@@ -204,7 +209,10 @@ namespace tfs
         {
           result = get_(server, false);
           if (NULL != result)//这里处理方式和add一样
+          {
+            invalid_server = *result;
             *result = NULL;
+          }
           int8_t size = get_servers_size();
           if (size >= SYSPARAM_NAMESERVER.max_replication_)
           {
@@ -248,7 +256,8 @@ namespace tfs
                 if (((info_.version_ > info.version_) && (size <= 0))
                     || (info_.version_ <= info.version_))
                 {
-                  memcpy(&info_, &info, sizeof(info_));
+                  info_ = info;
+                  //memcpy(&info_, &info, sizeof(info_));
                 }
               }
             }
@@ -269,13 +278,15 @@ namespace tfs
                   TBSYS_LOG(WARN, "block: %u in dataserver: %s version error %d:%d, but not found dataserver",
                       info.block_id_, tbsys::CNetUtil::addrToString(server->id()).c_str(),
                       info_.version_, info.version_);
-                  memcpy(&info_,&info, sizeof(info_));
+                  info_ = info;
+                  //memcpy(&info_,&info, sizeof(info_));
                 }
               }
               else if ( info_.version_ < info.version_) // nameserver version < dataserver version , we'll accept new version and release all dataserver
               {
                 int32_t old_version = info_.version_;
-                memcpy(&info_, &info, sizeof(info_));
+                info_ = info;
+                //memcpy(&info_, &info, sizeof(info_));
                 if (!isnew)//release dataserver
                 {
                   TBSYS_LOG(INFO, "block: %u in dataserver: %s version error %d:%d,replace ns version, current dataserver size: %u",
