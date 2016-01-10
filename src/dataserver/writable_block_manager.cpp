@@ -81,10 +81,11 @@ namespace tfs
 
     bool WritableBlockManager::is_full(const uint64_t block_id)
     {
-      int32_t block_size = 0;
-      get_block_manager().get_used_offset(block_size, block_id);
+      BlockInfoV2 info;
+      get_block_manager().get_block_info(info, block_id);
       DsRuntimeGlobalInformation& ds_info = DsRuntimeGlobalInformation::instance();
-      return BLOCK_RESERVER_LENGTH + block_size >= ds_info.max_block_size_;
+      return info.size_ + BLOCK_RESERVER_LENGTH >= ds_info.max_block_size_ ||
+        info.file_count_ >= common::MAX_SINGLE_BLOCK_FILE_COUNT;
     }
 
     void  WritableBlockManager::size(int32_t& writable, int32_t& update, int32_t& expired)
@@ -301,14 +302,8 @@ namespace tfs
         if (TFS_SUCCESS == ret)
         {
           target = get(block_id);
-          assert(NULL != target);
-          ret = target->get_use_flag() ? EXIT_BLOCK_HAS_WRITE: TFS_SUCCESS;
-        }
-        else if (EXIT_LEASE_EXISTED == ret)
-        {
-          // another thread may already applyed this block
-          target = get(block_id);
-          if (NULL != target)
+          ret = NULL == target ? EXIT_NO_WRITABLE_BLOCK : TFS_SUCCESS;
+          if (TFS_SUCCESS == ret)
           {
             ret = target->get_use_flag() ? EXIT_BLOCK_HAS_WRITE: TFS_SUCCESS;
           }
@@ -345,11 +340,11 @@ namespace tfs
     {
       int ret = TFS_SUCCESS;
       DsRuntimeGlobalInformation& ds_info = DsRuntimeGlobalInformation::instance();
-      DsApplyBlockMessage req_msg;
-      req_msg.set_count(count);
+      create_msg_ref(DsApplyBlockMessage, req_msg);
+      req_msg.set_size(count);
       req_msg.set_server_id(ds_info.information_.id_);
       ret = post_msg_to_server(ds_info.ns_vip_port_,&req_msg, ds_async_callback);
-      TBSYS_LOG_DW(ret, "apply block, count: %d, ret: %d", count, ret);
+      TBSYS_LOG_IW(ret, "apply block, count: %d, ret: %d", count, ret);
       return ret;
     }
 
@@ -358,7 +353,7 @@ namespace tfs
     {
       int ret = TFS_SUCCESS;
       DsRuntimeGlobalInformation& ds_info = DsRuntimeGlobalInformation::instance();
-      DsApplyBlockForUpdateMessage req_msg;
+      create_msg_ref(DsApplyBlockForUpdateMessage, req_msg);
       req_msg.set_block_id(block_id);
       req_msg.set_server_id(ds_info.information_.id_);
 
@@ -395,11 +390,31 @@ namespace tfs
     }
 
     // asynchronized request to nameserver
+    int WritableBlockManager::renew_writable_block()
+    {
+      int ret = TFS_SUCCESS;
+      DsRuntimeGlobalInformation& ds_info = DsRuntimeGlobalInformation::instance();
+      create_msg_ref(DsRenewBlockMessage, req_msg);
+      req_msg.set_server_id(ds_info.information_.id_);
+      ArrayHelper<BlockInfoV2> blocks(MAX_WRITABLE_BLOCK_COUNT, req_msg.get_block_infos());
+      get_blocks(blocks, BLOCK_WRITABLE);
+      req_msg.set_size(blocks.get_array_index());
+
+      if (blocks.get_array_index() > 0)
+      {
+        ret = post_msg_to_server(ds_info.ns_vip_port_, &req_msg, ds_async_callback);
+      }
+      TBSYS_LOG_IW(ret, "renew block, count: %"PRI64_PREFIX"d, ret: %d", blocks.get_array_index(), ret);
+      return ret;
+    }
+
+
+    // asynchronized request to nameserver
     int WritableBlockManager::giveup_writable_block()
     {
       int ret = TFS_SUCCESS;
       DsRuntimeGlobalInformation& ds_info = DsRuntimeGlobalInformation::instance();
-      DsGiveupBlockMessage req_msg;
+      create_msg_ref(DsGiveupBlockMessage, req_msg);
       req_msg.set_server_id(ds_info.information_.id_);
       ArrayHelper<BlockInfoV2> blocks(MAX_WRITABLE_BLOCK_COUNT, req_msg.get_block_infos());
       get_blocks(blocks, BLOCK_EXPIRED);
@@ -409,7 +424,7 @@ namespace tfs
       {
         ret = post_msg_to_server(ds_info.ns_vip_port_, &req_msg, ds_async_callback);
       }
-      TBSYS_LOG_DW(ret, "giveup block, count: %"PRI64_PREFIX"d, ret: %d", blocks.get_array_index(), ret);
+      TBSYS_LOG_IW(ret, "giveup block, count: %"PRI64_PREFIX"d, ret: %d", blocks.get_array_index(), ret);
       return ret;
     }
 
@@ -484,7 +499,7 @@ namespace tfs
           {
             ret = EXIT_UNKNOWN_MSGTYPE;
           }
-          TBSYS_LOG_DW(ret, "apply block callback, ret: %d", ret);
+          TBSYS_LOG_IW(ret, "apply block callback, ret: %d", ret);
         }
         else if (DS_GIVEUP_BLOCK_MESSAGE == pcode && sresponse->size() > 0)
         {
@@ -503,7 +518,45 @@ namespace tfs
           {
             ret = EXIT_UNKNOWN_MSGTYPE;
           }
-          TBSYS_LOG_DW(ret, "giveup block callback, ret: %d", ret);
+          TBSYS_LOG_IW(ret, "giveup block callback, ret: %d", ret);
+        }
+        else if (DS_RENEW_BLOCK_MESSAGE == pcode)
+        {
+          if (sresponse->size() > 0)
+          {
+            NewClient::RESPONSE_MSG_MAP::iterator iter = sresponse->begin();
+            tbnet::Packet* packet = iter->second.second;
+            if (DS_RENEW_BLOCK_RESPONSE_MESSAGE == packet->getPCode())
+            {
+              renew_block_callback(dynamic_cast<DsRenewBlockResponseMessage* >(packet));
+            }
+            else if (STATUS_MESSAGE == packet->getPCode())
+            {
+              StatusMessage* smsg = dynamic_cast<StatusMessage*>(packet);
+              ret = smsg->get_status();
+            }
+            else
+            {
+              ret = EXIT_UNKNOWN_MSGTYPE;
+            }
+          }
+          else
+          {
+            ret = EXIT_TIMEOUT_ERROR;
+          }
+
+          if (TFS_SUCCESS != ret)
+          {
+            // timeout, expire writable blocks in renew list
+            DsRenewBlockMessage* msg = dynamic_cast<DsRenewBlockMessage*>(source);
+            BlockInfoV2* infos = msg->get_block_infos();
+            int32_t size = msg->get_size();
+            for (int i = 0; i < size; i++)
+            {
+              expire_one_block(infos[i].block_id_);
+            }
+          }
+          TBSYS_LOG_IW(ret, "renew block callback, ret: %d", ret);
         }
       }
 
@@ -540,6 +593,36 @@ namespace tfs
         }
         TBSYS_LOG(INFO, "apply block %"PRI64_PREFIX"u, replica: %d, ret %d",
             block_lease[index].block_id_, block_lease[index].size_, block_lease[index].result_);
+      }
+    }
+
+    void WritableBlockManager::renew_block_callback(DsRenewBlockResponseMessage* response)
+    {
+      assert(NULL != response);
+      ArrayHelper<BlockLease> leases(response->get_size(),
+          response->get_block_lease(), response->get_size());
+      for (int index = 0; index < response->get_size(); index++)
+      {
+        BlockLease& lease = *leases.at(index);
+        if (TFS_SUCCESS == lease.result_)
+        {
+          WritableBlock* block = get(lease.block_id_);
+          if (NULL != block)
+          {
+            // update replica information
+            RWLock::Lock lock(rwmutex_, WRITE_LOCKER);
+            ArrayHelper<uint64_t> helper(lease.size_, lease.servers_, lease.size_);
+            block->set_servers(helper);
+          }
+        }
+        else  // move to expired list
+        {
+          expire_one_block(lease.block_id_);
+          TBSYS_LOG(INFO, "expire block %"PRI64_PREFIX"u because renew fail, ret: %d",
+              lease.block_id_, lease.result_);
+        }
+        TBSYS_LOG_DW(lease.result_, "renew block %"PRI64_PREFIX"u, replica: %d, ret: %d",
+            lease.block_id_, lease.size_, lease.result_);
       }
     }
 

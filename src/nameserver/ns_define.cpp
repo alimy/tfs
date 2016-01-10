@@ -70,12 +70,12 @@ namespace tfs
 
     void NsRuntimeGlobalInformation::destroy()
     {
-      memset(this, 0, sizeof(*this));
-      owner_role_ = NS_ROLE_SLAVE;
-      peer_role_ = NS_ROLE_SLAVE;
       destroy_flag_ = true;
-      owner_status_ = NS_STATUS_NONE;
-      peer_status_ = NS_STATUS_NONE;
+      //memset(this, 0, sizeof(*this));
+      //owner_role_ = NS_ROLE_SLAVE;
+      //peer_role_ = NS_ROLE_SLAVE;
+      //owner_status_ = NS_STATUS_NONE;
+      //peer_status_ = NS_STATUS_NONE;
     }
 
     uint64_t NsRuntimeGlobalInformation::choose_report_block_ipport_addr(const uint64_t server) const
@@ -119,6 +119,7 @@ namespace tfs
     {
       lease_id_ = common::INVALID_LEASE_ID;
       lease_expired_time_ = 0;
+      load_family_info_complete_ = false;
       if (startup)//startup
       {
         startup_time_ = now;
@@ -157,7 +158,7 @@ namespace tfs
 
     bool NsRuntimeGlobalInformation::in_report_block_time(const int64_t now) const
     {
-      bool report_time = in_min_range(time(NULL), SYSPARAM_NAMESERVER.report_block_time_lower_, SYSPARAM_NAMESERVER.safe_mode_time_);
+      bool report_time = in_min_range(time(NULL), SYSPARAM_NAMESERVER.report_block_time_lower_, (SYSPARAM_NAMESERVER.safe_mode_time_ + 59) / 60);
       return ((report_time) || ((switch_time_ +  SYSPARAM_NAMESERVER.safe_mode_time_) > now));
     }
 

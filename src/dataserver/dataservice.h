@@ -40,8 +40,7 @@
 #include "check_manager.h"
 #include "block_manager.h"
 #include "writable_block_manager.h"
-#include "migrate_manager.h"
-
+#include "integrity_manager.h"
 
 namespace tfs
 {
@@ -101,6 +100,7 @@ namespace tfs
       std::string get_real_work_dir();
 
       // common interfaces
+      inline int32_t get_last_crash_time() { return last_crash_time_; }
       inline BlockManager& get_block_manager() { return *block_manager_;}
       inline OpManager& get_op_manager() { return op_manager_; }
       inline LeaseManager& get_lease_manager() { return *lease_manager_; }
@@ -110,6 +110,10 @@ namespace tfs
       inline WritableBlockManager& get_writable_block_manager() { return writable_block_manager_; }
       inline ClientRequestServer& get_client_request_server() { return client_request_server_; }
       inline std::vector<SyncBase*>& get_sync_mirror() { return sync_mirror_; }
+
+      // libeasy handle packet
+      int handle(common::BasePacket* packet);
+      virtual common::EasyThreadType select_thread(common::BasePacket* packet);
 
       protected:
       virtual const char* get_log_file_path();
@@ -186,6 +190,22 @@ namespace tfs
       };
       typedef tbutil::Handle<RunCheckThreadHelper> RunCheckThreadHelperPtr;
 
+      class CheckIntegrityThreadHelper: public tbutil::Thread
+      {
+        public:
+          explicit CheckIntegrityThreadHelper(DataService& service):
+            service_(service)
+        {
+          start();
+        }
+          virtual ~CheckIntegrityThreadHelper(){}
+          void run();
+        private:
+          DISALLOW_COPY_AND_ASSIGN(CheckIntegrityThreadHelper);
+          DataService& service_;
+      };
+      typedef tbutil::Handle<CheckIntegrityThreadHelper> CheckIntegrityThreadHelperPtr;
+
      private:
       DISALLOW_COPY_AND_ASSIGN(DataService);
 
@@ -199,11 +219,14 @@ namespace tfs
       ClientRequestServer client_request_server_;
       WritableBlockManager writable_block_manager_;
       CheckManager check_manager_;
-      MigrateManager* migrate_manager_;
+      IntegrityManager integrity_manager_;
       TimeoutThreadHelperPtr  timeout_thread_;
       RunTaskThreadHelperPtr  task_thread_;
       RunCheckThreadHelperPtr check_thread_;
+      CheckIntegrityThreadHelperPtr check_integrity_thread_;
       std::vector<SyncBase*> sync_mirror_;
+      std::string running_path_;
+      int32_t last_crash_time_;
     };
   }/** end namespace dataserver **/
 }/** end namespace tfs **/

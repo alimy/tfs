@@ -37,7 +37,6 @@ namespace tfs
   {
     NameServer::NameServer() :
       layout_manager_(*this),
-      master_slave_heart_manager_(layout_manager_),
       heart_manager_(*this)
     {
       for (int32_t index = 0; index < MAX_LISTEN_PORT_NUM; ++index)
@@ -112,7 +111,7 @@ namespace tfs
       if (TFS_SUCCESS == ret)
       {
         char spec[32] = {'\0'};
-        int32_t thread_count = get_work_thread_count();
+        //int32_t thread_count = get_work_thread_count();
         for (int32_t index = 1; index < SYSPARAM_NAMESERVER.business_port_count_ && TFS_SUCCESS == ret; ++index)
         {
           streamer_[index] = new (std::nothrow)common::BasePacketStreamer();
@@ -123,35 +122,35 @@ namespace tfs
           snprintf(spec, 32, "tcp::%d", base_port + index);
           tbnet::IOComponent* com = transport_[index]->listen(spec, streamer_[index], this);
           ret = (NULL == com) ? EXIT_NETWORK_ERROR : TFS_SUCCESS;
-          if (TFS_SUCCESS == ret)
-          {
-            transport_[index]->start();
-            work_threads_[index].setThreadParameter(thread_count, this, NULL);
-            work_threads_[index].start();
-          }
-          else
-          {
-            TBSYS_LOG(ERROR, "listen port %d failed, ret: %d", base_port + index, ret);
-          }
+          //if (TFS_SUCCESS == ret)
+          //{
+          //  transport_[index]->start();
+          //  work_threads_[index].setThreadParameter(thread_count, this, NULL);
+          //  work_threads_[index].start();
+          //}
+          //else
+          //{
+          //  TBSYS_LOG(ERROR, "listen port %d failed, ret: %d", base_port + index, ret);
+          //}
         }
       }
 
       //start clientmanager
-      if (TFS_SUCCESS == ret)
-      {
-        NewClientManager::get_instance().destroy();
-        assert(NULL != get_packet_streamer());
-        assert(NULL != get_packet_factory());
-        BasePacketStreamer* packet_streamer = dynamic_cast<BasePacketStreamer*>(get_packet_streamer());
-        BasePacketFactory* packet_factory   = dynamic_cast<BasePacketFactory*>(get_packet_factory());
-        ret = NewClientManager::get_instance().initialize(packet_factory, packet_streamer,
-                NULL, &BaseService::golbal_async_callback_func, this);
-        if (TFS_SUCCESS != ret)
-        {
-          TBSYS_LOG(ERROR, "start client manager failed, must be exit!!!");
-          ret = EXIT_NETWORK_ERROR;
-        }
-      }
+      //if (TFS_SUCCESS == ret)
+      //{
+      //  NewClientManager::get_instance().destroy();
+      //  assert(NULL != get_packet_streamer());
+      //  assert(NULL != get_packet_factory());
+      //  BasePacketStreamer* packet_streamer = dynamic_cast<BasePacketStreamer*>(get_packet_streamer());
+      //  BasePacketFactory* packet_factory   = dynamic_cast<BasePacketFactory*>(get_packet_factory());
+      //  ret = NewClientManager::get_instance().initialize(packet_factory, packet_streamer,
+      //          NULL, &BaseService::golbal_async_callback_func, this);
+      //  if (TFS_SUCCESS != ret)
+      //  {
+      //    TBSYS_LOG(ERROR, "start client manager failed, must be exit!!!");
+      //    ret = EXIT_NETWORK_ERROR;
+      //  }
+      //}
 
       if (TFS_SUCCESS == ret)
       {
@@ -180,30 +179,6 @@ namespace tfs
         if (TFS_SUCCESS != ret)
         {
           TBSYS_LOG(ERROR, "initialize heart manager failed, must be exit, ret: %d", ret);
-        }
-      }
-
-      if (TFS_SUCCESS == ret)
-      {
-        ret = master_slave_heart_manager_.initialize();
-        if (TFS_SUCCESS != ret)
-        {
-          TBSYS_LOG(ERROR, "initialize master and slave heart manager failed, must be exit, ret: %d", ret);
-        }
-        else
-        {
-          if (GFactory::get_runtime_info().is_master())
-          {
-            ret = master_slave_heart_manager_.establish_peer_role_(GFactory::get_runtime_info());
-            if (EXIT_ROLE_ERROR == ret)
-            {
-              TBSYS_LOG(INFO, "nameserve role error, must be exit, ret: %d", ret);
-            }
-            else
-            {
-              ret = TFS_SUCCESS;
-            }
-          }
         }
       }
 
@@ -238,11 +213,9 @@ namespace tfs
 
         GFactory::destroy();
         heart_manager_.destroy();
-        master_slave_heart_manager_.destroy();
         layout_manager_.destroy();
 
         heart_manager_.wait_for_shut_down();
-        master_slave_heart_manager_.wait_for_shut_down();
         layout_manager_.wait_for_shut_down();
         GFactory::wait_for_shut_down();
       }
@@ -288,11 +261,7 @@ namespace tfs
             hret = tbnet::IPacketHandler::KEEP_CHANNEL;
             switch (pcode)
             {
-            case MASTER_AND_SLAVE_HEART_MESSAGE:
-            case HEARTBEAT_AND_NS_HEART_MESSAGE:
-              master_slave_heart_manager_.push(bpacket, 0, false);
-              break;
-            case OPLOG_SYNC_MESSAGE:
+           case OPLOG_SYNC_MESSAGE:
               layout_manager_.get_oplog_sync_mgr().push(bpacket, 0, false);
               break;
             default:
@@ -339,6 +308,9 @@ namespace tfs
             case BATCH_GET_BLOCK_INFO_MESSAGE_V2:
               ret = batch_open(msg);
               break;
+            case UPDATE_BLOCK_INFO_MESSAGE_V2:
+              ret = update_block_info(msg);
+              break;
             case REPLICATE_BLOCK_MESSAGE:
             case BLOCK_COMPACT_COMPLETE_MESSAGE:
             case REQ_EC_MARSHALLING_COMMIT_MESSAGE:
@@ -379,6 +351,9 @@ namespace tfs
             case DS_APPLY_BLOCK_MESSAGE:
               ret = apply_block(msg);
               break;
+            case DS_RENEW_BLOCK_MESSAGE:
+              ret = renew_block(msg);
+              break;
             case DS_APPLY_BLOCK_FOR_UPDATE_MESSAGE:
               ret = apply_block_for_update(msg);
               break;
@@ -398,6 +373,122 @@ namespace tfs
         }
       }
       return bret;
+    }
+
+    EasyThreadType NameServer::select_thread(BasePacket* packet)
+    {
+      int32_t pcode = packet->getPCode();
+      if (pcode == DS_APPLY_LEASE_MESSAGE ||
+          pcode == DS_RENEW_LEASE_MESSAGE ||
+          pcode == DS_GIVEUP_LEASE_MESSAGE)
+      {
+        return EASY_IO_THREAD;
+      }
+      else if (pcode == REQ_REPORT_BLOCKS_TO_NS_MESSAGE)
+      {
+        return EASY_SLOW_WORK_THREAD;
+      }
+      return EASY_WORK_THREAD;
+    }
+
+    int NameServer::handle(BasePacket* packet)
+    {
+      int32_t pcode = packet->getPCode();
+      int ret = TFS_SUCCESS;
+      if (TFS_SUCCESS == ret)
+      {
+        if (GFactory::get_runtime_info().is_master())
+          ret = do_master_msg_helper(packet);
+        else
+          ret = do_slave_msg_helper(packet);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        switch (pcode)
+        {
+          case DS_APPLY_LEASE_MESSAGE:
+          case DS_RENEW_LEASE_MESSAGE:
+          case DS_GIVEUP_LEASE_MESSAGE:
+          case REQ_REPORT_BLOCKS_TO_NS_MESSAGE:
+          case MASTER_AND_SLAVE_HEART_MESSAGE:
+          case HEARTBEAT_AND_NS_HEART_MESSAGE:
+            ret = heart_manager_.handle(packet);
+            break;
+          case OPLOG_SYNC_MESSAGE:
+            ret = layout_manager_.get_oplog_sync_mgr().handle(packet);
+            break;
+          case GET_BLOCK_INFO_MESSAGE_V2:
+            ret = open(packet);
+            break;
+          case BATCH_GET_BLOCK_INFO_MESSAGE_V2:
+            ret = batch_open(packet);
+            break;
+          case UPDATE_BLOCK_INFO_MESSAGE_V2:
+            ret = update_block_info(packet);
+            break;
+          case REPLICATE_BLOCK_MESSAGE:
+          case BLOCK_COMPACT_COMPLETE_MESSAGE:
+          case REQ_EC_MARSHALLING_COMMIT_MESSAGE:
+          case REQ_EC_REINSTATE_COMMIT_MESSAGE:
+          case REQ_EC_DISSOLVE_COMMIT_MESSAGE:
+            ret = layout_manager_.get_client_request_server().handle(packet);
+            break;
+          case SHOW_SERVER_INFORMATION_MESSAGE:
+            ret = show_server_information(packet);
+            break;
+          case STATUS_MESSAGE:
+            ret = ping(packet);
+            break;
+          case DUMP_PLAN_MESSAGE:
+            ret = dump_plan(packet);
+            break;
+          case CLIENT_NS_KEEPALIVE_MESSAGE:
+            ret = client_keepalive(packet);
+            break;
+          case CLIENT_CMD_MESSAGE:
+            ret = client_control_cmd(packet);
+            break;
+          case REQ_RESOLVE_BLOCK_VERSION_CONFLICT_MESSAGE:
+            {
+              BaseTaskMessage* tmsg = dynamic_cast<BaseTaskMessage*>(packet);
+              if (0 == tmsg->get_seqno())
+                ret = resolve_block_version_conflict(tmsg);
+              else
+                ret = layout_manager_.get_client_request_server().handle(tmsg);
+            }
+            break;
+          case REQ_GET_FAMILY_INFO_MESSAGE:
+            ret = get_family_info(packet);
+            break;
+          case REPAIR_BLOCK_MESSAGE_V2:
+            //ret = repair(packet);
+            break;
+          case DS_APPLY_BLOCK_MESSAGE:
+            ret = apply_block(packet);
+            break;
+          case DS_RENEW_BLOCK_MESSAGE:
+            ret = renew_block(packet);
+            break;
+          case DS_APPLY_BLOCK_FOR_UPDATE_MESSAGE:
+            ret = apply_block_for_update(packet);
+            break;
+          case DS_GIVEUP_BLOCK_MESSAGE:
+            ret = giveup_block(packet);
+            break;
+          default:
+            ret = EXIT_UNKNOWN_MSGTYPE;
+            TBSYS_LOG(WARN, "unkown packet pcode: %d\n", pcode);
+            break;
+        }
+
+        if (TFS_SUCCESS != ret)
+        {
+          packet->reply_error_packet(TBSYS_LOG_LEVEL(ERROR), ret, "execute message failed, pcode: %d", pcode);
+        }
+      }
+
+      return EASY_OK;
     }
 
     int NameServer::callback(common::NewClient* client)
@@ -447,7 +538,7 @@ namespace tfs
         const int32_t  mode     = message->get_mode();
         const int32_t  flag     = message->get_flag();
         const time_t now = Func::get_monotonic_time();
-        const uint64_t ipport = msg->get_connection()->getServerId();
+        const uint64_t ipport = msg->getPeerId();
         BlockMeta& meta = result_msg->get_block_meta();
         common::ArrayHelper<uint64_t> servers(MAX_REPLICATION_NUM, meta.ds_);
         ret = layout_manager_.get_client_request_server().open(block_id, mode, flag, now, lease_id, servers,
@@ -521,6 +612,26 @@ namespace tfs
                 "batch get get block information error, mode: %d, ret: %d", mode, ret);
           }
         }
+      }
+      return ret;
+    }
+
+    int NameServer::update_block_info(common::BasePacket* msg)
+    {
+      int32_t ret = ((NULL != msg) && (msg->getPCode() == UPDATE_BLOCK_INFO_MESSAGE_V2)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
+      if (common::TFS_SUCCESS == ret)
+      {
+        UpdateBlockInfoMessageV2* message = dynamic_cast<UpdateBlockInfoMessageV2*> (msg);
+        const BlockInfoV2 info = message->get_block_info();
+        const uint64_t server_id =  message->get_server_id();
+        const UpdateBlockInfoType type = message->get_type();
+        bool addnew = UPDATE_BLOCK_INFO_REPL == type ? true : false;
+        ret = layout_manager_.update_block_info(info, server_id, Func::get_monotonic_time(), addnew);
+        char buf[256] = {'\0'};
+        snprintf(buf, 256, "update block: %"PRI64_PREFIX"u information %s, server: %s, ret: %d",
+            info.block_id_, TFS_SUCCESS == ret ? "successful" : "failed", tbsys::CNetUtil::addrToString(server_id).c_str(), ret);
+        TBSYS_LOG_DW(ret, buf);
+        ret = message->reply(new StatusMessage(ret, buf));
       }
       return ret;
     }
@@ -721,7 +832,8 @@ namespace tfs
             && pcode != CLIENT_CMD_MESSAGE
             && pcode != CLIENT_NS_KEEPALIVE_MESSAGE
             && pcode != DS_GIVEUP_BLOCK_MESSAGE
-            && pcode != DS_APPLY_BLOCK_MESSAGE)
+            && pcode != DS_APPLY_BLOCK_MESSAGE
+            && pcode != DS_RENEW_BLOCK_MESSAGE)
           {
             ret = ngi.owner_status_ < NS_STATUS_INITIALIZED? common::TFS_ERROR : common::TFS_SUCCESS;
           }
@@ -765,7 +877,10 @@ namespace tfs
                 && pcode != REQ_REPORT_BLOCKS_TO_NS_MESSAGE
                 && pcode != BATCH_GET_BLOCK_INFO_MESSAGE
                 && pcode != SHOW_SERVER_INFORMATION_MESSAGE
-                && pcode != REQ_GET_FAMILY_INFO_MESSAGE)
+                && pcode != REQ_GET_FAMILY_INFO_MESSAGE
+                && pcode != DS_APPLY_LEASE_MESSAGE
+                && pcode != DS_RENEW_LEASE_MESSAGE
+                && pcode != DS_GIVEUP_LEASE_MESSAGE)
               {
                 ret = common::TFS_ERROR;
               }
@@ -814,7 +929,7 @@ namespace tfs
         TIMER_START();
         DsApplyBlockMessage* ab_msg = dynamic_cast<DsApplyBlockMessage*>(msg);
         uint64_t server   = ab_msg->get_server_id();
-        int32_t MAX_COUNT = ab_msg->get_count();
+        int32_t MAX_COUNT = ab_msg->get_size();
         MAX_COUNT = std::min(MAX_COUNT, MAX_WRITABLE_BLOCK_COUNT);
         DsApplyBlockResponseMessage* reply_msg = new (std::nothrow)DsApplyBlockResponseMessage();
         assert(NULL != reply_msg);
@@ -830,9 +945,41 @@ namespace tfs
           reply_msg->free();
         }
         TIMER_END();
-        TBSYS_LOG(INFO, "dataserver: %s apply block %s consume times: %"PRI64_PREFIX"d(us), ret: %d, need: %d, actual: %"PRI64_PREFIX"d",
+        TBSYS_LOG(DEBUG, "dataserver: %s apply block %s consume times: %"PRI64_PREFIX"d(us), ret: %d, need: %d, actual: %"PRI64_PREFIX"d",
           tbsys::CNetUtil::addrToString(server).c_str(),TFS_SUCCESS == ret ? "successful" : "failed", TIMER_DURATION(),
           ret, MAX_COUNT, output.get_array_index());
+      }
+      return ret;
+    }
+
+    int NameServer::renew_block(common::BasePacket* msg)
+    {
+      int32_t ret = ((NULL != msg) && (msg->getPCode() == DS_RENEW_BLOCK_MESSAGE)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
+      if (TFS_SUCCESS == ret)
+      {
+        TIMER_START();
+        DsRenewBlockMessage* ab_msg = dynamic_cast<DsRenewBlockMessage*>(msg);
+        uint64_t server   = ab_msg->get_server_id();
+        int32_t MAX_COUNT = ab_msg->get_size();
+        MAX_COUNT = std::min(MAX_COUNT, MAX_WRITABLE_BLOCK_COUNT);
+        DsRenewBlockResponseMessage* reply_msg = new (std::nothrow)DsRenewBlockResponseMessage();
+        assert(NULL != reply_msg);
+        ArrayHelper<BlockInfoV2> input(MAX_WRITABLE_BLOCK_COUNT, ab_msg->get_block_infos(), ab_msg->get_size());
+        ArrayHelper<BlockLease>  output(MAX_COUNT, reply_msg->get_block_lease());
+        ret = layout_manager_.get_client_request_server().renew_block(server, input, output);
+        if (TFS_SUCCESS == ret)
+        {
+          reply_msg->set_size(output.get_array_index());
+          ret = ab_msg->reply(reply_msg);
+        }
+        else
+        {
+          reply_msg->free();
+        }
+        TIMER_END();
+        TBSYS_LOG(DEBUG, "dataserver: %s renew block %s consume times: %"PRI64_PREFIX"d(us), ret: %d, input: %"PRI64_PREFIX"d, output: %"PRI64_PREFIX"d",
+          tbsys::CNetUtil::addrToString(server).c_str(),TFS_SUCCESS == ret ? "successful" : "failed", TIMER_DURATION(),
+          ret, input.get_array_index(), output.get_array_index());
       }
       return ret;
     }
@@ -862,7 +1009,7 @@ namespace tfs
           reply_msg->free();
         }
         TIMER_END();
-        TBSYS_LOG(INFO, "dataserver: %s apply block for update %s consume times: %"PRI64_PREFIX"d(us), ret: %d, need: %d, actual: %"PRI64_PREFIX"d",
+        TBSYS_LOG(DEBUG, "dataserver: %s apply block for update %s consume times: %"PRI64_PREFIX"d(us), ret: %d, need: %d, actual: %"PRI64_PREFIX"d",
           tbsys::CNetUtil::addrToString(server).c_str(),TFS_SUCCESS == ret ? "successful" : "failed", TIMER_DURATION(),
           ret, MAX_COUNT, output.get_array_index());
       }
@@ -894,7 +1041,7 @@ namespace tfs
           reply_msg->free();
         }
         TIMER_END();
-        TBSYS_LOG(INFO, "dataserver: %s giveup block %s consume times: %"PRI64_PREFIX"d(us), ret: %d, need: %d, actual: %"PRI64_PREFIX"d",
+        TBSYS_LOG(DEBUG, "dataserver: %s giveup block %s consume times: %"PRI64_PREFIX"d(us), ret: %d, need: %d, actual: %"PRI64_PREFIX"d",
           tbsys::CNetUtil::addrToString(server).c_str(),TFS_SUCCESS == ret ? "successful" : "failed", TIMER_DURATION(),
           ret, MAX_COUNT, output.get_array_index());
       }

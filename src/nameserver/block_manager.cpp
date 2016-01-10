@@ -154,20 +154,24 @@ namespace tfs
       const int8_t MIN_REPLICATE = SYSPARAM_NAMESERVER.max_replication_;
       while (loop++ < MAX_LOOP_NUM && !ret && pop_from_delete_queue_(output, master))
       {
+        ret = true;
         block = get(output.first);
-        server = manager_.get_server_manager().get(output.second.server_);
-        ret = (NULL != block) && (NULL != server) && !block->exist(server->id());
-        if (ret)
+        if (NULL != block)
         {
-          get_mutex_(block->id()).rdlock();
-          int8_t size = block->get_servers_size();
-          bool in_family = block->is_in_family();
-          ret = in_family ? size > 0 : size >= MIN_REPLICATE;
-          get_mutex_(block->id()).unlock();
-          if (!ret && size > 0)
-            push_to_delete_queue(output.first, output.second, master);// delete after replicating finished
+          server = manager_.get_server_manager().get(output.second.server_);
+          ret = (NULL != block) && (NULL != server) && !block->exist(server->id());
+          if (ret)
+          {
+            get_mutex_(block->id()).rdlock();
+            int8_t size = block->get_servers_size();
+            bool in_family = block->is_in_family();
+            ret = in_family ? size > 0 : size >= MIN_REPLICATE;
+            get_mutex_(block->id()).unlock();
+            if (!ret && size > 0)
+              push_to_delete_queue(output.first, output.second, master);// delete after replicating finished
+          }
         }
-      }
+     }
       return ret;
     }
 
@@ -348,22 +352,22 @@ namespace tfs
       return (NULL != pblock && pblock->id() == block);
     }
 
-    int BlockManager::get_servers(ArrayHelper<uint64_t>& servers, const BlockCollect* block) const
+    int BlockManager::get_servers(ArrayHelper<uint64_t>& servers, const BlockCollect* block, const bool reset_buf) const
     {
       int32_t ret = (NULL == block) ? EXIT_NO_BLOCK : TFS_SUCCESS;
       if (TFS_SUCCESS == ret)
       {
         RWLock::Lock lock(get_mutex_(block->id()), READ_LOCKER);
-        ret = get_servers_(servers, block);
+        ret = get_servers_(servers, block, reset_buf);
       }
       return ret;
     }
 
-    int BlockManager::get_servers(ArrayHelper<uint64_t>& servers, const uint64_t block) const
+    int BlockManager::get_servers(ArrayHelper<uint64_t>& servers, const uint64_t block, const bool reset_buf) const
     {
       RWLock::Lock lock(get_mutex_(block), READ_LOCKER);
       BlockCollect* pblock = get_(block);
-      return get_servers_(servers, pblock);
+      return get_servers_(servers, pblock, reset_buf);
     }
 
     int BlockManager::get_servers_size(const uint64_t block) const
@@ -389,6 +393,13 @@ namespace tfs
       RWLock::Lock lock(get_mutex_(block), READ_LOCKER);
       BlockCollect* pblock = get_(block);
       return (NULL != pblock) ? pblock->get_master() : INVALID_SERVER_ID;
+    }
+
+    uint64_t BlockManager::get_family_server(const uint64_t block, const int64_t family) const
+    {
+      RWLock::Lock lock(get_mutex_(block), READ_LOCKER);
+      BlockCollect* pblock = get_(block);
+      return (NULL != pblock) ? pblock->get_family_server(family) : INVALID_SERVER_ID;
     }
 
     bool BlockManager::exist(const BlockCollect* block, const ServerCollect* server) const
@@ -436,8 +447,17 @@ namespace tfs
           {
             uint64_t block_id = *left_less_helper.at(index);
             BlockCollect* pblock = this->get(block_id);
-            if (NULL != pblock && 0 != pblock->get_last_leave_time())
-              manager_.relieve_relation(pblock, server, now, true);
+            // avoid relieve new create block by mistake when ds report block
+            if (NULL != pblock)
+            {
+              int64_t new_block_safe_time = pblock->get() + SYSPARAM_NAMESERVER.block_safe_mode_time_;
+              if (now > new_block_safe_time)
+              {
+                manager_.relieve_relation(pblock, server, now, true);
+                TBSYS_LOG(DEBUG, "relieve server: %s block: %"PRI64_PREFIX"u",
+                    tbsys::CNetUtil::addrToString(server->id()).c_str(), block_id);
+              }
+            }
           }
         }
       }
@@ -481,8 +501,12 @@ namespace tfs
             manager_.get_server_manager().build_relation(server, block->id(), writable, master);
           }
 
-          if (TFS_SUCCESS != ret)
+          if (TFS_SUCCESS != ret && NULL != server)
+          {
+            TBSYS_LOG(INFO, "block %"PRI64_PREFIX"u server %s build relation, ret: %d",
+                block_id, tbsys::CNetUtil::addrToString(server->id()).c_str(), ret);
             ret = TFS_SUCCESS;
+          }
         }
       }
       return ret;
@@ -560,10 +584,21 @@ namespace tfs
       return ((NULL != block) && (INVALID_SERVER_ID != server)) ? block->remove(server, now) : EXIT_PARAMETER_ERROR;
     }
 
+    bool BlockManager::need_reinstate(const BlockCollect* block) const
+    {
+      bool need = false;
+      if (NULL != block)
+      {
+        RWLock::Lock lock(get_mutex_(block->id()), READ_LOCKER);
+        need = block->is_in_family() && block->get_servers_size() == 0;
+      }
+      return need;
+    }
+
     bool BlockManager::need_replicate(const BlockCollect* block) const
     {
       RWLock::Lock lock(get_mutex_(block->id()), READ_LOCKER);
-      return (NULL != block) ? (block->get_servers_size() < SYSPARAM_NAMESERVER.max_replication_ && !block->is_in_family()) : false;
+      return (NULL != block) ? (block->get_servers_size() < SYSPARAM_NAMESERVER.max_replication_ && !IS_VERFIFY_BLOCK(block->id()) && !block->is_in_family()) : false;
     }
 
     bool BlockManager::need_replicate(const BlockCollect* block, const time_t now) const
@@ -666,13 +701,14 @@ namespace tfs
     }
 
     bool BlockManager::resolve_invalid_copies(common::ArrayHelper<ServerItem>& invalids,
-      common::ArrayHelper<ServerItem>& clean_familyinfo, BlockCollect* block, const time_t now)
+      common::ArrayHelper<ServerItem>& clean_familyinfo, BlockCollect* block, const time_t now,
+      common::ArrayHelper<ServerRack>& server_rack_helper)
     {
       bool ret = (NULL != block );
       if (ret)
       {
-        RWLock::Lock lock(get_mutex_(block->id()), WRITE_LOCKER);
-        ret = block->resolve_invalid_copies(invalids, clean_familyinfo, now);
+        RWLock::Lock lock(get_mutex_(block->id()), READ_LOCKER);
+        ret = block->resolve_invalid_copies(invalids, clean_familyinfo, now, server_rack_helper);
       }
       return ret;
     }
@@ -715,12 +751,16 @@ namespace tfs
       int32_t ret = (INVALID_BLOCK_ID != block && INVALID_SERVER_ID != server) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
       if (TFS_SUCCESS == ret)
       {
+        ServerRack server_rack_array[MAX_REPLICATION_NUM];
+        common::ArrayHelper<ServerRack> server_rack_helper(MAX_REPLICATION_NUM, server_rack_array);
+        manager_.get_server_rack_helper(block, server_rack_helper);
+
         RWLock::Lock lock(get_mutex_(block), WRITE_LOCKER);
         BlockCollect* pblock = get_(block);
         ret = (NULL != pblock) ? TFS_SUCCESS : EXIT_BLOCK_NOT_FOUND;
         if (TFS_SUCCESS == ret)
         {
-          ret = pblock->apply_lease(server, now, step, update, helper, clean_familyinfo);
+          ret = pblock->apply_lease(server, now, step, update, helper, clean_familyinfo, server_rack_helper);
         }
       }
       return ret;
@@ -732,8 +772,12 @@ namespace tfs
       int32_t ret = (NULL != pblock && INVALID_SERVER_ID != server) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
       if (TFS_SUCCESS == ret)
       {
+        ServerRack server_rack_array[MAX_REPLICATION_NUM];
+        common::ArrayHelper<ServerRack> server_rack_helper(MAX_REPLICATION_NUM, server_rack_array);
+        manager_.get_server_rack_helper(pblock->id(), server_rack_helper);
+
         RWLock::Lock lock(get_mutex_(pblock->id()), WRITE_LOCKER);
-        ret = pblock->apply_lease(server, now, step, update, helper, clean_familyinfo);
+        ret = pblock->apply_lease(server, now, step, update, helper, clean_familyinfo, server_rack_helper);
       }
       return ret;
     }
@@ -745,12 +789,16 @@ namespace tfs
       int32_t ret = (INVALID_BLOCK_ID != block && INVALID_SERVER_ID != server) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
       if (TFS_SUCCESS == ret)
       {
+        ServerRack server_rack_array[MAX_REPLICATION_NUM];
+        common::ArrayHelper<ServerRack> server_rack_helper(MAX_REPLICATION_NUM, server_rack_array);
+        manager_.get_server_rack_helper(block, server_rack_helper);
+
         RWLock::Lock lock(get_mutex_(block), WRITE_LOCKER);
         BlockCollect* pblock = get_(block);
         ret = (NULL != pblock) ? TFS_SUCCESS : EXIT_BLOCK_NOT_FOUND;
         if (TFS_SUCCESS == ret)
         {
-          ret = pblock->renew_lease(server, now, step, update, info, helper, clean_familyinfo);
+          ret = pblock->renew_lease(server, now, step, update, info, helper, clean_familyinfo, server_rack_helper);
         }
       }
       return ret;
@@ -763,8 +811,12 @@ namespace tfs
       int32_t ret = (NULL != pblock && INVALID_SERVER_ID != server) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
       if (TFS_SUCCESS == ret)
       {
+        ServerRack server_rack_array[MAX_REPLICATION_NUM];
+        common::ArrayHelper<ServerRack> server_rack_helper(MAX_REPLICATION_NUM, server_rack_array);
+        manager_.get_server_rack_helper(pblock->id(), server_rack_helper);
+
         RWLock::Lock lock(get_mutex_(pblock->id()), WRITE_LOCKER);
-        ret = pblock->renew_lease(server, now, step, update, info, helper, clean_familyinfo);
+        ret = pblock->renew_lease(server, now, step, update, info, helper, clean_familyinfo, server_rack_helper);
       }
       return ret;
     }
@@ -838,17 +890,34 @@ namespace tfs
       }
     }
 
+    void BlockManager::update_version(common::ArrayHelper<uint64_t>& helper, const uint64_t block, const int32_t version, const BlockInfoV2& info)
+    {
+      RWLock::Lock lock(get_mutex_(block), WRITE_LOCKER);
+      BlockCollect* pblock = get_(block);
+      if (NULL != pblock)
+      {
+        pblock->set_version(version);
+        pblock->update_info(info);
+        for (int64_t index = 0; index < helper.get_array_index(); ++index)
+        {
+          uint64_t server = *(helper.at(index));
+          pblock->update_version(server, version);
+        }
+      }
+    }
+
     int32_t BlockManager::get_chunk_(const uint64_t block) const
     {
       return  block % MAX_BLOCK_CHUNK_NUMS;
     }
 
-    int BlockManager::get_servers_(ArrayHelper<uint64_t>& servers, const BlockCollect* block) const
+    int BlockManager::get_servers_(ArrayHelper<uint64_t>& servers, const BlockCollect* block, const bool reset_buf) const
     {
       int32_t ret = (NULL != block && servers.get_array_size() > 0)? TFS_SUCCESS : EXIT_NO_BLOCK;
       if (TFS_SUCCESS == ret)
       {
-        servers.clear();
+        if (reset_buf)
+          servers.clear();
         block->get_servers(servers);
         ret = servers.empty() ? EXIT_NO_DATASERVER : TFS_SUCCESS;
       }

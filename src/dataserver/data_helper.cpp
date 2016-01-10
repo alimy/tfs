@@ -14,6 +14,7 @@
  */
 
 #include "common/base_packet.h"
+#include "common/ob_crc.h"
 #include "message/message_factory.h"
 #include "dataservice.h"
 #include "erasure_code.h"
@@ -441,7 +442,7 @@ namespace tfs
         ret = (NULL != new_client) ? TFS_SUCCESS : EXIT_CLIENT_MANAGER_CREATE_CLIENT_ERROR;
         if (TFS_SUCCESS == ret)
         {
-          GetBlockInfoMessageV2 req_msg;
+          create_msg_ref(GetBlockInfoMessageV2, req_msg);
           req_msg.set_block_id(block_id);
 
           tbnet::Packet* ret_msg = NULL;
@@ -480,7 +481,7 @@ namespace tfs
       }
       else
       {
-        NewBlockMessageV2 req_msg;
+        create_msg_ref(NewBlockMessageV2, req_msg);
         req_msg.set_block_id(block_id);
         req_msg.set_tmp_flag(tmp);
         req_msg.set_family_id(family_id);
@@ -503,7 +504,7 @@ namespace tfs
       }
       else
       {
-        RemoveBlockMessageV2 req_msg;
+        create_msg_ref(RemoveBlockMessageV2, req_msg);
         req_msg.set_block_id(block_id);
         req_msg.set_tmp_flag(tmp);
 
@@ -531,7 +532,7 @@ namespace tfs
         }
         else
         {
-          ReadRawdataMessageV2 req_msg;
+          create_msg_ref(ReadRawdataMessageV2, req_msg);
           tbnet::Packet* ret_msg = NULL;
           req_msg.set_block_id(block_id);
           req_msg.set_length(length);
@@ -575,7 +576,7 @@ namespace tfs
       }
       else
       {
-        WriteRawdataMessageV2 req_msg;
+        create_msg_ref(WriteRawdataMessageV2, req_msg);
         req_msg.set_block_id(block_id);
         req_msg.set_length(length);
         req_msg.set_offset(offset);
@@ -599,7 +600,7 @@ namespace tfs
       }
       else
       {
-        ReadIndexMessageV2 req_msg;
+        create_msg_ref(ReadIndexMessageV2, req_msg);
         tbnet::Packet* ret_msg = NULL;
 
         req_msg.set_block_id(block_id);
@@ -650,7 +651,7 @@ namespace tfs
       }
       else
       {
-        WriteIndexMessageV2 req_msg;
+        create_msg_ref(WriteIndexMessageV2, req_msg);
         req_msg.set_block_id(block_id);
         req_msg.set_attach_block_id(attach_block_id);
         req_msg.set_index_data(index_data);
@@ -674,7 +675,7 @@ namespace tfs
       }
       else
       {
-        QueryEcMetaMessage req_msg;
+        create_msg_ref(QueryEcMetaMessage, req_msg);
         tbnet::Packet* ret_msg = NULL;
         req_msg.set_block_id(block_id);
         req_msg.set_lock_time(lock_time);
@@ -722,7 +723,7 @@ namespace tfs
       }
       else
       {
-        CommitEcMetaMessage req_msg;
+        create_msg_ref(CommitEcMetaMessage, req_msg);
         req_msg.set_block_id(block_id);
         req_msg.set_ec_meta(ec_meta);
         req_msg.set_switch_flag(switch_flag);
@@ -752,7 +753,7 @@ namespace tfs
         }
         else
         {
-          StatFileMessageV2 req_msg;
+          create_msg_ref(StatFileMessageV2, req_msg);
           tbnet::Packet* ret_msg = NULL;
           req_msg.set_block_id(block_id);
           req_msg.set_attach_block_id(attach_block_id);
@@ -806,7 +807,7 @@ namespace tfs
         }
         else
         {
-          ReadFileMessageV2 req_msg;
+          create_msg_ref(ReadFileMessageV2, req_msg);
           tbnet::Packet* ret_msg = NULL;
           req_msg.set_block_id(block_id);
           req_msg.set_attach_block_id(attach_block_id);
@@ -854,7 +855,7 @@ namespace tfs
       }
       else
       {
-        WriteFileMessageV2 req_msg;
+        create_msg_ref(WriteFileMessageV2, req_msg);
         tbnet::Packet* ret_msg = NULL;
 
         vector<uint64_t> dslist;
@@ -901,7 +902,7 @@ namespace tfs
     {
       vector<uint64_t> dslist;
       dslist.push_back(server_id);
-      CloseFileMessageV2 req_msg;
+      create_msg_ref(CloseFileMessageV2, req_msg);
       req_msg.set_ds(dslist);
       req_msg.set_block_id(block_id);
       req_msg.set_attach_block_id(attach_block_id);
@@ -923,7 +924,7 @@ namespace tfs
       dslist.push_back(server_id);
 
       // prepare unlink
-      UnlinkFileMessageV2 req_msg;
+      create_msg_ref(UnlinkFileMessageV2, req_msg);
       req_msg.set_ds(dslist);
       req_msg.set_block_id(block_id);
       req_msg.set_attach_block_id(attach_block_id);
@@ -1247,7 +1248,7 @@ namespace tfs
       NewClient* client = NewClientManager::get_instance().create_client();
       if (NULL != client)
       {
-        GetBlockInfoMessageV2 msg;
+        create_msg_ref(GetBlockInfoMessageV2, msg);
         msg.set_block_id(block_id);
         msg.set_mode(T_READ);
         ret = send_msg_to_server(ns_id, client, &msg, resp_msg);
@@ -1318,7 +1319,7 @@ namespace tfs
           if (read_infos[index].first > 0)
           {
             uint8_t send_id = 0;
-            ReadRawdataMessageV2 req_msg;
+            create_msg_ref(ReadRawdataMessageV2, req_msg);
             req_msg.set_block_id(family_info.members_[index].first);
             req_msg.set_length(read_infos[index].first);
             req_msg.set_offset(read_infos[index].second);
@@ -1392,7 +1393,7 @@ namespace tfs
           }
 
           uint8_t send_id = 0;
-          QueryEcMetaMessage req_msg;
+          create_msg_ref(QueryEcMetaMessage, req_msg);
           req_msg.set_block_id(family_info.members_[index].first);
           ret = new_client->post_request(family_info.members_[index].second, &req_msg, send_id);
         }
@@ -1443,5 +1444,162 @@ namespace tfs
 
     }
 
+    int DataHelper::check_integrity(const uint64_t block_id)
+    {
+      int ret = INVALID_BLOCK_ID != block_id? TFS_SUCCESS: EXIT_PARAMETER_ERROR;
+      if (TFS_SUCCESS == ret)
+      {
+        BaseLogicBlock* src = get_block_manager().get(block_id);
+        ret = (NULL != src) ? TFS_SUCCESS : EXIT_NO_LOGICBLOCK_ERROR;
+        if (TFS_SUCCESS == ret)
+        {
+          if (IS_VERFIFY_BLOCK(block_id))
+          {
+            ret = check_integrity(dynamic_cast<VerifyLogicBlock*>(src));
+          }
+          else
+          {
+            ret = check_integrity(dynamic_cast<LogicBlock*>(src));
+          }
+        }
+      }
+      return ret;
+    }
+
+    int DataHelper::check_integrity(LogicBlock* src)
+    {
+      LogicBlock::Iterator* iter = new (std::nothrow) LogicBlock::Iterator(src);
+      assert(NULL != iter);
+
+      int ret = TFS_SUCCESS;
+      const int32_t reserve_size = sizeof(FileInfoInDiskExt);
+      FileInfoV2* finfo = NULL;
+      while ((TFS_SUCCESS == ret) && (TFS_SUCCESS == (ret = iter->next(finfo))))
+      {
+        if (finfo->status_ & FILE_STATUS_DELETE)
+        {
+          continue;  // ignore deleted file
+        }
+
+        uint32_t crc = 0;
+        // special process big file
+        if (finfo->size_ > MAX_SINGLE_FILE_SIZE)
+        {
+          ret = calc_big_file_crc(src, *finfo, crc);
+        }
+        else
+        {
+          const char* file_data = iter->get_data(finfo->offset_, finfo->size_);
+          assert(NULL != file_data);
+          crc = Func::crc(crc, file_data + reserve_size, finfo->size_ - reserve_size);
+        }
+
+        if (TFS_SUCCESS == ret)
+        {
+          if (crc != finfo->crc_)
+          {
+            ret = EXIT_CHECK_CRC_ERROR;
+            TBSYS_LOG(WARN, "blockid %"PRI64_PREFIX"u fileid %"PRI64_PREFIX"u crc_error."
+                "data_crc: %u finfo_crc: %u ret: %d", src->id(), finfo->id_, crc, finfo->crc_, ret);
+            break;
+          }
+        }
+      }
+
+      if (EXIT_BLOCK_NO_DATA == ret)
+        ret = TFS_SUCCESS;
+
+      tbsys::gDelete(iter);
+
+      return ret;
+    }
+
+    int DataHelper::check_integrity(VerifyLogicBlock* src)
+    {
+      int32_t mars_offset = 0;
+      uint32_t header_crc = 0;
+      int ret = src->get_marshalling_offset(mars_offset);
+      if (TFS_SUCCESS == ret)
+      {
+        ret = src->get_data_crc(header_crc);
+      }
+
+      // old family hasn't calculated crc in block header
+      // verify blocks in these family cannot be checked, just ignore it
+      if (TFS_SUCCESS == ret && header_crc != 0)
+      {
+        char *buffer = new (std::nothrow) char[MAX_READ_SIZE];
+        assert(NULL != buffer);
+
+        int32_t offset = 0;
+        int32_t nbytes = 0;
+        uint32_t crc = 0;
+        while (offset < mars_offset)
+        {
+          nbytes = std::min(MAX_READ_SIZE, mars_offset - offset);
+          ret = src->pread(buffer, nbytes, offset);
+          ret = (ret >= 0) ? TFS_SUCCESS : ret;
+          if (TFS_SUCCESS == ret)
+          {
+            crc = ob_crc32(crc, buffer, nbytes);
+            offset += nbytes;
+          }
+          else
+          {
+            break;
+          }
+        }
+
+        if (TFS_SUCCESS == ret)
+        {
+          if (crc != header_crc)
+          {
+            ret = EXIT_CHECK_CRC_ERROR;
+          }
+        }
+        tbsys::gDeleteA(buffer);
+      }
+      return ret;
+    }
+
+    int DataHelper::calc_big_file_crc(BaseLogicBlock* src,
+        const FileInfoV2& finfo, uint32_t& crc)
+    {
+      int offset = sizeof(FileInfoInDiskExt);
+      int length = 0;
+      int ret = TFS_SUCCESS;
+      char *buffer = new (std::nothrow) char[MAX_READ_SIZE];
+      assert(NULL != buffer);
+      crc = 0;
+      while ((TFS_SUCCESS == ret) && (offset < finfo.size_))
+      {
+        length = std::min(finfo.size_ - offset, MAX_READ_SIZE);
+        ret = src->pread(buffer, length, finfo.offset_ + offset);
+        ret = (ret >= 0) ? TFS_SUCCESS : ret;
+        if (TFS_SUCCESS == ret)
+        {
+          crc = Func::crc(crc, buffer, length);
+          offset += length;
+        }
+      }
+      tbsys::gDeleteA(buffer);
+      return ret;
+    }
+
+    class CheckIntegrityThreadHelper: public tbutil::Thread
+    {
+      public:
+        explicit CheckIntegrityThreadHelper(DataService& service):
+          service_(service)
+      {
+        start();
+      }
+        virtual ~CheckIntegrityThreadHelper(){}
+        void run();
+      private:
+        DISALLOW_COPY_AND_ASSIGN(CheckIntegrityThreadHelper);
+        DataService& service_;
+    };
+    typedef tbutil::Handle<CheckIntegrityThreadHelper> CheckIntegrityThreadHelperPtr;
   }
 }

@@ -34,7 +34,7 @@ namespace tfs
   namespace kvrootserver
   {
     KvRootServer::KvRootServer():
-      rt_ms_heartbeat_handler_(*this)
+      rt_ms_heartbeat_handler_(*this), is_inited_(false)
     {
 
     }
@@ -45,7 +45,13 @@ namespace tfs
     }
 
     int KvRootServer::initialize(int /*argc*/, char* /*argv*/[])
-    {//TODO KV
+    {
+      if (is_inited_)
+      {
+        return TFS_SUCCESS;
+      }
+
+      //TODO KV
       int32_t iret =  SYSPARAM_KVRTSERVER.initialize();
       if (TFS_SUCCESS != iret)
       {
@@ -87,12 +93,14 @@ namespace tfs
         int32_t heart_thread_count = TBSYS_CONFIG.getInt(CONF_SN_KVROOTSERVER, CONF_HEART_THREAD_COUNT, 1);
         ms_rs_heartbeat_workers_.setThreadParameter(heart_thread_count, &rt_ms_heartbeat_handler_, this);
         ms_rs_heartbeat_workers_.start();
+        is_inited_ = true;
       }
       return iret;
     }
 
     int KvRootServer::destroy_service()
     {
+      is_inited_ = false;
       ms_rs_heartbeat_workers_.stop();
       ms_rs_heartbeat_workers_.wait();
       manager_.destroy();
@@ -182,6 +190,40 @@ namespace tfs
         }
       }
       return bret;
+    }
+
+    int KvRootServer::handle(common::BasePacket* packet)
+    {
+      assert(NULL != packet);
+      int ret = TFS_SUCCESS;
+      int32_t pcode = packet->getPCode();
+      if (!is_inited_)
+      {
+        ret = EXIT_NOT_INIT_ERROR;
+      }
+      else
+      {
+        switch (pcode)
+        {
+          case REQ_KV_RT_MS_KEEPALIVE_MESSAGE:
+            ret = kv_ms_keepalive(dynamic_cast<BasePacket*>(packet));
+            break;
+          case REQ_KV_RT_GET_TABLE_MESSAGE:
+            ret = get_tables(packet);
+            break;
+          default:
+            ret = EXIT_UNKNOWN_MSGTYPE;
+            TBSYS_LOG(ERROR, "unknown msg type: %d", pcode);
+            break;
+        }
+      }
+
+      if (common::TFS_SUCCESS != ret)
+      {
+        packet->reply_error_packet(TBSYS_LOG_LEVEL(ERROR), ret, "execute message failed, pcode: %d", pcode);
+      }
+
+      return EASY_OK;
     }
 
 		bool KvRootServer::KeepAliveIPacketQueueHandlerHelper::handlePacketQueue(tbnet::Packet *packet, void *args)

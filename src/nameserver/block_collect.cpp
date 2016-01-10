@@ -202,6 +202,25 @@ namespace tfs
       return result;
     }
 
+    uint64_t BlockCollect::get_family_server(const int64_t family_id) const
+    {
+      uint64_t result = INVALID_SERVER_ID;
+      if (is_in_family())
+      {
+        CONST_SERVER_ITER iter = servers_.begin();
+        // make sure family_id correct
+        for (; iter != servers_.end(); ++iter)
+        {
+          if (iter->family_id_ == family_id)
+          {
+            result = iter->server_;
+            break;
+          }
+        }
+      }
+      return result;
+    }
+
     /**
      * to check a block if replicate
      * @return: -1: none, 0: normal, 1: emergency
@@ -310,7 +329,7 @@ namespace tfs
     }
 
     bool BlockCollect::resolve_invalid_copies(common::ArrayHelper<ServerItem>& invalids,
-      common::ArrayHelper<ServerItem>& clean_familyinfo, const time_t now)
+      common::ArrayHelper<ServerItem>& clean_familyinfo, const time_t now, const common::ArrayHelper<ServerRack>& server_rack_helper)
     {
       invalids.clear();
       clean_familyinfo.clear();
@@ -363,7 +382,13 @@ namespace tfs
         {
           if (!invalids.exist((*iter)))
           {
-            uint32_t lan = Func::get_lan(iter->server_, SYSPARAM_NAMESERVER.group_mask_);
+            ServerRack rack(iter->server_, 0);
+            ServerRack* prack = server_rack_helper.get(rack);
+            if (NULL == prack)
+            {
+              continue;
+            }
+            uint32_t lan = prack->rack_id_;
             uint32_t* result = query_item(lans, lan);
             if (NULL != result)
             {
@@ -387,10 +412,13 @@ namespace tfs
         }
         assert(servers_.size() >= (uint64_t)invalids.get_array_index());
 
-        std::stringstream all, abnormal;
-        print_int64(invalids, abnormal);
-        print_int64(servers_, all);
-        TBSYS_LOG(DEBUG, "block: %lu, resolve_version_conflict: all %s, abnormal %s", id(), all.str().c_str(), abnormal.str().c_str());
+        if (invalids.get_array_index() > 0)
+        {
+          std::stringstream all, abnormal;
+          print_int64(invalids, abnormal);
+          print_int64(servers_, all);
+          TBSYS_LOG(INFO, "block: %lu, resolve_version_conflict: all %s, abnormal %s", id(), all.str().c_str(), abnormal.str().c_str());
+        }
       }
       return ret;
     }
@@ -443,7 +471,8 @@ namespace tfs
     }
 
     int BlockCollect::apply_lease(const uint64_t server, const time_t now, const int32_t step, const bool update,
-      common::ArrayHelper<ServerItem>& helper, common::ArrayHelper<ServerItem>& clean_familyinfo)
+        common::ArrayHelper<ServerItem>& helper, common::ArrayHelper<ServerItem>& clean_familyinfo,
+        const common::ArrayHelper<ServerRack>& server_rack_helper)
     {
       int32_t ret = (INVALID_SERVER_ID != server) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
       if (TFS_SUCCESS == ret)
@@ -452,15 +481,22 @@ namespace tfs
       }
       if (TFS_SUCCESS == ret)
       {
-        ret = expire(now) ? TFS_SUCCESS : EXIT_APPLY_BLOCK_SAFE_MODE_TIME_ERROR;
-      }
-      if (TFS_SUCCESS == ret)
-      {
         ret = has_valid_lease(now) ? EXIT_LEASE_EXISTED : TFS_SUCCESS;
+        if (TFS_SUCCESS == ret)
+        {
+          ret = expire(now) ? TFS_SUCCESS : EXIT_APPLY_BLOCK_SAFE_MODE_TIME_ERROR;
+        }
+        else
+        {
+          if (update)
+          {
+            ret = TFS_SUCCESS;
+          }
+        }
       }
       if (TFS_SUCCESS == ret)
       {
-        resolve_invalid_copies(helper, clean_familyinfo, now);
+        resolve_invalid_copies(helper, clean_familyinfo, now, server_rack_helper);
         for (int64_t index = 0; index < helper.get_array_index(); ++index)
         {
           ServerItem* item = helper.at(index);
@@ -475,8 +511,9 @@ namespace tfs
           ServerItem* result = get_(server);
           if (NULL != result)
           {
+            ServerItem new_item = *result;
             remove(server, now);
-            servers_.insert(servers_.begin(), *result);
+            servers_.insert(servers_.begin(), new_item);
             choose_master_ = BLOCK_CHOOSE_MASTER_COMPLETE_FLAG_YES;
           }
         }
@@ -484,8 +521,20 @@ namespace tfs
 
       if (TFS_SUCCESS == ret)
       {
-        bool check = update ? true : is_writable();
-        ret = check && is_master(server) && check_copies_complete() ? TFS_SUCCESS : EXIT_CANNOT_APPLY_LEASE;
+        bool check = update ? true : (!is_in_family() && is_writable());
+        if (check)
+        {
+          if (update &&
+              (SYSPARAM_NAMESERVER.global_switch_ & ENABLE_INCOMPLETE_UPDATE))
+          {
+            check = is_master(server);
+          }
+          else
+          {
+            check = is_master(server) && check_copies_complete();
+          }
+        }
+        ret = check ? TFS_SUCCESS : EXIT_CANNOT_APPLY_LEASE;
       }
       if (TFS_SUCCESS == ret)
       {
@@ -496,7 +545,8 @@ namespace tfs
     }
 
     int BlockCollect::renew_lease(const uint64_t server, const time_t now, const int32_t step, const bool update,
-        const common::BlockInfoV2& info,common::ArrayHelper<ServerItem>& helper, common::ArrayHelper<ServerItem>& clean_familyinfo)
+        const common::BlockInfoV2& info,common::ArrayHelper<ServerItem>& helper, common::ArrayHelper<ServerItem>& clean_familyinfo,
+        const common::ArrayHelper<ServerRack>& server_rack_helper)
     {
       int32_t ret = (INVALID_SERVER_ID != server) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
       if (TFS_SUCCESS == ret)
@@ -516,7 +566,7 @@ namespace tfs
       }
       if (TFS_SUCCESS == ret)
       {
-        resolve_invalid_copies(helper, clean_familyinfo, now);
+        resolve_invalid_copies(helper, clean_familyinfo, now, server_rack_helper);
         for (int64_t index = 0; index < helper.get_array_index(); ++index)
         {
           ServerItem* item = helper.at(index);
@@ -529,16 +579,17 @@ namespace tfs
         if (update && !has_master_())
         {
           ServerItem* result = get_(server);
+          ServerItem new_item = *result;
           remove(server, now);
-          servers_.insert(servers_.begin(), *result);
+          servers_.insert(servers_.begin(), new_item);
           choose_master_ = BLOCK_CHOOSE_MASTER_COMPLETE_FLAG_YES;
         }
       }
 
       if (TFS_SUCCESS == ret)
       {
-        bool check = update ? true : is_writable();
-        ret = check && is_master(server) && check_copies_complete() ? TFS_SUCCESS : EXIT_CANNOT_APPLY_LEASE;
+        bool check = update ? true : (!is_in_family() && is_writable());
+        ret = check && is_master(server) && check_copies_complete() ? TFS_SUCCESS : EXIT_CANNOT_RENEW_LEASE;
       }
       if (TFS_SUCCESS == ret)
       {

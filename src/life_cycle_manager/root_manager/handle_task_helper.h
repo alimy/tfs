@@ -20,6 +20,7 @@
 #include "common/parameter.h"
 #include "common/base_service.h"
 #include "common/status_message.h"
+#include "common/kvengine_helper.h"
 #include "common/expire_define.h"
 #include "message/message_factory.h"
 #include "exp_server_manager.h"
@@ -43,6 +44,7 @@ namespace tfs
         void assign_task(void);
 
       protected:
+        common::KvEngineHelper* kv_engine_helper_;
         int32_t lifecycle_area_;
 
       private:

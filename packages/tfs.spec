@@ -12,9 +12,11 @@ Source:%{NAME}-%{VERSION}.tar.gz
 BuildRoot: %{_tmppath}/%{name}-root
 
 BuildRequires: t-csrd-tbnet-devel = 1.0.8
-BuildRequires: MySQL-devel-community = 5.1.48 
-BuildRequires: tair-devel = 2.3.2.3
-BuildRequires: boost-devel = 1.33.1 
+BuildRequires: t_libeasy = 1.0.17
+BuildRequires: t_libeasy-devel = 1.0.17
+BuildRequires: MySQL-devel-community = 5.1.48
+BuildRequires: tair-devel = 3.2.4
+BuildRequires: boost-devel = 1.33.1
 BuildRequires: readline-devel
 BuildRequires: ncurses-devel
 BuildRequires: google-perftools = 1.7
@@ -24,6 +26,8 @@ BuildRequires: libunwind
 BuildRequires: tfs-client-restful
 BuildRequires: json-c-devel = 0.11
 BuildRequires: json-c = 0.11
+BuildRequires: t-diamond = 1.0.3
+BuildRequires: openssl-devel >= 0.9
 Requires: jemalloc-devel >= 2.2
 Requires: snappy >= 1.1.2
 Requires: google-perftools = 1.7
@@ -33,6 +37,9 @@ Requires: ncurses-devel
 Requires: tfs-client-restful
 Requires: json-c-devel = 0.11
 Requires: json-c = 0.11
+Requires: t-diamond = 1.0.3
+Requires: openssl >= 0.9
+Requires: t_libeasy = 1.0.17
 
 %define __os_install_post %{nil}
 %define debug_package %{nil}
@@ -54,8 +61,7 @@ files for developing applications that use the %name package.
 %build
 chmod u+x build.sh
 ./build.sh init
-
-./configure --prefix=%{_prefix} --without-tcmalloc --enable-uniquestore --enable-taircache --enable-lifecycle --with-tair-root=/opt/csr/tair-2.3 --with-restful-root=/home/admin/tfs/restful/
+./configure --prefix=%{_prefix} --without-tcmalloc --enable-lifecycle --enable-uniquestore --enable-taircache --with-tair-root=/opt/csr/tair-3.0 --with-restful-root=/home/admin/tfs/restful/  --with-libeasy-root=/usr --with-diamond-root=/usr/local 
 make %{?_smp_mflags}
 
 %install

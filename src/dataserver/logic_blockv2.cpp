@@ -172,10 +172,22 @@ namespace tfs
       return index_handle_->get_block_info(info);
     }
 
+    int BaseLogicBlock::get_block_info_in_memory(BlockInfoV2& info) const
+    {
+      RWLock::Lock lock(mutex_, READ_LOCKER);
+      return index_handle_->get_block_info_in_memory(info);
+    }
+
     int BaseLogicBlock::get_index_header(IndexHeaderV2& header) const
     {
       RWLock::Lock lock(mutex_, READ_LOCKER);
       return index_handle_->get_index_header(header);
+    }
+
+    int BaseLogicBlock::get_index_header_in_memory(IndexHeaderV2& header) const
+    {
+      RWLock::Lock lock(mutex_, READ_LOCKER);
+      return index_handle_->get_index_header_in_memory(header);
     }
 
     int BaseLogicBlock::set_index_header(const common::IndexHeaderV2& header)
@@ -265,6 +277,30 @@ namespace tfs
     {
       RWLock::Lock lock(mutex_, WRITE_LOCKER);
       return index_handle_->set_marshalling_offset(size);
+    }
+
+    int BaseLogicBlock::get_last_check_time(int32_t& timestamp) const
+    {
+      RWLock::Lock lock(mutex_, READ_LOCKER);
+      return index_handle_->get_last_check_time(timestamp);
+    }
+
+    int BaseLogicBlock::set_last_check_time(const int32_t timestamp)
+    {
+      RWLock::Lock lock(mutex_, WRITE_LOCKER);
+      return index_handle_->set_last_check_time(timestamp);
+    }
+
+    int BaseLogicBlock::get_data_crc(uint32_t& crc) const
+    {
+      RWLock::Lock lock(mutex_, READ_LOCKER);
+      return index_handle_->get_data_crc(crc);
+    }
+
+    int BaseLogicBlock::set_data_crc(const uint32_t crc)
+    {
+      RWLock::Lock lock(mutex_, WRITE_LOCKER);
+      return index_handle_->set_data_crc(crc);
     }
 
     int BaseLogicBlock::write_file_infos(const common::IndexHeaderV2& header, std::vector<FileInfoV2>& infos, const uint64_t logic_block_id, const bool partial, const int32_t reserved_space_ratio)
@@ -585,11 +621,6 @@ namespace tfs
           ret = (length == ret) ? TFS_SUCCESS : ret;
           if (TFS_SUCCESS == ret)
           {
-            if (0 == read_offset)
-            {
-              TBSYS_LOG(DEBUG, "write file : blockid: %lu, fileid: %lu, size: %d, crc: %u, offset: %d", id(), new_finfo.id_, file_size, new_finfo.crc_, new_finfo.offset_);
-              Func::hex_dump(data, 10, true, TBSYS_LOG_LEVEL_DEBUG);
-            }
             assert(NULL != data);
             read_offset += length;
             ret = read_offset > new_finfo.size_  ? EXIT_WRITE_OFFSET_ERROR : TFS_SUCCESS;
@@ -717,12 +748,14 @@ namespace tfs
       if (TFS_SUCCESS == ret)
       {
         ret = BaseLogicBlock::read(buf, nbytes, offset, fileid, flag, logic_block_id);
+        if (nbytes == ret)
+        {
+          int iret = get_index_handle_()->update_block_statistic_info(OPER_READ, nbytes, nbytes, false);
+          ret = TFS_SUCCESS == iret ? ret : iret;
+        }
+        // nbytes != ret && ret >=0 happened only when linux file be truncate by other process
       }
 
-      if (TFS_SUCCESS == ret)
-      {
-        ret = get_index_handle_()->update_block_statistic_info(OPER_READ, nbytes, nbytes, false);
-      }
       return ret;
     }
 
@@ -941,6 +974,10 @@ namespace tfs
                       ret, logic_block_id, fileid);
                   get_index_handle_()->update_block_statistic_info_(data, index.size_, update ? OPER_UPDATE : OPER_INSERT, new_finfo.size_, old_finfo.size_, true);
                 }
+                else
+                {
+                  get_index_handle_()->update_block_statistic_info(update ? OPER_UPDATE : OPER_INSERT, new_finfo.size_, old_finfo.size_, false);
+                }
               }
             }
           }
@@ -989,6 +1026,7 @@ namespace tfs
             if (TFS_SUCCESS == ret)
             {
               finfo->modify_time_ = time(NULL);
+              get_index_handle_()->update_block_statistic_info(oper_type, 0, finfo->size_, false);
             }
           }
         }

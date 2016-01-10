@@ -85,15 +85,14 @@ namespace tfs
       common::KvMetaServerBaseInformation base_info;
       base_info.id_ = ms_ipport_id_;
       base_info.start_time_ = start_time_;
-      KvRtsMsHeartMessage msg;
-      msg.set_ms(base_info);
-
-      NewClient* client = NULL;
       int32_t retry_count = 0;
       int32_t iret = TFS_SUCCESS;
-      tbnet::Packet* response = NULL;
       do
       {
+        create_msg_ref(KvRtsMsHeartMessage, msg);
+        msg.set_ms(base_info);
+        NewClient* client = NULL;
+        tbnet::Packet* response = NULL;
         ++retry_count;
         client = NewClientManager::get_instance().create_client();
         tbutil::Time start = tbutil::Time::now();

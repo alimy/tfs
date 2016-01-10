@@ -99,7 +99,7 @@ namespace tfs
         ~MachineShow(){}
         void dump(const int8_t flag, FILE* fp) const;
         int init(ServerShow& server, ServerShow& old_server);
-        int add(ServerShow& server, ServerShow& old_server);
+        int add(ServerShow& server, ServerShow& old_server, const int8_t sub_type);
         int calculate();
 
       public:
@@ -110,6 +110,7 @@ namespace tfs
         common::Throughput last_tp_;
         common::Throughput max_tp_;
         int32_t current_load_;
+        uint32_t rack_id_;
         int32_t block_count_;
         time_t last_startup_time_;
         time_t consume_time_;
@@ -129,7 +130,7 @@ namespace tfs
         }
 
         int32_t deserialize(tbnet::DataBuffer& input, const int32_t length, int32_t& offset);
-        int get_members_ds_list(const uint64_t ns_ip);
+        void get_members_ds_list(const uint64_t ns_ip);
         void dump(const int8_t type, FILE* fp) const;
         int64_t family_id_;
         int32_t family_aid_info_;

@@ -23,13 +23,14 @@
 #include "func.h"
 #include "stream.h"
 #include "serialization.h"
+#include "easy_helper.h"
 
 namespace tfs
 {
   namespace common
   {
-    //old structure
-    #pragma pack(4)
+      //old structure
+#pragma pack(4)
     struct TfsPacketNewHeaderV0
     {
       uint32_t flag_;
@@ -356,11 +357,13 @@ namespace tfs
       GET_ALL_BLOCKS_HEADER_RESP_MESSAGE = 247,
       REQ_SYNC_FILE_ENTRY_MESSAGE   = 248,
       RSP_SYNC_FILE_ENTRY_MESSAGE   = 249,
-      REQ_MIGRATE_DS_HEARTBEAT_MESSAGE  = 250,
-      RSP_MIGRATE_DS_HEARTBEAT_MESSAGE  = 251,
+      DS_STAT_INFO_MESSAGE = 250,
+//      RESP_DS_STAT_INFO_MESSAGE = 251,
       CLIENT_NS_KEEPALIVE_MESSAGE = 252,
       CLIENT_NS_KEEPALIVE_RESPONSE_MESSAGE = 253,
       NS_CLEAR_FAMILYINFO_MESSAGE = 254,
+      DS_RENEW_BLOCK_MESSAGE = 255,
+      DS_RENEW_BLOCK_RESPONSE_MESSAGE = 256,
 
       REQ_KVMETA_GET_OBJECT_MESSAGE = 300,
       RSP_KVMETA_GET_OBJECT_MESSAGE = 301,
@@ -477,12 +480,34 @@ namespace tfs
 
       static bool parse_special_ds(std::vector<uint64_t>& value, int32_t& version, uint32_t& lease);
 
+      // libeasy
+      void set_request(easy_request_t* request)
+      {
+        request_ = request;
+      }
+      easy_request_t* get_request()
+      {
+        return request_;
+      }
+      uint64_t getPeerId()
+      {
+        uint64_t id = 0;
+        if (NULL != request_)
+        {
+          id = EasyHelper::convert_addr(request_->ms->c->addr);
+        }
+        return id;
+      }
+
+      public:
+        Stream stream_;
+
   #ifdef TFS_GTEST
     public:
   #else
     protected:
   #endif
-      Stream stream_;
+      // Stream stream_;
       tbnet::Connection* connection_;
       uint64_t id_;
       uint32_t crc_;
@@ -491,6 +516,7 @@ namespace tfs
       static const int16_t MAX_ERROR_MSG_LENGTH = 511; /** not include '\0'*/
       //bool auto_free_;
       bool dump_flag_;
+      easy_request_t* request_;
     };
   } /** common **/
 }/** tfs **/

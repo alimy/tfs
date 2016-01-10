@@ -337,7 +337,7 @@ namespace tfs
             FamilyMemberInfo* pbfmi = abnormal_members.get(info);
             if (NULL == pbfmi)
             {
-              info.server_ =  bm.get_master(item->first);
+              info.server_ =  bm.get_family_server(item->first, family_id);
               ret = (INVALID_SERVER_ID != info.server_) ? TFS_SUCCESS : EXIT_DATASERVER_NOT_FOUND;
               if (TFS_SUCCESS == ret)
                 info.status_ = FAMILY_MEMBER_STATUS_NORMAL;
@@ -387,7 +387,7 @@ namespace tfs
       if (ret)
       {
         const char* str = type == PLAN_TYPE_EC_DISSOLVE ? "dissolve" : type == PLAN_TYPE_EC_REINSTATE ? "reinstate" : "unknow";
-        TBSYS_LOG(DEBUG, "family %"PRI64_PREFIX"d mybe lack of backup, we'll %s", family->get_family_id(), str);
+        TBSYS_LOG(DEBUG, "family %"PRI64_PREFIX"d maybe lack of backup, we'll %s", family->get_family_id(), str);
         family->set_in_reinstate_or_dissolve_queue(FAMILY_IN_REINSTATE_OR_DISSOLVE_QUEUE_YES);
         tbutil::Mutex::Lock lock(reinstate_or_dissolve_queue_mutex_);
         reinstate_or_dissolve_queue_.push_back(family->get_family_id());
@@ -448,10 +448,15 @@ namespace tfs
           {
             server = *helper.at(index);
             ret = manager_.get_task_manager().has_space_do_task_in_machine(server);
+            ServerCollect* pserver = NULL;
             if (ret)
             {
-              rack = SYSPARAM_NAMESERVER.group_mask_ > 0 ? Func::get_lan(server, SYSPARAM_NAMESERVER.group_mask_)
-                     : random() % MAX_RACK_NUM;
+              pserver = manager_.get_server_manager().get(server);
+              ret = (NULL != pserver);
+            }
+            if (ret)
+            {
+              rack = pserver->get_rack_id();
               ret = push_block_to_marshalling_queues(rack, server, block->id());
             }
           }
@@ -554,9 +559,15 @@ namespace tfs
             ret = item->choose_item_random(result);
           }
           marshallin_queue_mutex_.unlock();
+          ServerCollect* pserver = NULL;
           if (TFS_SUCCESS == ret)
           {
-            uint32_t lan = Func::get_lan(result.first, SYSPARAM_NAMESERVER.group_mask_);
+            pserver = manager_.get_server_manager().get(result.first);
+            ret = (NULL != pserver) ? TFS_SUCCESS : EIXT_SERVER_OBJECT_NOT_FOUND;
+          }
+          if (TFS_SUCCESS == ret)
+          {
+            int32_t lan = pserver->get_rack_id();
             //这里没办法精确控制1个SERVER只做一个任务，为了保险需要要DS来做保证，NS只是尽量保证
             #ifdef TFS_GTEST
             bool valid = true;
@@ -634,9 +645,7 @@ namespace tfs
           {
             std::pair<uint64_t, int32_t>* item = helper.at(index);
             assert(NULL != item);
-            uint64_t server = bm.get_master(item->first);
-            if (INVALID_SERVER_ID != server)
-              helper2.push_back(server);
+            bm.get_servers(helper2, item->first, false);
           }
 
           sm.choose_create_block_target_server(helper2, choose_result_helper, member_num);
@@ -683,10 +692,9 @@ namespace tfs
             helper2.clear();
             std::pair<uint64_t, int32_t>* item = helper.at(index);
             assert(NULL != item);
-            uint64_t server = bm.get_master(item->first);
-            if (INVALID_SERVER_ID != server)
+            bm.get_servers(helper2, item->first);
+            if (helper2.get_array_index() > 0)
             {
-              helper2.push_back(server);
               ret = manager_.get_server_manager().choose_replicate_target_server(target, helper2);
               if (TFS_SUCCESS == ret)
                 results.push_back(std::make_pair(target->id(), item->first));
@@ -756,6 +764,37 @@ namespace tfs
       return ret;
     }
 
+    // check family member whether exist conflict
+    bool FamilyManager::check_family_conflict(const FamilyCollect* family)
+    {
+      bool conflict = false;
+      if (NULL != family && !manager_.get_task_manager().exist_family(family->get_family_id())) // avoid be deleted during marshalling
+      {
+        std::pair<uint64_t, int32_t> members[MAX_MARSHALLING_NUM];
+        ArrayHelper<std::pair<uint64_t, int32_t> > helper(MAX_MARSHALLING_NUM, members);
+        family->get_members(helper);
+
+        BlockManager& bm = manager_.get_block_manager();
+        BlockCollect* pblock = NULL;
+        int64_t family_id = family->get_family_id();
+        for (int64_t index = 0; index < helper.get_array_index() && !conflict; ++index)
+        {
+          std::pair<uint64_t, int32_t>* item = helper.at(index);
+          assert(NULL != item);
+          pblock = bm.get(item->first);
+          if (NULL != pblock)
+          {
+            conflict = pblock->get_family_id() != family_id;
+          }
+          else
+          {
+            TBSYS_LOG(WARN, "family %"PRI64_PREFIX"d member: %"PRI64_PREFIX"u can't find", family_id, item->first);
+          }
+        }
+      }
+      return conflict;
+    }
+
     bool FamilyManager::check_need_compact(const FamilyCollect* family, const time_t now) const
     {
       TaskManager& tm  = manager_.get_task_manager();
@@ -775,16 +814,24 @@ namespace tfs
         {
           BlockCollect* pblock = NULL;
           int32_t need_compact_count = 0;
+          bool force_compact = false;
           for (int64_t index = 0; index < helper.get_array_index(); ++index)
           {
             std::pair<uint64_t, int32_t>* item = helper.at(index);
             assert(NULL != item);
             pblock = bm.get(item->first);
             if ((NULL != pblock) && !IS_VERFIFY_BLOCK(pblock->id()) && (bm.need_compact(pblock, now, false)))
+            {
+              if (pblock->need_force_compact())
+              {
+                force_compact = true;
+                break;
+              }
               ++need_compact_count;
+            }
           }
           const int32_t ratio = static_cast<int32_t>(((static_cast<float>(need_compact_count) / static_cast<float>(DATA_MEMBER_NUM)) * 100));
-          ret = (ratio >= SYSPARAM_NAMESERVER.compact_family_member_ratio_);
+          ret = (force_compact || ratio >= SYSPARAM_NAMESERVER.compact_family_member_ratio_);
         }
       }
       return ret;

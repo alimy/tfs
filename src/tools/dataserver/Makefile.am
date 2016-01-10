@@ -1,9 +1,10 @@
 AM_CPPFLAGS=-I$(top_srcdir)/src\
             -I$(TBLIB_ROOT)/include/tbsys\
             -I$(TBLIB_ROOT)/include/tbnet\
+						-I$(EASY_ROOT)/include/easy\
             $(READLINE_INCLUDE)
 
-AM_LDFLAGS=-lrt -lpthread -ldl $(READLINE_LIB)
+AM_LDFLAGS=-lrt -lpthread -ldl -lssl $(READLINE_LIB)
 
 bin_PROGRAMS = clear_file_system\
                ds_client\
@@ -14,19 +15,20 @@ bin_PROGRAMS = clear_file_system\
                reverse_name\
 							 check_down_disk_data\
                check_super_block \
-               view_local_key \
-							 safe_remove_block
+							 safe_remove_block \
+							 check_family\
+							 check_index_tool
 
 LDADD =	$(top_builddir)/src/tools/util/libtfstoolsutil.a\
 				$(top_builddir)/src/dataserver/libdataserver.a\
 				$(top_builddir)/src/clientv2/.libs/libtfsclientv2.a\
 				$(top_builddir)/src/requester/libtfsrequester.a\
-				$(UNIQUE_STORE_LDFLAGS)\
-        $(TAIR_CACHE_LDFLAGS) \
 				$(top_builddir)/src/message/libtfsmessage.a\
         $(top_builddir)/src/common/libtfscommon.a\
+				$(TAIR_CACHE_LDFLAGS)\
         $(TBLIB_ROOT)/lib/libtbnet.a\
-        $(TBLIB_ROOT)/lib/libtbsys.a
+        $(TBLIB_ROOT)/lib/libtbsys.a\
+				$(EASY_ROOT)/lib64/libeasy.a
 
 clear_file_system_SOURCES = clear_file_system.cpp
 
@@ -44,9 +46,13 @@ format_file_system_SOURCES = format_file_system.cpp
 
 read_index_tool_SOURCES = read_index_tool.cpp
 
+check_index_tool_SOURCES = check_index_tool.cpp
+
 check_down_disk_data_SOURCES = check_down_disk_data.cpp
 
 safe_remove_block_SOURCES = safe_remove_block.cpp
+
+check_family_SOURCES = check_family.cpp
 
 #recover_disk_data_to_clusterv2_SOURCES = recover_disk_data_to_cluster_v2.cpp
 
@@ -64,7 +70,7 @@ safe_remove_block_SOURCES = safe_remove_block.cpp
 
 #synctool_SOURCES = sync_tool.cpp # for test syncserver
 
-view_local_key_SOURCES = view_local_key.cpp
+#view_local_key_SOURCES = view_local_key.cpp
 
 #read_block_prefix_SOURCES = read_block_prefix.cpp
 

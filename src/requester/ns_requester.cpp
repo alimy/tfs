@@ -128,7 +128,7 @@ namespace tfs
 
       if (TFS_SUCCESS == ret)
       {
-        ClientCmdMessage msg;
+        create_msg_ref(ClientCmdMessage, msg);
         msg.set_cmd(CLIENT_CMD_SET_PARAM);
         msg.set_value3(key_index);
         msg.set_value4(0);
@@ -182,7 +182,7 @@ namespace tfs
         param.data_.clear();
         tbnet::Packet* ret_msg = NULL;
         NewClient* client = NewClientManager::get_instance().create_client();
-        ret = send_msg_to_server(ns_id, client, &msg, ret_msg);
+        ret = send_msg_to_server(ns_id, client, &msg, ret_msg, DEFAULT_NETWORK_CALL_TIMEOUT, true);
         if (TFS_SUCCESS == ret)
         {
           if (ret_msg->getPCode() != SHOW_SERVER_INFORMATION_MESSAGE)
@@ -236,7 +236,7 @@ namespace tfs
         {
           int32_t index = random() % servers.size();
           uint64_t server = servers[index];
-          GetServerStatusMessage req_msg;
+          create_msg_ref(GetServerStatusMessage, req_msg);
           if (0 == version)
           {
             req_msg.set_status_type(GSS_BLOCK_FILE_INFO);
@@ -305,7 +305,7 @@ namespace tfs
 
     int NsRequester::remove_block(const uint64_t block, const std::string& addr, const int32_t flag)
     {
-      ClientCmdMessage req;
+      create_msg_ref(ClientCmdMessage, req);
       req.set_cmd(CLIENT_CMD_EXPBLK);
       req.set_value3(block);
       req.set_value4(flag);
@@ -350,7 +350,7 @@ namespace tfs
         TFS_SUCCESS : EXIT_PARAMETER_ERROR;
       if (TFS_SUCCESS == ret)
       {
-        GetBlockInfoMessageV2 gbi_message;
+        create_msg_ref(GetBlockInfoMessageV2, gbi_message);
         gbi_message.set_block_id(block_id);
         gbi_message.set_mode(T_READ);
         gbi_message.set_flag(flag);

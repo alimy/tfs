@@ -87,11 +87,12 @@ namespace tfs
         bool scan(common::ArrayHelper<BlockCollect*>& result, uint64_t& begin, const int32_t count) const;
         int scan(common::SSMScanParameter& param, int32_t& next, bool& all_over,
             bool& cutover, const int32_t should) const;
-        int get_servers(common::ArrayHelper<uint64_t>& server, const uint64_t block) const;
-        int get_servers(common::ArrayHelper<uint64_t>& server, const BlockCollect* block) const;
+        int get_servers(common::ArrayHelper<uint64_t>& server, const uint64_t block, const bool reset_buf = true) const;
+        int get_servers(common::ArrayHelper<uint64_t>& server, const BlockCollect* block, const bool reset_buf = true) const;
         int get_servers_size(const uint64_t block) const;
         int get_servers_size(const BlockCollect* const pblock) const;
         uint64_t get_master(const uint64_t) const;
+        uint64_t get_family_server(const uint64_t block, const int64_t family) const;
         bool exist(const BlockCollect* block, const ServerCollect* server) const;
 
         int update_relation(std::vector<uint64_t>& cleanup_family_id_array, ServerCollect* server,
@@ -101,6 +102,7 @@ namespace tfs
         int relieve_relation(BlockCollect* block, const uint64_t server, const time_t now);
         int update_block_info(const common::BlockInfoV2& info, BlockCollect* block);
         int set_family_id(const uint64_t block, const uint64_t server, const uint64_t family_id);
+        bool need_reinstate(const BlockCollect* block) const;
         bool need_replicate(const BlockCollect* block) const;
         bool need_replicate(const BlockCollect* block, const time_t now) const;
         bool need_replicate(common::ArrayHelper<uint64_t>& servers, common::PlanPriority& priority,
@@ -113,7 +115,8 @@ namespace tfs
         bool need_marshalling(common::ArrayHelper<uint64_t>& servers, const BlockCollect* block, const time_t now) const;
         bool need_reinstate(const BlockCollect* block, const time_t now) const;
         bool resolve_invalid_copies(common::ArrayHelper<ServerItem>& invalids,
-          common::ArrayHelper<ServerItem>& clean_familyinfo, BlockCollect* block, const time_t now);
+          common::ArrayHelper<ServerItem>& clean_familyinfo, BlockCollect* block, const time_t now,
+          common::ArrayHelper<ServerRack>& server_rack_helper);
 
         int expand_ratio(int32_t& index, const float expand_ratio = 0.1);
 
@@ -134,7 +137,8 @@ namespace tfs
         int giveup_lease(const uint64_t server, const time_t now, const common::BlockInfoV2* info, BlockCollect* pblock);
         void timeout(const time_t now);
         void set_task_expired_time(const uint64_t block, const int64_t now, const int32_t step);
-        void update_version(common::ArrayHelper<uint64_t>& helper, const uint64_t , const int32_t version, const int32_t step, const common::BlockInfoV2& info);
+        void update_version(common::ArrayHelper<uint64_t>& helper, const uint64_t block, const int32_t version, const int32_t step, const common::BlockInfoV2& info);
+        void update_version(common::ArrayHelper<uint64_t>& helper, const uint64_t block, const int32_t version, const common::BlockInfoV2& info);
       private:
         DISALLOW_COPY_AND_ASSIGN(BlockManager);
         common::RWLock& get_mutex_(const uint64_t block) const;
@@ -151,7 +155,7 @@ namespace tfs
 
         int32_t get_chunk_(const uint64_t block) const;
 
-        int get_servers_(common::ArrayHelper<uint64_t>& server, const BlockCollect* block) const;
+        int get_servers_(common::ArrayHelper<uint64_t>& server, const BlockCollect* block, const bool reset_buf = true) const;
 
         int update_relation_(const common::ArrayHelper<common::BlockInfoV2*>& blocks, const time_t now,
             std::vector<uint64_t>& cleanup_family_id_array, ServerCollect* server);

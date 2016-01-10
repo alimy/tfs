@@ -22,6 +22,7 @@
 #include "message/dataserver_task_message.h"
 #include "common/new_client.h"
 #include "common/client_manager.h"
+#include "common/ob_crc.h"
 #include "task.h"
 #include "data_helper.h"
 #include "block_manager.h"
@@ -117,7 +118,8 @@ namespace tfs
           }
           else
           {
-            ret = do_compact_only_check();
+            ret = get_data_helper().check_integrity(block_id_);
+            assert(EXIT_CHECK_CRC_ERROR != ret);
           }
         }
         int status = translate_status(ret);
@@ -205,7 +207,7 @@ namespace tfs
     {
       UNUSED(status);
       int ret = TFS_SUCCESS;
-      DsCommitCompactBlockCompleteToNsMessage cmit_cpt_msg;
+      create_msg_ref(DsCommitCompactBlockCompleteToNsMessage, cmit_cpt_msg);
       cmit_cpt_msg.set_seqno(seqno_);
       cmit_cpt_msg.set_block_info(info_);
       cmit_cpt_msg.set_result(result_);
@@ -221,7 +223,7 @@ namespace tfs
     int CompactTask::report_to_ds(const int status)
     {
       DsRuntimeGlobalInformation& ds_info = DsRuntimeGlobalInformation::instance();
-      RespDsCompactBlockMessage resp_cpt_msg;
+      create_msg_ref(RespDsCompactBlockMessage, resp_cpt_msg);
       resp_cpt_msg.set_seqno(seqno_);
       resp_cpt_msg.set_ds_id(ds_info.information_.id_);
       resp_cpt_msg.set_status(status);
@@ -258,13 +260,13 @@ namespace tfs
     {
       int ret = TFS_SUCCESS;
       DsRuntimeGlobalInformation& ds_info = DsRuntimeGlobalInformation::instance();
-      DsCompactBlockMessage req_cpt_msg;
-      req_cpt_msg.set_seqno(seqno_);
-      req_cpt_msg.set_block_id(block_id_);
-      req_cpt_msg.set_source_id(ds_info.information_.id_);
-      req_cpt_msg.set_expire_time(expire_time_);
       for (uint32_t i = 0; (TFS_SUCCESS == ret) && (i < servers_.size()); i++)
       {
+        create_msg_ref(DsCompactBlockMessage, req_cpt_msg);
+        req_cpt_msg.set_seqno(seqno_);
+        req_cpt_msg.set_block_id(block_id_);
+        req_cpt_msg.set_source_id(ds_info.information_.id_);
+        req_cpt_msg.set_expire_time(expire_time_);
         ret = get_data_helper().send_simple_request(servers_[i], &req_cpt_msg);
         TBSYS_LOG(DEBUG, "task seqno(%"PRI64_PREFIX"d) request %s to compact, ret: %d",
             seqno_, tbsys::CNetUtil::addrToString(servers_[i]).c_str(), ret);
@@ -303,7 +305,7 @@ namespace tfs
         ret = get_block_manager().switch_logic_block(block_id, true);
         if (TFS_SUCCESS == ret)
         {
-          ret = service_.get_client_request_server().del_block(block_id, true);
+          service_.get_client_request_server().del_block(block_id, true);
         }
       }
 
@@ -312,106 +314,6 @@ namespace tfs
         TBSYS_LOG(WARN, "Run task %s, ret: %d", dump().c_str(), ret);
       }
 
-      return ret;
-    }
-
-    int CompactTask::do_compact_only_check()
-    {
-      uint64_t block_id = block_id_;
-      BaseLogicBlock* src = NULL;
-
-      src = get_block_manager().get(block_id);
-      int ret = (NULL != src) ? TFS_SUCCESS : EXIT_NO_LOGICBLOCK_ERROR;
-
-      // do check work
-      if (TFS_SUCCESS == ret)
-      {
-        ret = check_integrity(src);
-      }
-
-      if (TFS_SUCCESS != ret)
-      {
-        TBSYS_LOG(WARN, "Run task %s, ret: %d", dump().c_str(), ret);
-      }
-
-      return ret;
-    }
-
-    int CompactTask::check_integrity(BaseLogicBlock* src)
-    {
-      LogicBlock* tmpsrc = dynamic_cast<LogicBlock* >(src);
-      LogicBlock::Iterator* iter = new (std::nothrow) LogicBlock::Iterator(tmpsrc);
-      assert(NULL != iter);
-
-      int ret = TFS_SUCCESS;
-      const int32_t reserve_size = sizeof(FileInfoInDiskExt);
-      FileInfoV2* finfo = NULL;
-      while ((TFS_SUCCESS == ret) && (TFS_SUCCESS == (ret = iter->next(finfo))))
-      {
-        if (finfo->status_ & FILE_STATUS_DELETE)
-        {
-          continue;  // ignore deleted file
-        }
-
-        uint32_t crc = 0;
-        // special process big file
-        if (is_big_file(finfo->size_))
-        {
-          ret = calc_big_file_crc(src, *finfo, crc);
-        }
-        else
-        {
-          const char* file_data = iter->get_data(finfo->offset_, finfo->size_);
-          assert(NULL != file_data);
-          crc = Func::crc(crc, file_data + reserve_size, finfo->size_ - reserve_size);
-        }
-
-        if (TFS_SUCCESS == ret)
-        {
-          if (crc != finfo->crc_)
-          {
-            ret = EXIT_CHECK_CRC_ERROR;
-            TBSYS_LOG(WARN, "blockid %"PRI64_PREFIX"u fileid %"PRI64_PREFIX"u crc_error."
-                "data_crc %u finfo_crc %u ret %d", src->id(), finfo->id_, crc, finfo->crc_, ret);
-            break;
-          }
-        }
-      }
-
-      if (EXIT_BLOCK_NO_DATA == ret)
-        ret = TFS_SUCCESS;
-
-      if (TFS_SUCCESS == ret)
-      {
-        TBSYS_LOG(INFO, "check block %"PRI64_PREFIX"u crc_ok", src->id());
-      }
-
-      tbsys::gDelete(iter);
-
-      return ret;
-    }
-
-    int CompactTask::calc_big_file_crc(BaseLogicBlock* src,
-        const FileInfoV2& finfo, uint32_t& crc)
-    {
-      int offset = sizeof(FileInfoInDiskExt);
-      int length = 0;
-      int ret = TFS_SUCCESS;
-      char *buffer = new (std::nothrow) char[MAX_READ_SIZE];
-      assert(NULL != buffer);
-      crc = 0;
-      while ((TFS_SUCCESS == ret) && (offset < finfo.size_))
-      {
-        length = std::min(finfo.size_ - offset, MAX_READ_SIZE);
-        ret = src->pread(buffer, length, finfo.offset_ + offset);
-        ret = (ret >= 0) ? TFS_SUCCESS : ret;
-        if (TFS_SUCCESS == ret)
-        {
-          crc = Func::crc(crc, buffer, length);
-          offset += length;
-        }
-      }
-      tbsys::gDeleteA(buffer);
       return ret;
     }
 
@@ -464,7 +366,7 @@ namespace tfs
         if (TFS_SUCCESS == ret)
         {
           // special process big file
-          if (is_big_file(finfo->size_))
+          if (finfo->size_ > MAX_SINGLE_FILE_SIZE)
           {
             ret = write_big_file(src, dest, *finfo, new_offset);
             if (TFS_SUCCESS == ret)
@@ -485,6 +387,7 @@ namespace tfs
             crc = Func::crc(crc, (buffer + inner_offset + reserve_size), (finfo->size_ - reserve_size));
             if (crc != finfo->crc_)
             {
+              TBSYS_LOG(WARN, "block %"PRI64_PREFIX"u compact crc error", src->id());
               Func::hex_dump(file_data, 10, true, TBSYS_LOG_LEVEL_INFO);//TODO
             }
             assert(crc == finfo->crc_);
@@ -519,9 +422,11 @@ namespace tfs
         header.info_.version_ = old_header.info_.version_;
         header.info_.update_size_ = old_header.info_.update_size_;
         header.info_.update_file_count_ = old_header.info_.update_file_count_;
+        header.info_.last_access_time_ = old_header.info_.last_access_time_;
         memcpy(&header.throughput_, &old_header.throughput_, sizeof(header.throughput_));
         header.info_.version_ = old_header.info_.version_;
         header.seq_no_ = old_header.seq_no_;
+        header.last_check_time_ =  time(NULL);
         dest->get_marshalling_offset(header.marshalling_offset_);
         DsRuntimeGlobalInformation& ds_info = DsRuntimeGlobalInformation::instance();
         ret = dest->write_file_infos(header, finfos_vec, block_id_, false, ds_info.verify_index_reserved_space_ratio_);
@@ -561,11 +466,6 @@ namespace tfs
       }
       tbsys::gDeleteA(buffer);
       return ret;
-    }
-
-    bool CompactTask::is_big_file(const int32_t size) const
-    {
-      return size > MAX_SINGLE_FILE_SIZE;
     }
 
     ReplicateTask::ReplicateTask(DataService& service, const int64_t seqno,
@@ -630,7 +530,7 @@ namespace tfs
       int ret = get_block_manager().get_block_info(info, repl_info_.block_id_, false);
       if (TFS_SUCCESS == ret)
       {
-        ReplicateBlockMessage req_rb_msg;
+        create_msg_ref(ReplicateBlockMessage, req_rb_msg);
         req_rb_msg.set_seqno(seqno_);
         req_rb_msg.set_repl_block(repl_info_);
         req_rb_msg.set_status(status);
@@ -693,7 +593,7 @@ namespace tfs
     int ReplicateTask::report_to_ds(const int status)
     {
       DsRuntimeGlobalInformation& ds_info = DsRuntimeGlobalInformation::instance();
-      RespDsReplicateBlockMessage resp_repl_msg;
+      create_msg_ref(RespDsReplicateBlockMessage, resp_repl_msg);
       resp_repl_msg.set_seqno(seqno_);
       resp_repl_msg.set_ds_id(ds_info.information_.id_);
       resp_repl_msg.set_status(status);
@@ -797,7 +697,7 @@ namespace tfs
 
       ECMeta ec_meta;
       // update source block version
-      if ((TFS_SUCCESS == ret) && (!repl_info_.is_move_))
+      if (TFS_SUCCESS == ret)
       {
         ec_meta.version_step_ = VERSION_INC_STEP_REPLICATE;
         for (int i = 0;  (i < repl_info_.source_num_) && (TFS_SUCCESS == ret); i++)
@@ -833,6 +733,7 @@ namespace tfs
     {
       type_ = PLAN_TYPE_EC_MARSHALLING;
       family_id_ = family_id;
+      memset(crc_, 0, sizeof(crc_));
     }
 
     MarshallingTask::~MarshallingTask()
@@ -909,7 +810,7 @@ namespace tfs
     int MarshallingTask::report_to_ns(const int status)
     {
       int ret = TFS_SUCCESS;
-      ECMarshallingCommitMessage cmit_msg;
+      create_msg_ref(ECMarshallingCommitMessage, cmit_msg);
       cmit_msg.set_seqno(seqno_);
       cmit_msg.set_status(status);
       cmit_msg.set_family_id(family_id_);
@@ -1004,6 +905,15 @@ namespace tfs
               family_members_[i].block_, data[i], length, offset, true);
         }
 
+        // compute crc for all blocks
+        if (TFS_SUCCESS == ret)
+        {
+          for (int i = 0; i < member_num; i++)
+          {
+            crc_[i] = ob_crc32(crc_[i], data[i], length);
+          }
+        }
+
         // one turn success, update offset
         if (TFS_SUCCESS == ret)
         {
@@ -1035,6 +945,7 @@ namespace tfs
         {
           // we need record data block's marshalling len in check block
           index_data.header_.marshalling_offset_ = index_data.header_.used_offset_;
+          index_data.header_.data_crc_ = crc_[i];
           index_data.header_.info_.family_id_ = family_id_;
         }
         // backup every data block's index to all check blocks
@@ -1097,6 +1008,7 @@ namespace tfs
           ec_metas[i].family_id_ = family_id_;
           // set used_offset as marshalling_offset for data node
           // marshalling will unlock all data blocks on commit
+          ec_metas[i].data_crc_ = crc_[i];
           ec_metas[i].mars_offset_ = ec_metas[i].used_offset_;
           ret = get_data_helper().commit_ec_meta(family_members_[i].server_,
             family_members_[i].block_, ec_metas[i], SWITCH_BLOCK_NO, UNLOCK_BLOCK_YES);
@@ -1107,6 +1019,7 @@ namespace tfs
         ec_meta.mars_offset_ = marshalling_len;
         for (int i = data_num; (TFS_SUCCESS == ret) && (i < member_num); i++)
         {
+          ec_meta.data_crc_ = crc_[i];
           ret = get_data_helper().commit_ec_meta(family_members_[i].server_,
             family_members_[i].block_, ec_meta, SWITCH_BLOCK_YES);
         }
@@ -1359,6 +1272,19 @@ namespace tfs
               family_members_[i].block_, data[i], length, offset, true);
         }
 
+        // compute lost data crc
+        if (TFS_SUCCESS == ret)
+        {
+          for (int32_t i = 0; i < member_num; i++)
+          {
+            if (ErasureCode::NODE_DEAD != erased_[i])
+            {
+              continue;
+            }
+            crc_[i] = ob_crc32(crc_[i], data[i], length);
+          }
+        }
+
         // all success, update offset
         if (TFS_SUCCESS == ret)
         {
@@ -1406,6 +1332,14 @@ namespace tfs
         {
           // update lost data node's marshalling len
           // it's needed when recover check block
+          // compactible with old family
+          if (index_data.header_.data_crc_ != 0 && ec_metas[pi].data_crc_ != 0 &&
+              index_data.header_.data_crc_ != crc_[i])
+          {
+             TBSYS_LOG(WARN, "check crc fail when recover family %ld %u:%ld, ret: %d",
+             family_id_, index_data.header_.data_crc_, crc_[i], EXIT_CHECK_CRC_ERROR);
+             // assert(index_data.header_.data_crc_ == crc_[i]);
+          }
           ec_metas[i].mars_offset_ = index_data.header_.marshalling_offset_;
           ret = get_data_helper().write_index(family_members_[i].server_,
               family_members_[i].block_, family_members_[i].block_, index_data, true);
@@ -1432,6 +1366,8 @@ namespace tfs
 
         ECMeta ec_meta;
         ec_meta.family_id_ = family_id_;
+        ec_meta.data_crc_ = crc_[i];
+        ec_meta.version_step_ = VERSION_INC_STEP_REINSTATE;
         ret = get_data_helper().commit_ec_meta(family_members_[i].server_,
             family_members_[i].block_, ec_meta, SWITCH_BLOCK_YES);
       }
@@ -1479,6 +1415,8 @@ namespace tfs
         ECMeta ec_meta;
         ec_meta.family_id_ = family_id_;
         ec_meta.mars_offset_ = marshalling_len;
+        ec_meta.data_crc_ = crc_[i];
+        ec_meta.version_step_ = VERSION_INC_STEP_REINSTATE;
         ret = get_data_helper().commit_ec_meta(family_members_[i].server_,
             family_members_[i].block_, ec_meta, SWITCH_BLOCK_YES);
 
@@ -1549,7 +1487,7 @@ namespace tfs
     int ReinstateTask::report_to_ns(const int status)
     {
       int ret = TFS_SUCCESS;
-      ECReinstateCommitMessage cmit_msg;
+      create_msg_ref(ECReinstateCommitMessage, cmit_msg);
       cmit_msg.set_seqno(seqno_);
       cmit_msg.set_status(status);
       cmit_msg.set_family_id(family_id_);
@@ -1681,7 +1619,7 @@ namespace tfs
         }
       }
 
-      ECDissolveCommitMessage cmit_msg;
+      create_msg_ref(ECDissolveCommitMessage, cmit_msg);
       cmit_msg.set_seqno(seqno_);
       cmit_msg.set_status(final_status);
       cmit_msg.set_family_id(family_id_);
@@ -1722,7 +1660,7 @@ namespace tfs
           continue;  // lost block, can't to replicate
         }
 
-        DsReplicateBlockMessage repl_msg;
+        create_msg_ref(DsReplicateBlockMessage, repl_msg);
         ReplBlock repl_block;
         repl_block.block_id_ = family_members_[i].block_;
         repl_block.source_id_[0] = family_members_[i].server_;
@@ -1821,7 +1759,7 @@ namespace tfs
     int ResolveVersionConflictTask::report_to_ns(const int32_t status)
     {
       UNUSED(status);
-      ResolveBlockVersionConflictMessage req_msg;
+      create_msg_ref(ResolveBlockVersionConflictMessage, req_msg);
       req_msg.set_seqno(get_seqno());
       req_msg.set_block(block_id_);
       int ret = req_msg.set_members(members_, size_);

@@ -22,12 +22,11 @@ namespace tfs
 {
   namespace nameserver
   {
-    TairHelper::TairHelper(const std::string& key_prefix, const std::string& master_ipaddr, const std::string& slave_ipaddr,
-          const std::string& group_name, const int32_t area):
+    const char* GLOBAL_BLOCK_ID_SKEY = "global_block_id";
+
+    TairHelper::TairHelper(const std::string& key_prefix, const std::string& config_id, const int32_t area):
       key_prefix_(key_prefix),
-      master_ipaddr_(master_ipaddr),
-      slave_ipaddr_(slave_ipaddr),
-      group_name_(group_name),
+      config_id_(config_id),
       area_(area)
     {
 
@@ -69,6 +68,11 @@ namespace tfs
         {
           TBSYS_LOG(WARN, "create family : %"PRI64_PREFIX"d error: call tair put error, ret: %d, pkey: %s, skey: %s", family_info.family_id_, ret, pkey, skey);
         }
+        // always try to delete after ns put tair timout, avoid tair put successfully itself finally
+        if (TAIR_RETURN_TIMEOUT == ret)
+        {
+          del_(pkey, skey);
+        }
         ret = (TAIR_RETURN_SUCCESS == ret) ? TFS_SUCCESS : EXIT_OP_TAIR_ERROR;
       }
       return ret;
@@ -86,7 +90,7 @@ namespace tfs
       int32_t ret = get_(pkey, skey, value, 1024);
       if (TAIR_RETURN_SUCCESS != ret)
       {
-        TBSYS_LOG(WARN, "query family : %"PRI64_PREFIX"d error: call tair put error, ret: %d, pkey: %s, skey: %s", family_info.family_id_, ret, pkey, skey);
+        TBSYS_LOG(WARN, "query family : %"PRI64_PREFIX"d error: call tair get error, ret: %d, pkey: %s, skey: %s", family_info.family_id_, ret, pkey, skey);
         ret = EXIT_OP_TAIR_ERROR;
       }
       else
@@ -103,11 +107,12 @@ namespace tfs
       char suffix[64] = {'\0'};
       if (del)
         snprintf(suffix, 64, "_del_%"PRI64_PREFIX"u",own_ipport);
-      snprintf(pkey, 128, "%s%06d%s", key_prefix_.c_str(), get_bucket(family_id), del ? suffix : "");
+      snprintf(pkey, 128, "%s%06d%s", key_prefix_.c_str(), del ? DELETE_FAMILY_CHUNK_DEFAULT_VALUE : get_bucket(family_id), del ? suffix : "");
       snprintf(skey, 128, "%020"PRI64_PREFIX"d", family_id);
       data_entry tair_pkey(pkey, false);
       data_entry tair_skey(skey, false);
       int32_t ret = del_(pkey, skey);
+      ret = TAIR_RETURN_DATA_NOT_EXIST == ret ? TAIR_RETURN_SUCCESS : ret;
       if (TAIR_RETURN_SUCCESS != ret)
       {
         TBSYS_LOG(WARN, "del family : %"PRI64_PREFIX"d error: call tair put error, ret: %d, pkey: %s, skey: %s", family_id, ret, pkey, skey);
@@ -117,6 +122,46 @@ namespace tfs
       {
         if (log)
           ret = insert_del_family_log_(family_id, own_ipport);
+      }
+      return ret;
+    }
+
+    int TairHelper::update_global_block_id(const uint64_t block_id)
+    {
+      char pkey[64] = {'\0'};
+      char skey[64] = {'\0'};
+      char value[64] = {'\0'};
+      snprintf(pkey, 64, "%s", key_prefix_.c_str());
+      snprintf(skey, 64, "%s", GLOBAL_BLOCK_ID_SKEY);
+      snprintf(value, 64, "%lu", block_id);
+
+      int ret = put_(pkey, skey, value, strlen(value));
+      if (TAIR_RETURN_SUCCESS != ret)
+      {
+        TBSYS_LOG(WARN, "update global block id : %"PRI64_PREFIX"u error. "
+            "call tair put error, ret: %d, pkey: %s, skey: %s", block_id, ret, pkey, skey);
+      }
+      return ret;
+    }
+
+    int TairHelper::query_global_block_id(uint64_t& block_id)
+    {
+      block_id = 0;
+      char pkey[64] = {'\0'};
+      char skey[64] = {'\0'};
+      char value[64] = {'\0'};
+      snprintf(pkey, 64, "%s", key_prefix_.c_str());
+      snprintf(skey, 64, "%s", GLOBAL_BLOCK_ID_SKEY);
+
+      int32_t ret = get_(pkey, skey, value, 64);
+      if (TAIR_RETURN_SUCCESS != ret)
+      {
+        TBSYS_LOG(WARN, "query global block id error. "
+            "call tair get error, ret: %d, pkey: %s, skey: %s", ret, pkey, skey);
+      }
+      else
+      {
+        block_id = strtoul(value, NULL, 10);
       }
       return ret;
     }
@@ -144,7 +189,7 @@ namespace tfs
     int TairHelper::initialize()
     {
       tbutil::Mutex::Lock lock(mutex_);
-      return tair_client_.startup(master_ipaddr_.c_str(), slave_ipaddr_.c_str(), group_name_.c_str()) ? TFS_SUCCESS : EXIT_INITIALIZE_TAIR_ERROR;
+      return tair_client_.startup(config_id_.c_str()) ? TFS_SUCCESS : EXIT_INITIALIZE_TAIR_ERROR;
     }
 
     int TairHelper::destroy()
@@ -153,9 +198,8 @@ namespace tfs
       return TFS_SUCCESS;
     }
 
-    int TairHelper::scan(std::vector<FamilyInfo>& family_infos, const int64_t start_family_id, const int32_t chunk, const bool del, const uint64_t peer_ipport)
+    int TairHelper::scan(std::vector<FamilyInfo>& family_infos, const int64_t start_family_id, const int32_t chunk, const bool del, const uint64_t peer_ipport, const int32_t limit)
     {
-      const int32_t ROW_LIMIT = 0;
       char pkey[128] = {'\0'};
       char start_key[128] = {'\0'};
       char end_key[128] = {'\0'};
@@ -176,7 +220,7 @@ namespace tfs
       {
         tbutil::Mutex::Lock lock(mutex_);
         ret = tair_client_.get_range(area_, tair_pkey, tair_start_key, tair_end_key,
-            0, ROW_LIMIT, values, CMD_RANGE_VALUE_ONLY);
+            0, limit, values, CMD_RANGE_VALUE_ONLY);
       }
       while (TAIR_RETURN_DATA_NOT_EXIST != ret
             && TAIR_HAS_MORE_DATA != ret
@@ -192,7 +236,7 @@ namespace tfs
         assert(TFS_SUCCESS == rt);
         tbsys::gDelete((*iter));
       }
-      TBSYS_LOG(INFO, "scan family information %d, start_family_id: %"PRI64_PREFIX"d, chunk: %d, pkey: %s, start_key: %s, end_key: %s , infos.size(): %zd",
+      TBSYS_LOG(DEBUG, "scan family information %d, start_family_id: %"PRI64_PREFIX"d, chunk: %d, pkey: %s, start_key: %s, end_key: %s , infos.size(): %zd",
         ret, start_family_id, chunk, pkey, start_key, end_key, family_infos.size());
       return ret;
     };
@@ -264,7 +308,7 @@ namespace tfs
         {
           ret = tair_client_.prefix_get(area_, tair_pkey, tair_skey, tair_value);
         }
-        while (TAIR_RETURN_SUCCESS != ret && index++ < 3);
+        while (TAIR_RETURN_SUCCESS != ret && TAIR_RETURN_DATA_NOT_EXIST != ret && index++ < 3);
 
         if (TFS_SUCCESS == ret)
         {

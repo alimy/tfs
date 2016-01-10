@@ -1,17 +1,16 @@
 AM_CPPFLAGS =-I$(top_srcdir)/src\
 	     -I$(TBLIB_ROOT)/include/tbsys\
-	     -I$(TBLIB_ROOT)/include/tbnet
+	     -I$(TBLIB_ROOT)/include/tbnet\
+			 -I$(EASY_ROOT)/include/easy
 
-AM_LDFLAGS=-lrt -lpthread -ldl
+AM_LDFLAGS=-lrt -lpthread -ldl -lssl
 
-LDADD=$(top_builddir)/src/clientv2/.libs/libtfsclientv2.a\
-      $(top_builddir)/src/requester/libtfsrequester.a\
+LDADD=$(top_builddir)/src/requester/libtfsrequester.a\
       $(top_builddir)/src/message/libtfsmessage.a\
       $(top_builddir)/src/common/libtfscommon.a\
-      $(UNIQUE_STORE_LDFLAGS)\
-      $(TAIR_CACHE_LDFLAGS)\
       $(TBLIB_ROOT)/lib/libtbnet.a\
-      $(TBLIB_ROOT)/lib/libtbsys.a
+      $(TBLIB_ROOT)/lib/libtbsys.a\
+			$(EASY_ROOT)/lib64/libeasy.a
 
 noinst_LIBRARIES = libmigrateserver.a
 

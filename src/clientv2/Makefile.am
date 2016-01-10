@@ -1,9 +1,10 @@
 AM_CPPFLAGS=-I${top_srcdir}/src\
 	    -I$(TBLIB_ROOT)/include/tbsys\
 	    -I$(TBLIB_ROOT)/include/tbnet\
+			-I$(EASY_ROOT)/include/easy \
 			-I$(TAIR_CACHE_CPPFLAGS)
 
-AM_LDFLAGS=-lrt -lpthread -ldl -luuid $(TAIR_CACHE_LDFLAGS) 
+AM_LDFLAGS=-lrt -lpthread -ldl -luuid -lssl $(TAIR_CACHE_LDFLAGS) 
 
 if WITH_TAIR_CACHE
 tair_cache_source=tair_cache_helper.cpp tair_cache_helper.h
@@ -21,13 +22,13 @@ api_source_list = tfs_client_api_v2.cpp tfs_client_impl_v2.cpp tfs_file.cpp fsna
 									tfs_meta_manager.h tfs_kv_meta_client_impl.h tfs_kv_meta_client_api.h \
 									tfs_kv_meta_helper.h tfs_cluster_manager.h tfs_rc_helper.h \
 									tfs_rc_client_api.h tfs_rc_client_api_impl.h\
-									local_key.cpp local_key.h segment_container.h \
                   $(tair_cache_source)
 
 ld_fg = $(AM_LDFLAGS) \
         $(top_srcdir)/src/requester/libtfsrequester.a \
         $(top_srcdir)/src/message/libtfsmessage.a \
-        $(top_srcdir)/src/common/libtfscommon.a
+        $(top_srcdir)/src/common/libtfscommon.a \
+				$(EASY_ROOT)/lib64/libeasy.a
 
 libtfsclientv2_la_SOURCES = ${api_source_list}
 libtfsclientv2_la_LIBADD = ${ld_fg}

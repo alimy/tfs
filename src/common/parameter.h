@@ -29,7 +29,6 @@ namespace tfs
       int32_t max_block_size_;
       int32_t max_write_file_count_;
       int32_t max_use_capacity_ratio_;
-      uint32_t group_mask_;
       int32_t heart_interval_;
       int32_t replicate_ratio_;
       int32_t replicate_wait_time_;
@@ -51,6 +50,7 @@ namespace tfs
       int32_t discard_newblk_safe_mode_time_;
       int32_t discard_max_count_;
       int32_t report_block_queue_size_;
+      int32_t report_block_pending_size_;
       int32_t report_block_time_lower_;
       int32_t report_block_time_upper_;
       int32_t report_block_time_interval_;//day
@@ -87,19 +87,23 @@ namespace tfs
       int32_t between_ns_and_ds_lease_retry_expire_time_;
       int32_t resolve_version_conflic_task_expired_time_;
       int32_t write_file_check_copies_complete_;
-      int32_t enable_old_interface_;
-      int32_t enable_version_check_;
+      int32_t global_switch_;
       int32_t client_keepalive_interval_;
       int32_t verify_index_reserved_space_ratio_;
       int32_t block_safe_mode_time_;
       int32_t business_port_count_;
       int32_t heart_port_count_;
       double  balance_percent_;
+      int32_t migrate_complete_wait_time_;
+      int32_t check_integrity_interval_days_;
+      int32_t force_dissolve_max_block_size_;
+      int32_t plan_run_flag_;
 
       NameServerParameter()
       {
         business_port_count_ = 1;
         heart_port_count_ = 1;
+        force_dissolve_max_block_size_ = 128 * 1024 * 1024;
       }
 
       static NameServerParameter ns_parameter_;
@@ -164,6 +168,7 @@ namespace tfs
       int32_t max_bg_task_queue_size_;
       int32_t business_port_count_;
       int32_t heart_port_count_;
+      uint32_t rack_id_;
       std::map<uint64_t, int32_t> cluster_version_list_;
       static std::string get_real_file_name(const std::string& src_file,
           const std::string& index, const std::string& suffix);
@@ -261,6 +266,8 @@ namespace tfs
       int32_t force_check_all_;
       int32_t start_time_hour_;
       int32_t start_time_min_;
+      int32_t group_seq_;
+      int32_t group_count_;
 
       int initialize(const std::string& config_file);
 
@@ -268,6 +275,29 @@ namespace tfs
       static CheckServerParameter& instance()
       {
         return cs_parameter_;
+      }
+    };
+
+
+    struct MigrateServerParameter
+    {
+      uint64_t ns_vip_port_;
+      int32_t ds_base_port_;
+      int32_t max_full_ds_count_;
+      double balance_percent_;
+      double penalty_percent_;
+      int32_t update_statistic_interval_;
+      int64_t hot_time_range_;
+      AccessRatio full_disk_access_ratio_;
+      AccessRatio system_disk_access_ratio_;
+      bool need_migrate_back_;
+
+      int initialize(void);
+
+      static MigrateServerParameter ms_parameter_;
+      static MigrateServerParameter& instance()
+      {
+        return ms_parameter_;
       }
     };
 
@@ -333,6 +363,11 @@ namespace tfs
 
     struct ExpireRootServerParameter
     {
+      std::string conn_str_;
+      std::string user_name_;
+      std::string pass_wd_;
+      int lifecycle_area_;
+
       int32_t es_rts_lease_expired_time_;  //4s
       int32_t es_rts_check_lease_interval_;  //1s
       int32_t es_rts_heart_interval_;       //2s
@@ -356,6 +391,7 @@ namespace tfs
 #define SYSPARAM_NAMEMETASERVER NameMetaServerParameter::instance()
 #define SYSPARAM_RTSERVER RtServerParameter::instance()
 #define SYSPARAM_CHECKSERVER CheckServerParameter::instance()
+#define SYSPARAM_MIGRATESERVER MigrateServerParameter::instance()
 #define SYSPARAM_KVMETA KvMetaParameter::instance()
 #define SYSPARAM_KVRTSERVER KvRtServerParameter::instance()
 #define SYSPARAM_EXPIRESERVER ExpireServerParameter::instance()

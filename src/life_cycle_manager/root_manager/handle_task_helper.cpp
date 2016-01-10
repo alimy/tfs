@@ -47,7 +47,8 @@ namespace tfs
     };
 
     HandleTaskHelper::HandleTaskHelper(ExpServerManager &manager)
-      :assign_task_thread_(0), task_period_(0),
+      :lifecycle_area_(0),
+      assign_task_thread_(0), task_period_(0),
       note_interval_(0), destroy_(false), manager_(manager)
     {
     }
@@ -71,9 +72,13 @@ namespace tfs
     {
       int ret = TFS_SUCCESS;
 
-      task_period_ = SYSPARAM_EXPIREROOTSERVER.task_period_;
-      note_interval_ = SYSPARAM_EXPIREROOTSERVER.note_interval_;
-      assign_task_thread_ = new AssignTaskThreadHelper(*this);
+      if (TFS_SUCCESS == ret)
+      {
+        lifecycle_area_ = SYSPARAM_EXPIREROOTSERVER.lifecycle_area_;
+        task_period_ = SYSPARAM_EXPIREROOTSERVER.task_period_;
+        note_interval_ = SYSPARAM_EXPIREROOTSERVER.note_interval_;
+        assign_task_thread_ = new AssignTaskThreadHelper(*this);
+      }
 
       return ret;
     }
@@ -100,16 +105,15 @@ namespace tfs
 
     int HandleTaskHelper::assign(const uint64_t es_id, const ExpireTaskInfo &del_task)
     {
-      NewClient* client = NULL;
       int32_t retry_count = 0;
       int32_t iret = TFS_SUCCESS;
-      tbnet::Packet* rsp = NULL;
-
-      message::ReqCleanTaskFromRtsMessage msg;
-      msg.set_task(del_task);
 
       do
       {
+        create_msg_ref(message::ReqCleanTaskFromRtsMessage, msg);
+        msg.set_task(del_task);
+        NewClient* client = NULL;
+        tbnet::Packet* rsp = NULL;
         ++retry_count;
         client = NewClientManager::get_instance().create_client();
         tbutil::Time start = tbutil::Time::now();

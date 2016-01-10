@@ -27,6 +27,7 @@
 #include "common/config_item.h"
 #include "common/directory_op.h"
 #include "clientv2/fsname.h"
+#include "message/get_dataserver_stat_info_message.h"
 
 namespace tfs
 {
@@ -45,17 +46,18 @@ namespace tfs
         client_request_server_(*this),
         writable_block_manager_(*this),
         check_manager_(*this),
-        migrate_manager_(NULL),
+        integrity_manager_(*this),
         timeout_thread_(0),
         task_thread_(0),
-        check_thread_(0)
+        check_thread_(0),
+        check_integrity_thread_(0),
+        last_crash_time_(0)
     {
 
     }
 
     DataService::~DataService()
     {
-      tbsys::gDelete(migrate_manager_);
       tbsys::gDelete(lease_manager_);
       tbsys::gDelete(block_manager_);
       timeout_thread_ = 0;
@@ -157,6 +159,14 @@ namespace tfs
         const int32_t server_index = atoi(server_index_.c_str());
         DsRuntimeGlobalInformation& instance = DsRuntimeGlobalInformation::instance();
         instance.information_.type_ = 0 == server_index ? DATASERVER_DISK_TYPE_SYSTEM : DATASERVER_DISK_TYPE_FULL;
+        if (0 != SYSPARAM_DATASERVER.rack_id_)
+        {
+          instance.information_.rack_id_ = SYSPARAM_DATASERVER.rack_id_;
+        }
+        else
+        {
+          instance.information_.rack_id_ = tbsys::CNetUtil::getAddr(get_ip_addr());// rack_id is 0 for test evn
+        }
       }
 
       if (TFS_SUCCESS == ret)
@@ -236,21 +246,21 @@ namespace tfs
       }
 
       //start clientmanager
-      if (TFS_SUCCESS == ret)
-      {
-        NewClientManager::get_instance().destroy();
-        assert(NULL != get_packet_streamer());
-        assert(NULL != get_packet_factory());
-        BasePacketStreamer* packet_streamer = dynamic_cast<BasePacketStreamer*>(get_packet_streamer());
-        BasePacketFactory* packet_factory   = dynamic_cast<BasePacketFactory*>(get_packet_factory());
-        ret = NewClientManager::get_instance().initialize(packet_factory, packet_streamer,
-                NULL, &BaseService::golbal_async_callback_func, this);
-        if (TFS_SUCCESS != ret)
-        {
-          TBSYS_LOG(ERROR, "start client manager failed, must be exit!!!");
-          ret = EXIT_NETWORK_ERROR;
-        }
-      }
+      //if (TFS_SUCCESS == ret)
+      //{
+      //  NewClientManager::get_instance().destroy();
+      //  assert(NULL != get_packet_streamer());
+      //  assert(NULL != get_packet_factory());
+      //  BasePacketStreamer* packet_streamer = dynamic_cast<BasePacketStreamer*>(get_packet_streamer());
+      //  BasePacketFactory* packet_factory   = dynamic_cast<BasePacketFactory*>(get_packet_factory());
+      //  ret = NewClientManager::get_instance().initialize(packet_factory, packet_streamer,
+      //          NULL, &BaseService::golbal_async_callback_func, this);
+      //  if (TFS_SUCCESS != ret)
+      //  {
+      //    TBSYS_LOG(ERROR, "start client manager failed, must be exit!!!");
+      //    ret = EXIT_NETWORK_ERROR;
+      //  }
+      //}
 
       if (TFS_SUCCESS == ret)
       {
@@ -267,6 +277,33 @@ namespace tfs
         ret = get_block_manager().bootstrap(SYSPARAM_FILESYSPARAM);
         if (TFS_SUCCESS != ret)
           TBSYS_LOG(ERROR, "load all blocks failed, ret: %d", ret);
+      }
+
+      // after load blocks
+      if (TFS_SUCCESS == ret)
+      {
+        // we create a file when ds start
+        // unlink it when ds normally exit
+        // if it already exist when start, ds may have crashed last time
+        running_path_ = get_real_work_dir() + string("/running");
+        if (access(running_path_.c_str(), F_OK) == 0)
+        {
+          last_crash_time_ = 0;
+          std::vector<IndexHeaderV2> headers;
+          get_block_manager().get_all_block_header(headers);
+          std::vector<IndexHeaderV2>::iterator it = headers.begin();
+          for ( ; it != headers.end(); it++)
+          {
+            if (it->throughput_.last_update_time_ > last_crash_time_)
+            {
+              last_crash_time_ = it->throughput_.last_update_time_;
+            }
+          }
+        }
+        else
+        {
+          mknod(running_path_.c_str(), 0644, S_IFREG);
+        }
       }
 
       // init lease manager
@@ -305,6 +342,8 @@ namespace tfs
         assert(0 != timeout_thread_);
         check_thread_ = new (std::nothrow)RunCheckThreadHelper(*this);
         assert(0 != check_thread_);
+        check_integrity_thread_ = new (std::nothrow)CheckIntegrityThreadHelper(*this);
+        assert(0 != check_integrity_thread_);
       }
 
       // sync mirror should init after bootstrap
@@ -349,36 +388,6 @@ namespace tfs
         }
       }
       */
-
-      // init migrate
-      if (TFS_SUCCESS == ret)
-      {
-        const char* str_dest_addr = TBSYS_CONFIG.getString(CONF_SN_DATASERVER, CONF_MIGRATE_SERVER_ADDR, NULL);
-        uint64_t migrate_addr = common::INVALID_SERVER_ID;
-        if (NULL != str_dest_addr)
-        {
-          std::vector<string> vec;
-          common::Func::split_string(str_dest_addr, ':', vec);
-          ret = vec.size() == 2U ? TFS_SUCCESS : EXIT_SYSTEM_PARAMETER_ERROR;
-          if (TFS_SUCCESS == ret)
-          {
-            migrate_addr = tbsys::CNetUtil::strToAddr(vec[0].c_str(), atoi(vec[1].c_str()));
-          }
-        }
-        if (TFS_SUCCESS == ret && INVALID_SERVER_ID != migrate_addr)
-        {
-          DsRuntimeGlobalInformation& instance = DsRuntimeGlobalInformation::instance();
-          migrate_manager_ = new (std::nothrow)MigrateManager(migrate_addr, instance.information_.id_);
-          assert(NULL != migrate_manager_);
-          ret = migrate_manager_->initialize();
-        }
-
-        if (INVALID_SERVER_ID != migrate_addr)
-        {
-          TBSYS_LOG(INFO, "start migrate heartbeat %s, migrate serveraddr: %s",
-            TFS_SUCCESS == ret ? "successful" : "failed", NULL != str_dest_addr ? str_dest_addr : "null");
-        }
-      }
 
       return ret;
     }
@@ -482,9 +491,6 @@ namespace tfs
       for (; iter != sync_mirror_.end(); iter++)
         (*iter)->stop();
 
-      if (NULL != migrate_manager_)
-        migrate_manager_->destroy();
-
       if (NULL != lease_manager_)
          lease_manager_->destroy();
 
@@ -503,6 +509,13 @@ namespace tfs
       {
         check_thread_->join();
       }
+
+      if (0 != check_integrity_thread_)
+      {
+        check_integrity_thread_->join();
+      }
+
+      unlink(running_path_.c_str());
 
       return TFS_SUCCESS;
     }
@@ -625,6 +638,11 @@ namespace tfs
       check_manager_.run_check();
     }
 
+    void DataService::CheckIntegrityThreadHelper::run()
+    {
+      service_.integrity_manager_.run_check();
+    }
+
     int DataService::callback(common::NewClient* client)
     {
       int32_t ret = NULL != client ? TFS_SUCCESS : TFS_ERROR;
@@ -642,7 +660,8 @@ namespace tfs
             ret = client_request_server_.callback(client);
           }
           else if (DS_APPLY_BLOCK_MESSAGE == pcode ||
-              DS_GIVEUP_BLOCK_MESSAGE == pcode)
+              DS_GIVEUP_BLOCK_MESSAGE == pcode ||
+              DS_RENEW_BLOCK_MESSAGE == pcode)
           {
             ret = writable_block_manager_.callback(client);
           }
@@ -689,7 +708,7 @@ namespace tfs
               hret = tbnet::IPacketHandler::KEEP_CHANNEL;
             else
             {
-              bpacket->reply_error_packet(TBSYS_LOG_LEVEL(ERROR),EXIT_WORK_QUEUE_FULL, "peer: %s, local: %s. task message beyond max queue size, discard", tbsys::CNetUtil::addrToString(bpacket->get_connection()->getPeerId()).c_str(), get_ip_addr());
+              bpacket->reply_error_packet(TBSYS_LOG_LEVEL(ERROR),EXIT_WORK_QUEUE_FULL, "peer: %s, local: %s. task message beyond max queue size, discard", tbsys::CNetUtil::addrToString(bpacket->getPeerId()).c_str(), get_ip_addr());
               bpacket->free();
             }
           }
@@ -780,6 +799,110 @@ namespace tfs
       }
       return bret;
     }
+
+    int DataService::handle(BasePacket* packet)
+    {
+      int ret = TFS_SUCCESS;
+      int32_t pcode = packet->getPCode();
+
+      // dataserver not initialized or already destroyed, deny request
+      if (DsRuntimeGlobalInformation::instance().is_destroyed())
+      {
+        packet->reply_error_packet(TBSYS_LOG_LEVEL(WARN), STATUS_MESSAGE_ACCESS_DENIED,
+            "you client %s access been denied. msgtype: %d", tbsys::CNetUtil::addrToString(
+              packet->getPeerId()).c_str(), packet->getPCode());
+      }
+      else
+      {
+        switch (pcode)
+        {
+          case LIST_BLOCK_MESSAGE:
+            ret = list_blocks(dynamic_cast<ListBlockMessage*>(packet));
+            break;
+          case REPLICATE_BLOCK_MESSAGE:
+          case COMPACT_BLOCK_MESSAGE:
+          case DS_COMPACT_BLOCK_MESSAGE:
+          case DS_REPLICATE_BLOCK_MESSAGE:
+          case RESP_DS_COMPACT_BLOCK_MESSAGE:
+          case RESP_DS_REPLICATE_BLOCK_MESSAGE:
+          case REQ_EC_MARSHALLING_MESSAGE:
+          case REQ_EC_REINSTATE_MESSAGE:
+          case REQ_EC_DISSOLVE_MESSAGE:
+          case NS_REQ_RESOLVE_BLOCK_VERSION_CONFLICT_MESSAGE:
+            ret = task_manager_.handle(dynamic_cast<BaseTaskMessage*>(packet));
+            break;
+          case GET_BLOCK_INFO_MESSAGE_V2:
+            ret = get_block_info(dynamic_cast<GetBlockInfoMessageV2*>(packet));
+            break;
+          case GET_SERVER_STATUS_MESSAGE:
+            ret = get_server_status(dynamic_cast<GetServerStatusMessage*>(packet));
+            break;
+          case STATUS_MESSAGE:
+            ret = get_ping_status(dynamic_cast<StatusMessage*>(packet));
+            break;
+          case CLIENT_CMD_MESSAGE:
+            ret = client_command(dynamic_cast<ClientCmdMessage*>(packet));
+            break;
+          case REQ_CALL_DS_REPORT_BLOCK_MESSAGE:
+          case STAT_FILE_MESSAGE_V2:
+          case READ_FILE_MESSAGE_V2:
+          case WRITE_FILE_MESSAGE_V2:
+          case CLOSE_FILE_MESSAGE_V2:
+          case UNLINK_FILE_MESSAGE_V2:
+          case NEW_BLOCK_MESSAGE_V2:
+          case REMOVE_BLOCK_MESSAGE_V2:
+          case READ_RAWDATA_MESSAGE_V2:
+          case WRITE_RAWDATA_MESSAGE_V2:
+          case READ_INDEX_MESSAGE_V2:
+          case WRITE_INDEX_MESSAGE_V2:
+          case QUERY_EC_META_MESSAGE:
+          case COMMIT_EC_META_MESSAGE:
+          case GET_ALL_BLOCKS_HEADER_MESSAGE:
+          case NS_CLEAR_FAMILYINFO_MESSAGE:
+            ret = client_request_server_.handle(packet);
+            break;
+          case REQ_CHECK_BLOCK_MESSAGE:
+          case REPORT_CHECK_BLOCK_MESSAGE:
+            ret = check_manager_.handle(packet);
+            break;
+          default:
+            TBSYS_LOG(WARN, "unkown packet pcode: %d\n", pcode);
+            ret = EXIT_UNKNOWN_MSGTYPE;
+            break;
+        }
+
+        if (EASY_AGAIN == ret)
+        {
+          return EASY_AGAIN;
+        }
+
+        if (common::TFS_SUCCESS != ret)
+        {
+          common::BasePacket* msg = dynamic_cast<common::BasePacket*>(packet);
+          msg->reply_error_packet(TBSYS_LOG_LEVEL(WARN), ret, "execute message failed");
+        }
+      }
+
+      return EASY_OK;
+    }
+
+    EasyThreadType DataService::select_thread(BasePacket* packet)
+    {
+      int32_t pcode = packet->getPCode();
+      if (pcode == WRITE_FILE_MESSAGE_V2 ||
+          pcode == CLOSE_FILE_MESSAGE_V2 ||
+          pcode == UNLINK_FILE_MESSAGE_V2)
+      {
+        // need async process, must handle by io thread
+        return EASY_IO_THREAD;
+      }
+      else if (pcode == REQ_CALL_DS_REPORT_BLOCK_MESSAGE)
+      {
+        return EASY_SLOW_WORK_THREAD;
+      }
+      return EASY_WORK_THREAD;
+    }
+
 
     int DataService::list_blocks(ListBlockMessage* message)
     {
@@ -898,6 +1021,14 @@ namespace tfs
         {
           ret = message->reply(reply_msg);
         }
+      }
+      else if (GSS_DATASEVER_INFO == type)
+      {
+        GetDsStatInfoMessage* resp_msg = new (std::nothrow) GetDsStatInfoMessage();
+        assert(NULL != resp_msg);
+        DataServerStatInfo& info = DsRuntimeGlobalInformation::instance().information_;
+        resp_msg->set_dataserver_information(info);
+        ret = message->reply(resp_msg);
       }
       return ret;
     }

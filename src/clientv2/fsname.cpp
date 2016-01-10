@@ -28,7 +28,6 @@ namespace tfs
   namespace clientv2
   {
     static const char TFS_FILE_VERSION_CHAR_V2 = 'B';
-    static const TfsFileNameVersion CURRENT_TFS_FILE_NAME_VERSION = TFS_FILE_NAME_V1;
 
     static int32_t hash(const char *str)
     {
@@ -50,13 +49,12 @@ namespace tfs
     FSName::FSName() : version_(CURRENT_TFS_FILE_NAME_VERSION), is_valid_(true), cluster_id_(0)
     {
       file_name_[0] = '\0';
-      memset(&filev1_, 0, sizeof(FileBitsV1));
-      memset(&filev2_, 0, sizeof(FileBitsV2));
     }
 
-    FSName::FSName(const uint64_t block_id, const uint64_t file_id, const int32_t cluster_id) :
-      version_(CURRENT_TFS_FILE_NAME_VERSION), is_valid_(true), cluster_id_(cluster_id)
+    FSName::FSName(const uint64_t block_id, const uint64_t file_id, const int32_t cluster_id,
+        common::TfsFileNameVersion version) : is_valid_(true), cluster_id_(cluster_id)
     {
+      version_ = version;
       set_block_id(block_id);
       set_file_id(file_id);
       file_name_[0] = '\0';
@@ -93,11 +91,13 @@ namespace tfs
           if (TFS_FILE_NAME_V1 == version_)
           {
             file_name_len = FILE_NAME_LEN;
+            cluster_id_ = 0 == cluster_id_ ? file_name[1] - '0' : cluster_id_;
             decode(file_name + 2, (char*) &filev1_, file_name_len - 2);
           }
           else
           {
             file_name_len = FILE_NAME_LEN_V2;
+            cluster_id_ = 0 == cluster_id_ ? file_name[2] - '0' : cluster_id_;
             decode(file_name + 3, (char*) &filev2_, file_name_len - 3);
           }
 
@@ -106,10 +106,6 @@ namespace tfs
             suffix = file_name + file_name_len;
           }
           set_suffix(suffix);
-          if (0 == cluster_id_)
-          {
-            cluster_id_ = file_name[1] - '0';
-          }
         }
       }
     }

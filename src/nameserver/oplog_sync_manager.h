@@ -57,10 +57,18 @@ namespace tfs
       int replay_helper_do_oplog(const time_t now, const int32_t type, const char* const data, const int64_t data_len, int64_t& pos);
 
       inline uint64_t generation(const bool verify) { return id_factory_.generation(verify);}
+      inline int update(const uint64_t id) { return id_factory_.update(id);}
+      uint64_t get_max_block_id() { return id_factory_.get(); }
 
       int create_family_id(int64_t& family_id);
       int create_family(common::FamilyInfo& family_info);
       int del_family(const int64_t family_id);
+
+      // handle libeasy packet
+      int handle(common::BasePacket* packet);
+
+      int update_global_block_id(const uint64_t block_id);
+      int query_global_block_id(uint64_t& block_id);
 
     private:
       DISALLOW_COPY_AND_ASSIGN( OpLogSyncManager);
@@ -72,9 +80,14 @@ namespace tfs
       int replay_all_();
       common::BasePacket* malloc_(const int32_t type);
 
-      int scan_all_family_(const int32_t chunk, int64_t& start_family_id);
+      int scan_all_family_(const int32_t thseqno, const int32_t chunk, int64_t& start_family_id);
       int scan_all_family_log_();
+      int load_family_info_(const int32_t thread_seqno);
+      int load_family_log_(const int32_t thread_seqno);
       int load_all_family_info_(const int32_t thread_seqno, bool& load_complete);
+
+      int sync_remote_block_id_();
+      int save_remote_block_id_();
 
       class LoadFamilyInfoThreadHelper: public tbutil::Thread
       {
@@ -93,16 +106,30 @@ namespace tfs
       };
       typedef tbutil::Handle<LoadFamilyInfoThreadHelper> LoadFamilyInfoThreadHelperPtr;
 
+      class SyncBlockIdThreadHelper: public tbutil::Thread
+      {
+        public:
+          SyncBlockIdThreadHelper(OpLogSyncManager& manager):manager_(manager) {start(THREAD_STATCK_SIZE);}
+          virtual ~SyncBlockIdThreadHelper() {}
+          void run();
+        private:
+          OpLogSyncManager& manager_;
+          DISALLOW_COPY_AND_ASSIGN(SyncBlockIdThreadHelper);
+      };
+      typedef tbutil::Handle<SyncBlockIdThreadHelper> SyncBlockIdThreadHelperPtr;
+
     private:
+      static const int32_t DEFATUL_TAIR_INDEX = 0;
       LayoutManager& manager_;
       OpLog* oplog_;
       common::FileQueue* file_queue_;
       common::FileQueueThread* file_queue_thread_;
       BlockIdFactory id_factory_;
       tbutil::Mutex mutex_;
-      TairHelper* dbhelper_;
+      TairHelper* dbhelper_[MAX_LOAD_FAMILY_INFO_THREAD_NUM];
       tbnet::PacketQueueThread work_thread_;
       LoadFamilyInfoThreadHelperPtr load_family_info_thread_[MAX_LOAD_FAMILY_INFO_THREAD_NUM];
+      SyncBlockIdThreadHelperPtr sync_block_id_thread_;
     };
   }//end namespace nameserver
 }//end namespace tfs

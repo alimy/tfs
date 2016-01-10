@@ -45,42 +45,21 @@ namespace tfs
       UNUSED(argc);
       UNUSED(argv);
       srandom(time(NULL));
-      const char* ipaddr = TBSYS_CONFIG.getString(CONF_SN_MIGRATESERVER, CONF_IP_ADDR, "");
-      const int32_t port = TBSYS_CONFIG.getInt(CONF_SN_MIGRATESERVER, CONF_PORT, 0);
-      int32_t ret = (NULL != ipaddr && port > 1024 && port < 65535) ? TFS_SUCCESS : EXIT_SYSTEM_PARAMETER_ERROR;
+
+      // load config file
+      int32_t ret = SYSPARAM_MIGRATESERVER.initialize();
       if (TFS_SUCCESS != ret)
       {
-        TBSYS_LOG(ERROR, "%s not set (nameserver vip) ipaddr: %s or port: %d, must be exit", argv[0], NULL == ipaddr ? "null" : ipaddr, port);
+        TBSYS_LOG(ERROR, "load migrateserver parameter failed: %d", ret);
+        ret = EXIT_GENERAL_ERROR;
       }
-      if (TFS_SUCCESS == ret)
+      else
       {
-        const uint64_t ns_vip_port = tbsys::CNetUtil::strToAddr(ipaddr, port);
-        const char* percent = TBSYS_CONFIG.getString(CONF_SN_MIGRATESERVER, CONF_BALANCE_PERCENT, "0.05");
-        const double balance_percent = strtod(percent, NULL);
-        const int32_t TWO_MONTH = 2 * 31 * 86400;
-        const int64_t hot_time_range = TBSYS_CONFIG.getInt(CONF_SN_MIGRATESERVER, CONF_HOT_TIME_RANGE, TWO_MONTH);
-        const char* str_system_disk_access_ratio = TBSYS_CONFIG.getString(CONF_SN_MIGRATESERVER, CONF_SYSTEM_DISK_ACCESS_RATIO, "");
-        const char* str_full_disk_access_ratio = TBSYS_CONFIG.getString(CONF_SN_MIGRATESERVER, CONF_FULL_DISK_ACCESS_RATIO, "");
-        std::vector<string> ratios[2];
-        Func::split_string(str_full_disk_access_ratio, ':', ratios[0]);
-        Func::split_string(str_system_disk_access_ratio, ':', ratios[1]);
-        ret = (5U == ratios[0].size() && 5U == ratios[1].size()) ? TFS_SUCCESS : EXIT_SYSTEM_PARAMETER_ERROR;
-        if (TFS_SUCCESS == ret)
-        {
-          AccessRatio ar[2];
-          for (int32_t i = 0; i < 2; ++i)
-          {
-            ar[i].last_access_time_ratio = atoi(ratios[i][0].c_str());
-            ar[i].read_ratio = atoi(ratios[i][1].c_str());
-            ar[i].write_ratio = atoi(ratios[i][2].c_str());
-            ar[i].update_ratio = atoi(ratios[i][3].c_str());
-            ar[i].unlink_ratio = atoi(ratios[i][4].c_str());
-          }
-          manager_ = new (std::nothrow)MigrateManager(ns_vip_port, balance_percent, hot_time_range, ar[0], ar[1]);
-          assert(NULL != manager_);
-          ret = manager_->initialize();
-        }
+        manager_ = new (std::nothrow)MigrateManager();
+        assert(NULL != manager_);
+        ret = manager_->initialize();
       }
+
       if (TFS_SUCCESS == ret)
       {
         timeout_thread_  = new (std::nothrow)TimeoutThreadHelper(*this);
@@ -126,35 +105,10 @@ namespace tfs
       while (!srgi.is_destroyed())
       {
         now = time(NULL);
-
         //rotate log
         rotate_(last_rotate_log_time, now, zonesec);
-
-        manager_->timeout(Func::get_monotonic_time());
-
         usleep(MAX_SLEEP_TIME_US);
       }
-    }
-
-    int MigrateService::keepalive_(common::BasePacket* packet)
-    {
-      int32_t ret = (NULL != packet && packet->getPCode() == REQ_MIGRATE_DS_HEARTBEAT_MESSAGE) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
-      if (TFS_SUCCESS == ret)
-      {
-        assert(NULL != manager_);
-        MigrateDsHeartMessage* msg = dynamic_cast<MigrateDsHeartMessage*>(packet);
-        assert(NULL != msg);
-        const common::DataServerStatInfo& info = msg->get_dataserver_information();
-        ret = manager_->keepalive(info);
-        MigrateDsHeartResponseMessage* reply_msg = new (std::nothrow)MigrateDsHeartResponseMessage();
-        assert(NULL != reply_msg);
-        reply_msg->set_ret_value(ret);
-        TBSYS_LOG(INFO, "%s keepalive %s, ret: %d, total_capacity: %"PRI64_PREFIX"d, use_capacity: %"PRI64_PREFIX"d, block_count: %d, disk type: %d",
-            tbsys::CNetUtil::addrToString(info.id_).c_str(), TFS_SUCCESS == ret ? "successful" : "failed", ret,
-            info.total_capacity_, info.use_capacity_, info.block_count_, info.type_);
-        ret = msg->reply(reply_msg);
-      }
-      return ret;
     }
 
     bool MigrateService::check_response(common::NewClient* client)
@@ -267,9 +221,6 @@ namespace tfs
         {
           switch (pcode)
           {
-            case REQ_MIGRATE_DS_HEARTBEAT_MESSAGE:
-              ret = keepalive_(dynamic_cast<common::BasePacket*>(packet));
-              break;
             default:
               ret = EXIT_UNKNOWN_MSGTYPE;
               break;
@@ -282,6 +233,30 @@ namespace tfs
         }
       }
       return bret;
+    }
+
+    int MigrateService::handle(common::BasePacket* packet)
+    {
+      assert(NULL != packet);
+      int ret = TFS_SUCCESS;
+      int32_t pcode = packet->getPCode();
+      if (TFS_SUCCESS == ret)
+      {
+        switch (pcode)
+        {
+          default:
+            ret = EXIT_UNKNOWN_MSGTYPE;
+            break;
+        }
+      }
+
+      if (common::TFS_SUCCESS != ret)
+      {
+        common::BasePacket* msg = dynamic_cast<common::BasePacket*>(packet);
+        msg->reply_error_packet(TBSYS_LOG_LEVEL(ERROR), ret, "execute message failed, pcode: %d", pcode);
+      }
+
+      return EASY_OK;
     }
 
     void MigrateService::TimeoutThreadHelper::run()

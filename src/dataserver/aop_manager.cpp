@@ -248,7 +248,8 @@ namespace tfs
           assert(false);
         }
 
-        ret = post_msg_to_server(servers[i], message, ds_async_callback);
+        // forward will clone source msg
+        ret = post_msg_to_server(servers[i], message, ds_async_callback, true);
         if (TFS_SUCCESS != ret)
         {
           TBSYS_LOG(WARN, "forward request to slave fail, ret : %d", ret);
@@ -262,7 +263,7 @@ namespace tfs
         tbnet::Packet* packet)
     {
       int ret = ((INVALID_BLOCK_ID != block_id) && (INVALID_FILE_ID != file_id) &&
-          (INVALID_OP_ID != op_id) && (NULL != packet)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
+          (INVALID_OP_ID != op_id)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
 
       if (TFS_SUCCESS == ret)
       {
@@ -271,7 +272,7 @@ namespace tfs
         ret = get(oid, op_meta);
         if (TFS_SUCCESS == ret)
         {
-          if (SLAVE_DS_RESP_MESSAGE != packet->getPCode())
+          if (NULL == packet || SLAVE_DS_RESP_MESSAGE != packet->getPCode())
           {
             op_meta->update_member();
           }
@@ -386,7 +387,7 @@ namespace tfs
       if ((TFS_SUCCESS == ret) && (remote_version >= 0))
       {
         DsRuntimeGlobalInformation& info = DsRuntimeGlobalInformation::instance();
-        if (ENABLE_VERSION_CHECK_FLAG_YES == info.enable_version_check_)
+        if (info.global_switch_ & ENABLE_VERSION_CHECK)
         {
           ret = get_block_manager().check_block_version(local, remote_version, block_id, attach_block_id);
           if (TFS_SUCCESS != ret)
@@ -413,6 +414,9 @@ namespace tfs
         }
         put(op_meta);
       }
+
+      // make sure we have BlockInfoV2 in local
+      get_block_manager().get_block_info(local, block_id);
 
       return  ret;
     }
@@ -503,7 +507,7 @@ namespace tfs
     {
       int ret = TFS_SUCCESS;
       DsRuntimeGlobalInformation& ds_info = DsRuntimeGlobalInformation::instance();
-      UpdateBlockInfoMessageV2 req_msg;
+      create_msg_ref(UpdateBlockInfoMessageV2, req_msg);
       req_msg.set_block_info(block_info);
       req_msg.set_type(type);
       req_msg.set_server_id(ds_info.information_.id_);
@@ -543,7 +547,7 @@ namespace tfs
       int ret = ((INVALID_BLOCK_ID != block_id) && (INVALID_FILE_ID != file_id) &&
           (INVALID_OP_ID != op_id)) ? TFS_SUCCESS : EXIT_PARAMETER_ERROR;
 
-      ResolveBlockVersionConflictMessage req_msg;
+      create_msg_ref(ResolveBlockVersionConflictMessage, req_msg);
       if (TFS_SUCCESS == ret)
       {
         OpId oid(block_id, file_id, op_id);

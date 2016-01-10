@@ -85,8 +85,7 @@ namespace tfs
       int build_relation(BlockCollect* block, ServerCollect* server, const common::BlockInfoV2* info, const int64_t now, const bool set);
       int relieve_relation(const uint64_t block, const uint64_t server, const time_t now, const bool print);
       int relieve_relation(BlockCollect* pblock, ServerCollect* pserver, const time_t now, const bool print);
-
-      //int update_block_info(const common::BlockInfoV2& info, const uint64_t server, const time_t now, const bool addnew);
+      int update_block_info(const common::BlockInfoV2& info, const uint64_t server, const time_t now, const bool addnew);
 
       //int repair(char* msg, const int32_t length, const uint64_t block_id,
       //    const uint64_t server, const int64_t family_id, const int32_t type, const time_t now);
@@ -108,6 +107,7 @@ namespace tfs
 
       BlockCollect* add_new_block(uint64_t& block_id, ServerCollect* server = NULL, const time_t now = common::Func::get_monotonic_time());
 
+      void get_server_rack_helper(const uint64_t block, common::ArrayHelper<ServerRack>& server_rack_helper);
       tbsys::CLogger& get_block_log() { return block_logger_;}
       private:
       void rotate_(const time_t now);
@@ -147,6 +147,8 @@ namespace tfs
 
       bool scan_family_(common::ArrayHelper<FamilyCollect*>& results, int64_t& need, int64_t& start,
           const int32_t max_query_family_num, const time_t now, const bool compact_time);
+
+      bool remove_family(const int64_t family_id);
 
       void init_block_logger_();
 

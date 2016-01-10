@@ -91,7 +91,7 @@ namespace tfs
 
     void SyncManager::do_sync_(const int32_t timeout_ms, const bool print)
     {
-      SyncFileEntryMessage req_msg;
+      create_msg_ref(SyncFileEntryMessage, req_msg);
       common::ArrayHelper<SyncFileEntry> helper(MAX_SYNC_FILE_ENTRY_COUNT, req_msg.get_entry());
       mutex_.lock();
       QUEUE_CONST_ITER iter = queue_.begin();

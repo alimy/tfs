@@ -552,7 +552,7 @@ namespace tfs
       }
       if (TFS_SUCCESS == ret)
       {
-        ret = Serialization::get_int32(data, data_len, pos, &current_time_);
+        ret = Serialization::get_int32(data, data_len, pos, reinterpret_cast<int32_t*>(&rack_id_));
       }
       if (TFS_SUCCESS == ret)
       {
@@ -628,7 +628,7 @@ namespace tfs
       }
       if (TFS_SUCCESS == ret)
       {
-        ret = Serialization::set_int32(data, data_len, pos, current_time_);
+        ret = Serialization::set_int32(data, data_len, pos, rack_id_);
       }
       if (TFS_SUCCESS == ret)
       {
@@ -1326,7 +1326,7 @@ namespace tfs
       std::cout << "version " << version_ << std::endl;
     }
 
-    const char* dynamic_parameter_str[62] = {
+    const char* dynamic_parameter_str[66] = {
         "log_level",
         "plan_run_flag",
         "task_expired_time",
@@ -1378,8 +1378,8 @@ namespace tfs
         "write_file_check_copies_complete",
         "choose_target_server_retry_max_nums",
         "max_marshalling_num",
-        "enable_old_interface",
-        "enable_version_check",
+        "check_integrity_interval_days",
+        "global_switch",
         "marshalling_visit_time",
         "client_keepalive_interval",
         "verify_index_reserved_space_ratio",
@@ -1388,7 +1388,11 @@ namespace tfs
         "between_ns_and_ds_lease_expire_time",
         "between_ns_and_ds_lease_safe_time",
         "between_ns_and_ds_lease_retry_times",
-        "between_ns_and_ds_lease_retry_expire_time"
+        "between_ns_and_ds_lease_retry_expire_time",
+        "migrate_complete_wait_time",
+        "max_work_queue_size",
+        "max_slow_queue_size",
+        "force_dissolve_max_block_size",
     };
 
     int FamilyInfo::deserialize(const char* data, const int64_t data_len, int64_t& pos)
@@ -2028,10 +2032,20 @@ namespace tfs
 
       if (TFS_SUCCESS == ret)
       {
-        for (int i = 0; (TFS_SUCCESS == ret) && (i < 27); i++)
+        for (int i = 0; (TFS_SUCCESS == ret) && (i < 19); i++)
         {
           ret = Serialization::set_int8(data, data_len, pos, reserve_[i]);
         }
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int32(data, data_len, pos, last_check_time_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+         ret = Serialization::set_int32(data, data_len, pos, data_crc_);
       }
 
       return ret;
@@ -2090,10 +2104,22 @@ namespace tfs
 
       if (TFS_SUCCESS == ret)
       {
-        for (int i = 0; (TFS_SUCCESS == ret) && (i < 27); i++)
+        for (int i = 0; (TFS_SUCCESS == ret) && (i < 19); i++)
         {
           ret = Serialization::get_int8(data, data_len, pos, &reserve_[i]);
         }
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int32(data, data_len, pos,
+            reinterpret_cast<int32_t* >(&last_check_time_));
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int32(data, data_len, pos,
+            reinterpret_cast<int32_t* >(&data_crc_));
       }
 
       return ret;
@@ -2187,6 +2213,19 @@ namespace tfs
         ret = Serialization::get_int32(data, data_len, pos, &version_step_);
       }
 
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int64(data, data_len, pos, &data_crc_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        for (int i = 0; TFS_SUCCESS == ret && i < 4; i++)
+        {
+          ret = Serialization::get_int32(data, data_len, pos, &reserve_[i]);
+        }
+      }
+
       return ret;
     }
 
@@ -2213,12 +2252,25 @@ namespace tfs
         ret = Serialization::set_int32(data, data_len, pos, version_step_);
       }
 
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int64(data, data_len, pos, data_crc_);
+      }
+
+      if (TFS_SUCCESS == ret)
+      {
+        for (int i = 0; TFS_SUCCESS == ret && i < 4; i++)
+        {
+          ret = Serialization::set_int32(data, data_len, pos, reserve_[i]);
+        }
+      }
+
       return ret;
     }
 
     int64_t ECMeta::length() const
     {
-      return INT64_SIZE + INT_SIZE * 3;
+      return INT64_SIZE * 2 + INT_SIZE * 7;
     }
 
     int FileInfoV2::serialize(char* data, const int64_t data_len, int64_t& pos) const
@@ -2614,12 +2666,12 @@ namespace tfs
 			}
 			if (TFS_SUCCESS == ret)
 			{
-				ret = Serialization::get_int32(data, data_len, pos,&enable_old_interface_);
+				ret = Serialization::get_int32(data, data_len, pos, &check_integrity_interval_days_);
 			}
 
 			if (TFS_SUCCESS == ret)
 			{
-				ret = Serialization::get_int32(data, data_len, pos,&enable_version_check_);
+				ret = Serialization::get_int32(data, data_len, pos,&global_switch_);
 			}
 
       if (TFS_SUCCESS == ret)
@@ -2692,12 +2744,12 @@ namespace tfs
       }
 			if (TFS_SUCCESS == ret)
 			{
-        ret = Serialization::set_int32(data, data_len, pos,enable_old_interface_);
+        ret = Serialization::set_int32(data, data_len, pos, check_integrity_interval_days_);
       }
 
       if (TFS_SUCCESS == ret)
       {
-        ret = Serialization::set_int32(data, data_len, pos,enable_version_check_);
+        ret = Serialization::set_int32(data, data_len, pos,global_switch_);
       }
 
       if (TFS_SUCCESS == ret)
@@ -2961,30 +3013,31 @@ namespace tfs
       int32_t ret = NULL != data && data_len - pos >= length() ? TFS_SUCCESS : TFS_ERROR;
       if (TFS_SUCCESS == ret)
       {
-        Serialization::set_int32(data, data_len, pos, cluster_id_);
+        ret = Serialization::set_int32(data, data_len, pos, cluster_id_);
       }
       if (TFS_SUCCESS == ret)
       {
-        Serialization::set_int32(data, data_len, pos, group_seq_);
+        ret = Serialization::set_int32(data, data_len, pos, group_seq_);
       }
       if (TFS_SUCCESS == ret)
       {
-        Serialization::set_int32(data, data_len, pos, group_count_);
+        ret = Serialization::set_int32(data, data_len, pos, group_count_);
       }
       if (TFS_SUCCESS == ret)
       {
-        Serialization::set_int32(data, data_len, pos, replica_num_);
+        ret = Serialization::set_int32(data, data_len, pos, replica_num_);
       }
       if (TFS_SUCCESS == ret)
       {
-        Serialization::set_int32(data, data_len, pos, business_port_num_);
+        ret = Serialization::set_int32(data, data_len, pos, business_port_num_);
       }
       if (TFS_SUCCESS == ret)
       {
-        for (int i = 0; i < 3; i++)
-        {
-          Serialization::set_int32(data, data_len, pos, reserve_[i]);
-        }
+        ret = Serialization::set_int32(data, data_len, pos, migrate_complete_wait_time_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::set_int64(data, data_len, pos, max_block_id_);
       }
       return ret;
     }
@@ -2994,30 +3047,31 @@ namespace tfs
       int32_t ret = NULL != data && data_len - pos >= length() ? TFS_SUCCESS : TFS_ERROR;
       if (TFS_SUCCESS == ret)
       {
-        Serialization::get_int32(data, data_len, pos, &cluster_id_);
+        ret = Serialization::get_int32(data, data_len, pos, &cluster_id_);
       }
       if (TFS_SUCCESS == ret)
       {
-        Serialization::get_int32(data, data_len, pos, &group_seq_);
+        ret = Serialization::get_int32(data, data_len, pos, &group_seq_);
       }
       if (TFS_SUCCESS == ret)
       {
-        Serialization::get_int32(data, data_len, pos, &group_count_);
+        ret = Serialization::get_int32(data, data_len, pos, &group_count_);
       }
       if (TFS_SUCCESS == ret)
       {
-        Serialization::get_int32(data, data_len, pos, &replica_num_);
+        ret = Serialization::get_int32(data, data_len, pos, &replica_num_);
       }
       if (TFS_SUCCESS == ret)
       {
-        Serialization::get_int32(data, data_len, pos, &business_port_num_);
+        ret = Serialization::get_int32(data, data_len, pos, &business_port_num_);
       }
       if (TFS_SUCCESS == ret)
       {
-        for (int i = 0; i < 3; i++)
-        {
-          Serialization::get_int32(data, data_len, pos, &reserve_[i]);
-        }
+        ret = Serialization::get_int32(data, data_len, pos, &migrate_complete_wait_time_);
+      }
+      if (TFS_SUCCESS == ret)
+      {
+        ret = Serialization::get_int64(data, data_len, pos, reinterpret_cast<int64_t*>(&max_block_id_));
       }
       return ret;
     }
@@ -3029,7 +3083,9 @@ namespace tfs
       output.writeInt64(total_capacity_);
       output.writeInt32(current_load_);
       output.writeInt32(block_count_);
-      output.writeInt64(last_update_time_);
+      //output.writeInt64(last_update_time_);
+      output.writeInt32(rack_id_);
+      output.writeInt32(reserve_);
       output.writeInt64(startup_time_);
 
       output.writeInt64(total_tp_.write_byte_);
@@ -3070,7 +3126,9 @@ namespace tfs
         total_capacity_ = input.readInt64();
         current_load_ = input.readInt32();
         block_count_  = input.readInt32();
-        last_update_time_ = input.readInt64();
+        //last_update_time_ = input.readInt64();
+        rack_id_ = input.readInt32();
+        reserve_ = input.readInt32();
         startup_time_ = input.readInt64();
         total_tp_.write_byte_ = input.readInt64();
         total_tp_.read_byte_ = input.readInt64();

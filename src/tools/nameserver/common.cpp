@@ -95,13 +95,14 @@ namespace tfs
 
     void ServerBase::dump() const
     {
-      TBSYS_LOG(INFO, "server_id: %"PRI64_PREFIX"d, use_capacity: %"PRI64_PREFIX"d, total_capacity: %"PRI64_PREFIX"d, current_load: %d, block_count: %d, last_update_time: %s, startup_time: %s, write_byte: %"PRI64_PREFIX"d, write_file_count: %"PRI64_PREFIX"d, read_byte: %"PRI64_PREFIX"d, read_file_count: %"PRI64_PREFIX"d current_time: %s, status: %d, rb_expired_time_: %"PRI64_PREFIX"d, next_report_block_time: %"PRI64_PREFIX"d, disk_type: %u, rb_status_: %u , hold_size: %zd, writable size: %zd, master size: %zd",
+      TBSYS_LOG(INFO, "server_id: %"PRI64_PREFIX"d, use_capacity: %"PRI64_PREFIX"d, total_capacity: %"PRI64_PREFIX"d, current_load: %d, block_count: %d, rack_id: %u, startup_time: %s, write_byte: %"PRI64_PREFIX"d, write_file_count: %"PRI64_PREFIX"d, read_byte: %"PRI64_PREFIX"d, read_file_count: %"PRI64_PREFIX"d current_time: %s, status: %d, rb_expired_time_: %"PRI64_PREFIX"d, next_report_block_time: %"PRI64_PREFIX"d, disk_type: %u, rb_status_: %u , hold_size: %zd, writable size: %zd, master size: %zd",
           server_stat_.id_,
           server_stat_.use_capacity_,
           server_stat_.total_capacity_,
           server_stat_.current_load_,
           server_stat_.block_count_,
-          Func::time_to_str(server_stat_.last_update_time_).c_str(),
+          server_stat_.rack_id_,
+          //Func::time_to_str(server_stat_.last_update_time_).c_str(),
           Func::time_to_str(server_stat_.startup_time_).c_str(),
           server_stat_.total_tp_.write_byte_,
           server_stat_.total_tp_.write_file_count_,
@@ -128,39 +129,54 @@ namespace tfs
     BlockBase::~BlockBase()
     {
     }
-    int32_t BlockBase::deserialize(tbnet::DataBuffer& input, const int32_t length, int32_t& offset, const int8_t)
+    int32_t BlockBase::deserialize(tbnet::DataBuffer& input, const int32_t length, int32_t& offset, const int8_t type)
     {
-      if (input.getDataLen() <= 0 || offset >= length)
+      // type must contain SSM_CHILD_BLOCK_TYPE_INFO at lease
+      if (input.getDataLen() <= 0 || offset >= length || 0 == (type & SSM_CHILD_BLOCK_TYPE_INFO))
       {
-        return TFS_ERROR;
+        return EXIT_PARAMETER_ERROR;
       }
 
       int64_t pos = 0;
       int32_t len = input.getDataLen();
       int32_t ret = info_.deserialize(input.getData(), input.getDataLen(), pos);
       if (TFS_SUCCESS == ret)
-        input.drainData(info_.length());
-
-      int8_t server_size = input.readInt8();
-      while (server_size > 0)
       {
-        ServerInfo server_info;
-        server_info.server_id_ = input.readInt64();
-        server_info.family_id_ = input.readInt64();
-        server_info.version_   = input.readInt32();
+        input.drainData(info_.length());
+        if (type & SSM_CHILD_BLOCK_TYPE_SERVER)
+        {
+          int8_t server_size = input.readInt8();
+          while (server_size > 0)
+          {
+            ServerInfo server_info;
+            server_info.server_id_ = input.readInt64();
+            server_info.family_id_ = input.readInt64();
+            server_info.version_   = input.readInt32();
 
-        server_list_.push_back(server_info);
-        server_size--;
+            server_list_.push_back(server_info);
+            server_size--;
+          }
+        }
+        if (type & SSM_CHILD_BLOCK_TYPE_STATUS)
+        {
+          expire_time_ = input.readInt64();
+          create_flag_ = input.readInt8();
+          in_replicate_queue_ = input.readInt8();
+          has_lease_ = input.readInt8();
+          choose_master_ = input.readInt8();
+          last_leave_time_ = input.readInt64();
+        }
+        offset += (len - input.getDataLen());
       }
-
-      offset += (len - input.getDataLen());
-      return TFS_SUCCESS;
+      return ret;
     }
 
     void BlockBase::dump() const
     {
-      TBSYS_LOG(INFO, "family_id: %"PRI64_PREFIX"d,block_id: %"PRI64_PREFIX"u, version: %d, file_count: %d, size: %d, del_file_count: %d, del_size: %d, copys: %Zd",
-          info_.family_id_, info_.block_id_, info_.version_, info_.file_count_, info_.size_, info_.del_file_count_, info_.del_size_, server_list_.size());
+      TBSYS_LOG(INFO, "family_id: %"PRI64_PREFIX"d,block_id: %"PRI64_PREFIX"u, version: %d, file_count: %d, size: %d, del_file_count: %d, del_size: %d,"
+          "copys: %Zd, expire_time: %"PRI64_PREFIX"d, create_flag: %d, in_replicate_queue: %d, has_lease: %d, choose_master: %d, last_leave_time: %"PRI64_PREFIX"d",
+          info_.family_id_, info_.block_id_, info_.version_, info_.file_count_, info_.size_, info_.del_file_count_, info_.del_size_, server_list_.size(),
+          expire_time_, create_flag_, in_replicate_queue_, has_lease_, choose_master_, last_leave_time_);
     }
   }
 }

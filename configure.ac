@@ -2,10 +2,10 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.59)
-AC_INIT([tfs], 2.6.4, duolong@taobao.com)
+AC_INIT([tfs], 2.6.6, duolong@taobao.com)
 AC_CONFIG_SRCDIR([src/common/config_item.h])
 
-AM_INIT_AUTOMAKE(tfs, 2.6.4)
+AM_INIT_AUTOMAKE(tfs, 2.6.6)
 # Checks for programs.
 AC_PROG_AWK
 AC_PROG_CXX
@@ -72,6 +72,21 @@ AC_ARG_WITH([restful-root],
            TREST_ROOT=${withval})
 AC_SUBST([TREST_ROOT])
 
+AC_ARG_WITH([libeasy-root],
+          AS_HELP_STRING([--with-libeasy-root],
+          [libeasy install path]),
+          EASY_ROOT=${withval})
+AC_SUBST([EASY_ROOT])
+
+if  test -z "${EASY_ROOT}"; then
+   EASY_ROOT="/usr"
+fi
+
+if ! test -d "${EASY_ROOT}/include/easy" -a -d "${EASY_ROOT}/lib64"; then
+  AC_MSG_ERROR([EASY_ROOT is not work! expect EASY_ROOT/include/easy and EASY_ROOT/lib64 directory])
+  exit 1;
+fi
+
 AC_ARG_ENABLE([lifecycle],
            AS_HELP_STRING([--enable-lifecycle],
            [enable life cycle module use --with-restful-root to specify path]),
@@ -84,6 +99,7 @@ AC_ARG_WITH([tair-root],
            AS_HELP_STRING([--with-tair-root],
            [Tair installation path, need when enable uniquestore feature]),
            TAIR_ROOT=${withval})
+AC_SUBST([TAIR_ROOT])
 if  test -z "${TAIR_ROOT}"; then
    dnl tbnet include path supplied
    TAIR_ROOT="/usr/local"
@@ -93,8 +109,24 @@ if ! test -d "${TAIR_ROOT}/include" -a -d "${TBLIB_ROOT}/lib"; then
   AC_MSG_ERROR([TAIR_ROOT is not work! expect TAIR_ROOT/include and TAIR_ROOT/lib directory])
   exit 1;
 fi
-TAIR_STORE_CPPFLAGS="-DWITH_UNIQUE_STORE -I${TAIR_ROOT}/include"
-TAIR_STORE_LDFLAGS="${TAIR_ROOT}/lib/libtairclientapi.a  -L/usr/lib64/boost1.46.1 -lboost_thread -lz -lsnappy"
+
+AC_ARG_WITH([diamond-root],
+           AS_HELP_STRING([--with-diamond-root],
+           [Diamond installation path, need by tair mc client]),
+           DIAMOND_ROOT=${withval})
+AC_SUBST([DIAMOND_ROOT])
+if  test -z "${DIAMOND_ROOT}"; then
+   DIAMOND_ROOT="/usr/local"
+fi
+
+if ! test -d "${DIAMOND_ROOT}/include" -a -d "${DIAMOND_ROOT}/lib"; then
+  AC_MSG_ERROR([DIAMOND_ROOT is not work! expect DIAMOND_ROOT/include and DIAMOND_ROOT/lib directory])
+  exit 1;
+fi
+
+
+TAIR_STORE_CPPFLAGS=" -I${TAIR_ROOT}/include -I${DIAMOND_ROOT}/include -I${EASY_ROOT}/include/easy"
+TAIR_STORE_LDFLAGS="${TAIR_ROOT}/lib/libtairmcclientapi.a ${DIAMOND_ROOT}/lib/libdiamond.a ${EASY_ROOT}/lib64/libeasy.a -lssl -lcurl -lz -lsnappy"
 AC_SUBST([TAIR_STORE_CPPFLAGS])
 AC_SUBST([TAIR_STORE_LDFLAGS])
 
@@ -108,13 +140,12 @@ if test "${enable_uniquestore}" = "yes"; then
                 AC_MSG_ERROR([TAIR_ROOT is not work! expect TAIR_ROOT/include and TAIR_ROOT/lib directory])
                 exit 1;
         fi
-        UNIQUE_STORE_CPPFLAGS="-DWITH_UNIQUE_STORE -I${TAIR_ROOT}/include"
-        UNIQUE_STORE_LDFLAGS="${TAIR_ROOT}/lib/libtairclientapi.a -lboost_thread -lz -lsnappy"
+        UNIQUE_STORE_CPPFLAGS="-DWITH_UNIQUE_STORE ${TAIR_STORE_CPPFLAGS}"
+        UNIQUE_STORE_LDFLAGS="${TAIR_STORE_LDFLAGS}"
 fi
 AM_CONDITIONAL([WITH_UNIQUE_STORE],[test x$enable_uniquestore = xyes])
 AC_SUBST([UNIQUE_STORE_CPPFLAGS])
 AC_SUBST([UNIQUE_STORE_LDFLAGS])
-
 
 
 AC_ARG_ENABLE([taircache],
@@ -127,8 +158,8 @@ if test "${enable_taircache}" = "yes"; then
                 AC_MSG_ERROR([TAIR_ROOT is not work! expect TAIR_ROOT/include and TAIR_ROOT/lib directory])
                 exit 1;
         fi
-        TAIR_CACHE_CPPFLAGS="-DWITH_TAIR_CACHE -I${TAIR_ROOT}/include"
-        TAIR_CACHE_LDFLAGS="${TAIR_ROOT}/lib/libtairclientapi.a -lboost_thread -lz -lsnappy"
+        TAIR_CACHE_CPPFLAGS="-DWITH_TAIR_CACHE ${TAIR_STORE_CPPFLAGS}"
+        TAIR_CACHE_LDFLAGS="${TAIR_STORE_LDFLAGS}"
 fi
 AM_CONDITIONAL([WITH_TAIR_CACHE],[test x$enable_taircache = xyes])
 AC_SUBST([TAIR_CACHE_CPPFLAGS])
@@ -144,13 +175,8 @@ if test "${enable_kvmeta}" = "yes"; then
                 AC_MSG_ERROR([TAIR_ROOT is not work! expect TAIR_ROOT/include and TAIR_ROOT/lib directory])
                 exit 1;
         fi
-        TAIR_META_CPPFLAGS="-DWITH_TAIR_META -I${TAIR_ROOT}/include"
-        TAIR_META_LDFLAGS="${TAIR_ROOT}/lib/libtairclientapi.a -lboost_thread -lz -lsnappy"
 fi
 AM_CONDITIONAL([WITH_KV_META],[test x$enable_kvmeta = xyes])
-AC_SUBST([TAIR_META_CPPFLAGS])
-AC_SUBST([TAIR_META_LDFLAGS])
-
 AC_CACHE_CHECK(if fallocate is implemented, ac_cv_func_fallocate,
   AC_TRY_RUN([
     #include <fcntl.h>
@@ -253,7 +279,6 @@ AC_CONFIG_FILES([Makefile
                  src/nameserver/Makefile
                  src/rcserver/Makefile
                  src/kv_meta_server/Makefile
-                 src/syncserver/Makefile
                  src/migrateserver/Makefile
                  src/checkserver/Makefile
                  src/life_cycle_manager/Makefile
@@ -266,6 +291,7 @@ AC_CONFIG_FILES([Makefile
                  src/tools/nameserver/Makefile
                  src/tools/cluster/Makefile
                  src/tools/workers/Makefile])
+                 #src/syncserver/Makefile
                  #tests/Makefile
                  #tests/batch/Makefile])
                  #tests/rcserver/Makefile

@@ -51,6 +51,9 @@ namespace tfs
 
 #define CONF_PORT                                     "port"
 #define CONF_THREAD_COUNT                             "thread_count"
+#define CONF_SLOW_THREAD_COUNT                        "slow_thread_count"
+#define CONF_IO_THREAD_COUNT                          "io_thread_count"
+#define CONF_HEART_THREAD_COUNT                       "heart_thread_count"
 #define CONF_IP_ADDR                                  "ip_addr"
 #define CONF_DEV_NAME                                 "dev_name"
 #define CONF_BLOCK_MAX_SIZE                           "block_max_size"
@@ -59,6 +62,7 @@ namespace tfs
 #define CONF_MAX_REPLICATION                          "max_replication"
 #define CONF_USE_CAPACITY_RATIO                       "use_capacity_ratio"
 #define CONF_TASK_MAX_QUEUE_SIZE                      "task_max_queue_size"
+#define CONF_TASK_MAX_SLOW_QUEUE_SIZE                 "task_max_slow_queue_size"
 #define CONF_DISCARD_NEWBLK_SAFE_MODE_TIME            "discard_newblk_safe_mode_time"
 #define CONF_HEART_PORT_COUNT                         "heart_port_count"
 #define CONF_BUSINESS_PORT_COUNT                      "business_port_count"
@@ -75,7 +79,6 @@ namespace tfs
   //nameserver
   //
 #define CONF_IP_ADDR_LIST                             "ip_addr_list"
-#define CONF_GROUP_MASK                               "group_mask"
 #define CONF_SAFE_MODE_TIME														"safe_mode_time"
 #define CONF_TASK_PRECENT_SEC_SIZE                    "task_percent_sec_size"
 #define CONF_MAX_WRITE_FILECOUNT                      "max_write_filecount"
@@ -90,6 +93,7 @@ namespace tfs
 #define CONF_REPORT_BLOCK_EXPIRED_TIME                "report_block_expired_time"
 #define CONF_REPORT_BLOCK_THREAD_COUNT                "report_block_thread_count"
 #define CONF_REPORT_BLOCK_MAX_QUEUE_SIZE              "report_block_max_queue_size"
+#define CONF_REPORT_BLOCK_MAX_PENDING_SIZE            "report_block_max_pending_size"
 
 #define CONF_GROUP_SEQ                                "group_seq"
 #define CONF_GROUP_COUNT                              "group_count"
@@ -123,6 +127,10 @@ namespace tfs
 #define CONF_MAX_CHECK_MEMBER_NUM                     "max_check_member_num"
 #define CONF_MAX_MARSHALLING_QUEUE_TIMEOUT            "max_marshalling_queue_timeout"
 #define CONF_TAIR_ADDR                                "tair_addr"
+
+#define CONF_MIGRATE_COMPLETE_WAIT_TIME               "migrate_complete_wait_time"
+#define CONF_PLAN_RUN_FLAG                            "plan_run_flag"
+#define CONF_GLOBAL_SWITCH                            "global_switch"
 
   //dataserver
 #define CONF_OBJECT_CLEAR_MAX_TIME                    "object_clear_max_time"
@@ -166,12 +174,18 @@ namespace tfs
 #define CONF_SYNC_FILE_ENTRY_QUEUE_WARN_RATIO         "sync_file_entry_queue_warn_ratio"
 #define CONF_SYNC_FILE_ENTRY_DEST_ADDR                "sync_file_entry_dest_addr"
 #define CONF_CLUSTER_VERSION_LIST                     "cluster_version_list"
+#define CONF_RACK_ID                                  "rack_id"
 
 //migrate server
 #define CONF_MIGRATE_SERVER_ADDR                      "migrate_server_addr"
 #define CONF_HOT_TIME_RANGE                           "hot_time_range"
 #define CONF_FULL_DISK_ACCESS_RATIO                   "system_disk_access_ratio"
 #define CONF_SYSTEM_DISK_ACCESS_RATIO                 "full_disk_access_ratio"
+#define CONF_UPDATE_STATISTIC_INTERVAL                "update_statistic_interval"
+#define CONF_PENALTY_PERCENT                          "penalty_percent"
+#define CONF_NEED_MIGRATE_BACK                        "need_migrate_back"
+#define CONF_DS_BASE_PORT                             "ds_base_port"
+#define CONF_MAX_FULL_DS_COUNT                        "max_full_ds_count"
 
 //rc
 #define CONF_RC_MONITOR_INTERVAL                      "rc_monitor_interval"

@@ -161,6 +161,7 @@ namespace tfs
       }
       else
       {
+      /* bug: if total_ops not increance, total_ops % interval_count_ will equal 0 again next time
         uint32_t success_ops =
           stat_mgr_.get_stat_value(StatItem::client_access_stat_, StatItem::read_success_) +
           stat_mgr_.get_stat_value(StatItem::client_access_stat_, StatItem::write_success_) +
@@ -176,6 +177,7 @@ namespace tfs
         uint64_t total_ops = success_ops + fail_ops;
         need_update =  (total_ops % ClientConfig::update_dst_interval_count_ == 0) ||
           (fail_ops % ClientConfig::update_dst_fail_count_ == 0);
+          */
       }
       return need_update;
     }
@@ -248,17 +250,15 @@ namespace tfs
       if (NULL == remote_cache_helper_)
       {
         remote_cache_helper_ = new TairCacheHelper();
-        ret = remote_cache_helper_->initialize(ClientConfig::remote_cache_master_addr_.c_str(),
-            ClientConfig::remote_cache_slave_addr_.c_str(), ClientConfig::remote_cache_group_name_.c_str(),
+        ret = remote_cache_helper_->initialize(ClientConfig::remote_cache_config_id_.c_str(),
             ClientConfig::remote_cache_area_);
         if (TFS_SUCCESS != ret)
         {
           tbsys::gDelete(remote_cache_helper_);
         }
 
-        TBSYS_LOG(DEBUG, "init remote cache helper(master: %s, slave: %s, group_name: %s, area: %d) %s",
-            ClientConfig::remote_cache_master_addr_.c_str(), ClientConfig::remote_cache_slave_addr_.c_str(),
-            ClientConfig::remote_cache_group_name_.c_str(), ClientConfig::remote_cache_area_,
+        TBSYS_LOG(DEBUG, "init remote cache helper(config_id: %s, area: %d) %s",
+            ClientConfig::remote_cache_config_id_.c_str(), ClientConfig::remote_cache_area_,
             TFS_SUCCESS == ret ? "success" : "fail");
       }
       else
@@ -545,7 +545,7 @@ namespace tfs
        TBSYS_LOG(DEBUG, "query block from ns %s, blockid: %"PRI64_PREFIX"u, mode: %d",
            ns_addr_.c_str(), block_id, flag);
        int ret = TFS_SUCCESS;
-       GetBlockInfoMessageV2 gbi_message;
+       create_msg_ref(GetBlockInfoMessageV2, gbi_message);
        gbi_message.set_block_id(block_id);
        gbi_message.set_mode(flag);
 
@@ -619,7 +619,7 @@ namespace tfs
       int ret = (NULL != new_client) ? TFS_SUCCESS : EXIT_CLIENT_MANAGER_CREATE_CLIENT_ERROR;
       if (TFS_SUCCESS == ret)
       {
-        ClientNsKeepaliveMessage req_msg;
+        create_msg_ref(ClientNsKeepaliveMessage, req_msg);
         req_msg.set_flag(DS_TABLE_FULL);
 
         tbnet::Packet* ret_msg = NULL;
@@ -656,8 +656,8 @@ namespace tfs
         {
           ds_table_ = tmp_table;
         }
-        TBSYS_LOG(INFO, "update dstable. cluster_id: %d, group_seq: %d, group_count: %d, replica_num: %d, interval: %d, server_count: %zd",
-            config.cluster_id_, config.group_seq_, config.group_count_, config.replica_num_, update_interval, tmp_table.size());
+        TBSYS_LOG(INFO, "update dstable. cluster_id: %d, group_seq: %d, group_count: %d, replica_num: %d, interval: %d, max_block_id: %"PRI64_PREFIX"u, server_count: %zd",
+            config.cluster_id_, config.group_seq_, config.group_count_, config.replica_num_, update_interval, config.max_block_id_, tmp_table.size());
       }
 
       return ret;

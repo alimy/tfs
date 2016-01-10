@@ -72,6 +72,9 @@ namespace tfs
       /** handle packet*/
       virtual bool handlePacketQueue(tbnet::Packet *packet, void *args);
 
+      // libeasy handle packet
+      int handle(common::BasePacket* packet);
+
       bool check_response(common::NewClient* client);
       int callback(common::NewClient* client);
 
@@ -82,7 +85,6 @@ namespace tfs
       private:
       void rotate_(time_t& last_rotate_log_time, time_t now, time_t zonesec);
       void timeout_();
-      int  keepalive_(common::BasePacket* packet);
 
       private:
       class TimeoutThreadHelper: public tbutil::Thread

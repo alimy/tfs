@@ -1,15 +1,18 @@
 AM_CPPFLAGS=-Wall -I$(top_srcdir)/src\
             -I$(TBLIB_ROOT)/include/tbsys\
-            -I$(TBLIB_ROOT)/include/tbnet $(TAIR_META_CPPFLAGS) $(MYSQL_CFLAGS)
+            -I$(TBLIB_ROOT)/include/tbnet \
+						-I$(EASY_ROOT)/include/easy \
+						$(MYSQL_CFLAGS)
 
-AM_LDFLAGS=-lz -lrt -lpthread -ldl -luuid $(TAIR_META_LDFLAGS) 
+AM_LDFLAGS=-lz -lrt -lpthread -ldl -luuid -lssl
 
 LDADD=$(top_builddir)/src/message/libtfsmessage.a \
       $(top_builddir)/src/common/mysql_cluster/libkvengine_mysql.a \
-      $(top_builddir)/src/common/libtfscommon.a $(TAIR_META_LDFLAGS)\
+      $(top_builddir)/src/common/libtfscommon.a \
 			$(MYSQL_LDFLAGS)\
       $(TBLIB_ROOT)/lib/libtbnet.a \
-      $(TBLIB_ROOT)/lib/libtbsys.a 
+      $(TBLIB_ROOT)/lib/libtbsys.a \
+			$(EASY_ROOT)/lib64/libeasy.a
 
 noinst_LIBRARIES=libkvmetaserver.a libkvrootserver.a
 
@@ -17,7 +20,7 @@ kvmetaserver_INCLUDE= kv_meta_server_manager.h kv_root_server.h kv_meta_heart_ma
 
 
 libkvmetaserver_a_SOURCES=kv_meta_service.cpp meta_info_helper.cpp kv_meta_heart_manager.cpp life_cycle_helper.cpp \
-													$(tair_kv_source)  $(kvmetaserver_INCLUDE)
+													$(kv_engine_source)  $(kvmetaserver_INCLUDE)
 
 KVROOTSERVER_SOURCE_LIST_HEADER=kv_root_server.h kv_meta_server_manager.h life_cycle_helper.h
 KVROOTSERVER_SOURCE_LIST=kv_root_server.cpp kv_meta_server_manager.cpp life_cycle_helper.cpp $(KVROOTSERVER_SOURCE_LIST_HEADER)

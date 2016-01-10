@@ -26,6 +26,7 @@
 #include "common/status_message.h"
 #include "common/client_manager.h"
 #include "message/kv_rts_message.h"
+#include "common/mysql_cluster/mysql_engine_helper.h"
 
 using namespace tfs::common;
 using namespace tfs::message;
@@ -195,6 +196,37 @@ namespace tfs
         manager_.rt_es_keepalive(dynamic_cast<BasePacket*>(packet));
       }
       return bret;
+    }
+
+    // libeasy handle packet
+    int ExpRootServer::handle(common::BasePacket* packet)
+    {
+      assert(NULL != packet);
+      int ret = TFS_SUCCESS;
+      int32_t pcode = packet->getPCode();
+      switch (pcode)
+      {
+        case REQ_RT_ES_KEEPALIVE_MESSAGE:
+          ret = rt_es_keepalive(dynamic_cast<BasePacket*>(packet));
+          break;
+        case REQ_RT_FINISH_TASK_MESSAGE:
+          ret = handle_finish_task(dynamic_cast<ReqFinishTaskFromEsMessage*>(packet));
+          break;
+        case REQ_QUERY_TASK_MESSAGE:
+          ret = query_task(dynamic_cast<ReqQueryTaskMessage*>(packet));
+          break;
+        default:
+          ret = EXIT_UNKNOWN_MSGTYPE;
+          TBSYS_LOG(ERROR, "unknown msg type: %d", pcode);
+          break;
+      }
+
+      if (common::TFS_SUCCESS != ret)
+      {
+        packet->reply_error_packet(TBSYS_LOG_LEVEL(ERROR), ret, "execute message failed, pcode: %d", pcode);
+      }
+
+      return EASY_OK;
     }
 
     int ExpRootServer::rt_es_keepalive(common::BasePacket* packet)

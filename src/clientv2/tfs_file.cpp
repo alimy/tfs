@@ -451,6 +451,11 @@ namespace tfs
       return (ret != TFS_SUCCESS) ? ret : done;
     }
 
+    void TfsFile::set_write_status(const WriteStatus& status)
+    {
+      file_.write_status_ = status;
+    }
+
     int TfsFile::close(const int32_t status)
     {
       ScopedRWLock scoped_lock(rw_lock_, WRITE_LOCKER);
@@ -564,7 +569,7 @@ namespace tfs
       }
       else
       {
-        StatFileMessageV2 msg;
+        create_msg_ref(StatFileMessageV2, msg);
         msg.set_block_id(fsname_.get_block_id());
         msg.set_attach_block_id(fsname_.get_block_id());
         msg.set_file_id(fsname_.get_file_id());
@@ -641,7 +646,7 @@ namespace tfs
           real_flag |= READ_DATA_OPTION_WITH_FINFO;
         }
 
-        ReadFileMessageV2 msg;
+        create_msg_ref(ReadFileMessageV2, msg);
         msg.set_block_id(fsname_.get_block_id());
         msg.set_attach_block_id(fsname_.get_block_id());
         msg.set_file_id(fsname_.get_file_id());
@@ -711,7 +716,7 @@ namespace tfs
       }
       else
       {
-        WriteFileMessageV2 msg;
+        create_msg_ref(WriteFileMessageV2, msg);
         msg.set_block_id(fsname_.get_block_id());
         msg.set_attach_block_id(fsname_.get_block_id());
         msg.set_file_id(fsname_.get_file_id());
@@ -787,7 +792,7 @@ namespace tfs
       }
       else
       {
-        CloseFileMessageV2 msg;
+        create_msg_ref(CloseFileMessageV2, msg);
         msg.set_block_id(fsname_.get_block_id());
         msg.set_attach_block_id(fsname_.get_block_id());
         msg.set_file_id(fsname_.get_file_id());
@@ -849,7 +854,7 @@ namespace tfs
       }
       else
       {
-        UnlinkFileMessageV2 msg;
+        create_msg_ref(UnlinkFileMessageV2, msg);
         msg.set_block_id(fsname_.get_block_id());
         msg.set_attach_block_id(fsname_.get_block_id());
         msg.set_file_id(fsname_.get_file_id());

@@ -132,7 +132,7 @@ void init()
   g_cmd_map["removeblk"] = CmdNode("removeblk blockid [flag|dsip:port]",
       "remove block. flag: 1--remove block from both ds and ns, 2--just relieve relation from ns, default is 1.",
       1, 3, cmd_remove_block);
-  g_cmd_map["removefamily"] = CmdNode("removefamily family_id [flag]", "remove family. flag 1--store, 2--memory, default: store | memory", 1, 2, cmd_remove_family);
+  g_cmd_map["removefamily"] = CmdNode("removefamily family_id [flag]", "remove family. flag 1--store, 2--memory, default: 3 (store | memory)", 1, 2, cmd_remove_family);
   g_cmd_map["listblk"] = CmdNode("listblk blockid", "list block server list.", 1, 1, cmd_list_block);
   //g_cmd_map["loadblk"] = CmdNode("loadblk blockid dsip:port", "build relationship between block and dataserver.", 2, 2, cmd_load_block);
   g_cmd_map["clearsystemtable"] = CmdNode("clearsystemtable", "clear system table 1--task, 2--last_write block, 4--report block server, 8--delete block queue.", 1, 1, cmd_clear_system_table);
@@ -155,7 +155,7 @@ void init()
       "set balance percent ratio. value1: integer part, 0 or 1, value2: float part, should be a integer (0 ~ 999999), if value1 is 1  value2 should be 0.",
       2, 2, cmd_set_bpr);
   g_cmd_map["getbpr"] = CmdNode("getbpr", "get balance percent ratio, float value, ex: 1.000000 or 0.000005", 0, 0, cmd_get_bpr);
-  g_cmd_map["batch"] = CmdNode("batch file", "batch run command in file", 1, 1, cmd_batch_file);
+  g_cmd_map["batch"] = CmdNode("batch file [time]", "batch run command in file, sleep time seconds per 100 line, default time is 0", 1, 2, cmd_batch_file);
   g_cmd_map["batch_compact"] = CmdNode("batch_compact file num interval", "batch compact blockid in file, when send num line(blockid) continuously to ns, then sleep interval(s)", 3, 3, cmd_batch_compact_file);
   g_cmd_map["set_all_server_report_block"] = CmdNode("set_all_server_report_block", "set_all_server_report_block", 0, 0, cmd_set_all_server_report_block);
 }
@@ -189,6 +189,12 @@ const char* expand_path(string& path)
 int cmd_batch_file(const VSTRING& param)
 {
   const char* batch_file = expand_path(const_cast<string&>(param[0]));
+  int32_t sleep_seconds = 0;
+  if (param.size() > 1)
+  {
+    sleep_seconds = atoi(param[1].c_str());
+    fprintf(stdout, "will sleep: %ds per 100 lines.\n", sleep_seconds);
+  }
   FILE* fp = fopen(batch_file, "rb");
   int ret = TFS_SUCCESS;
   if (fp == NULL)
@@ -204,14 +210,18 @@ int cmd_batch_file(const VSTRING& param)
     char buffer[MAX_CMD_SIZE];
     while (fgets(buffer, MAX_CMD_SIZE, fp))
     {
-      if ((ret = do_cmd(buffer)) == TFS_ERROR)
+      if ((ret = do_cmd(buffer)) != TFS_SUCCESS)
       {
         error_count++;
       }
       if (++count % 100 == 0)
       {
-        fprintf(stdout, "total: %d, %d errors.\r", count, error_count);
+        fprintf(stdout, "total: %d, %d errors, sleep: %d.\n", count, error_count, sleep_seconds);
         fflush(stdout);
+        if (sleep_seconds > 0)
+        {
+          sleep(sleep_seconds);
+        }
       }
       if (TFS_CLIENT_QUIT == ret)
       {
@@ -227,7 +237,7 @@ int cmd_batch_file(const VSTRING& param)
 int cmd_get_bpr(const VSTRING& param)
 {
   UNUSED(param);
-  ClientCmdMessage req_cc_msg;
+  create_msg_ref(ClientCmdMessage, req_cc_msg);
   req_cc_msg.set_cmd(CLIENT_CMD_GET_BALANCE_PERCENT);
 
   tbnet::Packet* ret_message = NULL;
@@ -272,7 +282,7 @@ int cmd_set_bpr(const VSTRING& param)
     }
     else
     {
-      ClientCmdMessage req_cc_msg;
+      create_msg_ref(ClientCmdMessage, req_cc_msg);
       req_cc_msg.set_cmd(CLIENT_CMD_SET_BALANCE_PERCENT);
       req_cc_msg.set_value3(value3);
       req_cc_msg.set_value4(value4);
@@ -348,7 +358,20 @@ int cmd_set_run_param(const VSTRING& param)
     fprintf(stderr, "param param_name\n\n");
     for (int32_t i = 0; i < param_strlen; i++)
     {
-      fprintf(stderr, "%s\n", dynamic_parameter_str[i]);
+      if (strcmp(dynamic_parameter_str[i], "plan_run_flag") == 0)
+      {
+        fprintf(stderr, "%s %s\n", dynamic_parameter_str[i],
+             "[bitmap: 1-replicate, 2-move, 4-compact, 8-marshalling, 16-reinstate, 32-dissolve]");
+      }
+      else if (strcmp(dynamic_parameter_str[i], "global_switch") == 0)
+      {
+        fprintf(stderr, "%s %s\n", dynamic_parameter_str[i],
+             "[bitmap: 1-enbale_version_check, 2-enable_read_statstics, 4-enable_incomplete_update, 8-enable_loadfamily_uncomplete_update]");
+      }
+      else
+      {
+        fprintf(stderr, "%s\n", dynamic_parameter_str[i]);
+      }
     }
     return TFS_ERROR;
   }
@@ -385,7 +408,7 @@ int cmd_set_run_param(const VSTRING& param)
     value = atoi(param[2].c_str());
   }
 
-  ClientCmdMessage req_cc_msg;
+  create_msg_ref(ClientCmdMessage, req_cc_msg);
   req_cc_msg.set_cmd(CLIENT_CMD_SET_PARAM);
   req_cc_msg.set_value3(index);
   req_cc_msg.set_value4(value);
@@ -488,7 +511,7 @@ int cmd_remove_block(const VSTRING& param)
     return TFS_ERROR;
   }
 
-  ClientCmdMessage req_cc_msg;
+  create_msg_ref(ClientCmdMessage, req_cc_msg);
   req_cc_msg.set_cmd(CLIENT_CMD_EXPBLK);
   req_cc_msg.set_value1(server_id);
   req_cc_msg.set_value3(block_id);
@@ -526,7 +549,7 @@ int cmd_remove_family(const VSTRING& param)
   if (param.size() == 2)
     flag = atoi(param[1].c_str());
 
-  ClientCmdMessage req_cc_msg;
+  create_msg_ref(ClientCmdMessage, req_cc_msg);
   req_cc_msg.set_cmd(CLIENT_CMD_DELETE_FAMILY);
   req_cc_msg.set_value3(family_id);
   req_cc_msg.set_value4(flag);
@@ -576,7 +599,7 @@ int cmd_load_block(const VSTRING& param)//Discarded function
     return TFS_ERROR;
   }
 
-  ClientCmdMessage req_cc_msg;
+  create_msg_ref(ClientCmdMessage, req_cc_msg);
   req_cc_msg.set_cmd(CLIENT_CMD_LOADBLK);
   req_cc_msg.set_value1(server_id);
   req_cc_msg.set_value3(block_id);
@@ -599,7 +622,7 @@ int cmd_compact_block(const VSTRING& param)
     return TFS_ERROR;
   }
 
-  ClientCmdMessage req_cc_msg;
+  create_msg_ref(ClientCmdMessage, req_cc_msg);
   req_cc_msg.set_cmd(CLIENT_CMD_COMPACT);
   req_cc_msg.set_value3(block_id);
 
@@ -803,7 +826,7 @@ int cmd_replicate_block(const VSTRING& param)
     flag = REPLICATE_BLOCK_MOVE_FLAG_YES;
   }
 
-  ClientCmdMessage req_cc_msg;
+  create_msg_ref(ClientCmdMessage, req_cc_msg);
   req_cc_msg.set_cmd(CLIENT_CMD_IMMEDIATELY_REPL);
   req_cc_msg.set_value1(src_id);
   req_cc_msg.set_value2(dest_id);
@@ -827,7 +850,7 @@ int cmd_repair_group_block(const VSTRING&)//Discarded function
   //   return TFS_ERROR;
   // }
 
-  //   ClientCmdMessage req_cc_msg;
+  //   create_msg_ref(ClientCmdMessage, req_cc_msg);
   //   req_cc_msg.set_cmd(CLIENT_CMD_REPAIR_GROUP);
   //   req_cc_msg.set_value3(block_id);
   //   req_cc_msg.set_value4(0);
@@ -880,7 +903,7 @@ int cmd_access_stat_info(const VSTRING& param)//Discarded function
 
     tbnet::Packet* ret_message = NULL;
     NewClient* client = NewClientManager::get_instance().create_client();
-    send_msg_to_server(server_id, client, &req_gss_msg, ret_message);
+    send_msg_to_server(server_id, client, &req_gss_msg, ret_message, DEFAULT_NETWORK_CALL_TIMEOUT, true); // clone msg
 
     if (ret_message == NULL)
     {
@@ -1008,7 +1031,7 @@ int cmd_access_control_flag(const VSTRING& param)//Discarded function
     return TFS_ERROR;
   }
 
-  ClientCmdMessage req_cc_msg;
+  create_msg_ref(ClientCmdMessage, req_cc_msg);
   req_cc_msg.set_cmd(CLIENT_CMD_SET_PARAM);
   req_cc_msg.set_value3(op_type); // param type == 1 as set acl flag.
   req_cc_msg.set_value1(v1); // ns_id as flag
@@ -1023,7 +1046,7 @@ int cmd_access_control_flag(const VSTRING& param)//Discarded function
 int cmd_rotate_log(const VSTRING& param)
 {
   UNUSED(param);
-  ClientCmdMessage req_cc_msg;
+  create_msg_ref(ClientCmdMessage, req_cc_msg);
   req_cc_msg.set_cmd(CLIENT_CMD_ROTATE_LOG);
   int32_t status = TFS_ERROR;
 
@@ -1128,9 +1151,6 @@ int cmd_get_file_retry(char*, char*)
 
 int main(int argc,char** argv)
 {
-
-  uint64_t server = 13764466632714;
-  printf("%s\n", tbsys::CNetUtil::addrToString(server).c_str());
   int32_t i;
   bool directly = false;
   bool set_log_level = false;
@@ -1409,7 +1429,7 @@ int cmd_dump_plan(const VSTRING& param)
     server_id = Func::get_host_ip(param[0].c_str());
   }
 
-  DumpPlanMessage req_dp_msg;
+  create_msg_ref(DumpPlanMessage, req_dp_msg);
   tbnet::Packet* ret_message = NULL;
 
   NewClient* client = NewClientManager::get_instance().create_client();
@@ -1524,7 +1544,7 @@ int cmd_clear_system_table(const VSTRING& param)
     return TFS_ERROR;
   }
 
-  ClientCmdMessage req_cc_msg;
+  create_msg_ref(ClientCmdMessage, req_cc_msg);
   req_cc_msg.set_cmd(CLIENT_CMD_CLEAR_SYSTEM_TABLE);
   req_cc_msg.set_value3(value);
 
@@ -1540,7 +1560,7 @@ int cmd_clear_system_table(const VSTRING& param)
 int cmd_set_all_server_report_block(const VSTRING& param)
 {
   UNUSED(param);
-  ClientCmdMessage req_cc_msg;
+  create_msg_ref(ClientCmdMessage, req_cc_msg);
   req_cc_msg.set_cmd(CLIENT_CMD_SET_ALL_SERVER_REPORT_BLOCK);
   int status = TFS_ERROR;
 
