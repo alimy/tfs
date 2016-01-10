@@ -716,7 +716,7 @@ namespace tfs
       bool valid = false;
       result = NULL;
       ServerCollect* pserver = NULL;
-      int32_t size = servers_.size();
+      int32_t size = std::min(servers_.size(), SYSPARAM_NAMESERVER.choose_target_server_random_max_nums_);
       int32_t index = size, random_index = 0;
       while (index-- > 0 && NULL == result)
       {
@@ -797,7 +797,7 @@ namespace tfs
           {
             pblock = *helper.at(i);
             assert(NULL != pblock);
-            manager_.get_block_manager().relieve_relation(pblock, server, now);
+            manager_.get_block_manager().relieve_relation(pblock, server, now,BLOCK_COMPARE_SERVER_BY_POINTER);//pointer
           }
           if (!helper.empty())
           {

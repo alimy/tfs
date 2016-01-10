@@ -75,8 +75,8 @@ namespace tfs
         void clear_delete_queue();
 
         //emergency replicate method only call by build thread,no lock
-        bool push_to_emergency_replicate_queue(const uint32_t block);
-        bool pop_from_emergency_replicate_queue(uint32_t& block);
+        bool push_to_emergency_replicate_queue(BlockCollect* block);
+        BlockCollect* pop_from_emergency_replicate_queue();
         bool has_emergency_replicate_in_queue() const;
         int64_t get_emergency_replicate_queue_size() const;
 
@@ -96,7 +96,7 @@ namespace tfs
         int update_relation(ServerCollect* server, const std::set<common::BlockInfo>& blocks, const time_t now);
         int build_relation(BlockCollect* block, bool& writable, bool& master,
             const ServerCollect* server, const time_t now, const bool set =false);
-        bool relieve_relation(BlockCollect* block, const ServerCollect* server, const time_t now);
+        bool relieve_relation(BlockCollect* block, const ServerCollect* server, const time_t now, const int8_t flag);
         int update_block_info(BlockCollect*& output, bool& isnew, bool& writable, bool& master,
             const common::BlockInfo& info, const ServerCollect* server, const time_t now, const bool addnew);
 

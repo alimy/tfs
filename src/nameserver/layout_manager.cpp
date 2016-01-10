@@ -189,13 +189,13 @@ namespace tfs
       return ret;
     }
 
-    bool LayoutManager::relieve_relation(BlockCollect* block, ServerCollect* server, time_t now)
+    bool LayoutManager::relieve_relation(BlockCollect* block, ServerCollect* server, time_t now, const int8_t flag)
     {
       bool ret = ((NULL != block) && (NULL != server));
       if (ret)
       {
         //release relation between block and dataserver
-        bool bremove = get_block_manager().relieve_relation(block, server, now);
+        bool bremove = get_block_manager().relieve_relation(block, server, now, flag);
         if (!bremove)
         {
           TBSYS_LOG(INFO, "failed when relieve between block: %u and dataserver: %s",
@@ -321,7 +321,7 @@ namespace tfs
             }
             if (TFS_SUCCESS == ret)
             {
-              ret = relieve_relation(block, target, now) ? TFS_SUCCESS : TFS_ERROR;
+              ret = relieve_relation(block, target, now,BLOCK_COMPARE_SERVER_BY_ID) ? TFS_SUCCESS : TFS_ERROR;
               if (TFS_SUCCESS != ret)
               {
                 snprintf(msg, length, "relieve relation failed between block: %u and server: %s", block_id, CNetUtil::addrToString(server).c_str());
@@ -512,7 +512,8 @@ namespace tfs
           &SYSPARAM_NAMESERVER.report_block_time_lower_,
           &SYSPARAM_NAMESERVER.report_block_time_upper_,
           &SYSPARAM_NAMESERVER.report_block_time_interval_,
-          &SYSPARAM_NAMESERVER.report_block_expired_time_
+          &SYSPARAM_NAMESERVER.report_block_expired_time_,
+          &SYSPARAM_NAMESERVER.choose_target_server_random_max_nums_
         };
         int32_t size = sizeof(param) / sizeof(int32_t*);
         ret = (index >= 1 && index <= size) ? TFS_SUCCESS : TFS_ERROR;
@@ -581,8 +582,9 @@ namespace tfs
       uint32_t start = 0;
       int32_t loop = 0;
       const int32_t MAX_QUERY_BLOCK_NUMS = 2048;
-      const int32_t MAX_SLEEP_TIME_US = 50000;
-      const int32_t MAX_LOOP_NUMS = 1000000 / MAX_SLEEP_TIME_US;
+      const int32_t MIN_SLEEP_TIME_US= 50000;
+      const int32_t MAX_SLEEP_TIME_US = 1000000;//1s
+      const int32_t MAX_LOOP_NUMS = 1000000 / MIN_SLEEP_TIME_US;
       BlockCollect* pblock = NULL;
       BlockCollect* blocks[MAX_QUERY_BLOCK_NUMS];
       ArrayHelper<BlockCollect*> results(MAX_QUERY_BLOCK_NUMS, blocks);
@@ -635,7 +637,7 @@ namespace tfs
               assert(NULL != pblock);
               //bool ret = build_replicate_task_(need, pblock, now);
               if ((ret = get_block_manager().need_replicate(pblock, now)))
-                get_block_manager().push_to_emergency_replicate_queue(pblock->id());
+                get_block_manager().push_to_emergency_replicate_queue(pblock);
               if (!ret && range)
                 ret = build_compact_task_(pblock, now);
               if (ret)
@@ -650,16 +652,17 @@ namespace tfs
           //build_redundant_(need, now);
         }
         ++loop;
-        usleep(MAX_SLEEP_TIME_US);
+        usleep(get_block_manager().has_emergency_replicate_in_queue() ? MAX_SLEEP_TIME_US : MIN_SLEEP_TIME_US);
       }
     }
 
     void LayoutManager::balance_()
     {
+      const int64_t MAX_SLEEP_NUMS = 1000 * 10;
       int64_t total_capacity  = 0;
       int64_t total_use_capacity = 0;
       int64_t alive_server_nums = 0;
-      int64_t need = 0;
+      int64_t need = 0, sleep_nums = 0;
       time_t  now = 0;
       std::multimap<int64_t, ServerCollect*> source;
       TfsSortedVector<ServerCollect*, ServerIdCompare> targets(MAX_PROCESS_NUMS, 1024, 0.1);
@@ -675,7 +678,7 @@ namespace tfs
           while ((get_server_manager().has_report_block_server()) && (!ngi.is_destroyed()))
             usleep(1000);
 
-          while ((get_block_manager().has_emergency_replicate_in_queue()) && (!ngi.is_destroyed()))
+          while ((get_block_manager().has_emergency_replicate_in_queue()) && (!ngi.is_destroyed()) && sleep_nums++ <= MAX_SLEEP_NUMS)
             usleep(1000);
 
           while (((need = has_space_in_task_queue_()) <= 0) && (!ngi.is_destroyed()))
@@ -684,7 +687,7 @@ namespace tfs
           while ((!(plan_run_flag_ & PLAN_TYPE_MOVE)) && (!ngi.is_destroyed()))
             usleep(100000);
 
-          total_capacity = 0, total_use_capacity = 0, alive_server_nums = 0;
+          total_capacity = 0, total_use_capacity = 0, alive_server_nums = 0, sleep_nums = 0;
           get_server_manager().move_statistic_all_server_info(total_capacity,
               total_use_capacity, alive_server_nums);
           if (total_capacity > 0 && total_use_capacity > 0 && alive_server_nums > 0)
@@ -1206,27 +1209,18 @@ namespace tfs
 
     bool LayoutManager::build_emergency_replicate_(int64_t& need, const time_t now)
     {
-      BlockCollect* pblock = NULL;
-      uint32_t block= INVALID_BLOCK_ID;
+      BlockCollect* block = NULL;
       int64_t count = get_block_manager().get_emergency_replicate_queue_size();
-      while (need > 0 && (get_block_manager().pop_from_emergency_replicate_queue(block)) && count-- > 0)
+      while (need > 0 && (NULL != (block = get_block_manager().pop_from_emergency_replicate_queue())) && count-- > 0)
       {
-        pblock = get_block_manager().get(block);
-        if (NULL == pblock)
+        if (!build_replicate_task_(need, block, now))
         {
-          TBSYS_LOG(INFO, "block: %u maybe lost,don't replicate", block);
+          if (get_block_manager().need_replicate(block))
+            get_block_manager().push_to_emergency_replicate_queue(block);
         }
         else
         {
-          if (!build_replicate_task_(need, pblock, now))
-          {
-            if (get_block_manager().need_replicate(pblock))
-                get_block_manager().push_to_emergency_replicate_queue(block);
-          }
-          else
-          {
-            --need;
-          }
+          --need;
         }
       }
       return true;
@@ -1250,7 +1244,7 @@ namespace tfs
             block = *result.at(i);
             assert(NULL != block);
             if (get_block_manager().need_replicate(block))
-              get_block_manager().push_to_emergency_replicate_queue(block->id());
+              get_block_manager().push_to_emergency_replicate_queue(block);
           }
           if (!result.empty())
             start = block->id();
@@ -1384,7 +1378,7 @@ namespace tfs
         ret = ((NULL != block) && (NULL != server));
         if (ret)
         {
-          relieve_relation(block, server, now);
+          relieve_relation(block, server, now,BLOCK_COMPARE_SERVER_BY_POINTER);
           ret = get_task_manager().remove_block_from_dataserver(server->id(), block->id(), 0, now);
         }
         /*BlockCollect* block = get_block_manager().get(output.first);
